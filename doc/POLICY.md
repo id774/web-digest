@@ -241,7 +241,8 @@ prompt, to extraction or to shaping is allowed to do.
     down to the interfaces, the constants and the tables.
   - This document states how the repository is implemented and maintained.
   - [`doc/VERSIONS`](VERSIONS) is the release history.
-  - [`LICENSE.md`](LICENSE.md) states the terms.
+  - [`LICENSE.md`](LICENSE.md) states the terms, and [`COPYING`](COPYING) and
+    [`COPYING.LESSER`](COPYING.LESSER) hold the official licence texts.
 - A change to behaviour updates the documents it makes wrong, in the same
   change. Leaving a design document describing what the code no longer does is
   not a smaller change; it is an incorrect one.
@@ -366,6 +367,12 @@ finally intended, and merges as if it had been written that way.
   not make it Markdown.
 - `doc/VERSIONS` keeps its name and its plain text form. It is not renamed to
   `.md` because it contains a symbol a renderer would accept.
+- `doc/COPYING` and `doc/COPYING.LESSER` keep the extensionless names by which
+  the licence texts are recognised. Their official names and their legal wording
+  come first, and neither is renamed or reformatted for uniformity.
+- `doc/LICENSE.md` carries `.md` because it is the document a reader is shown.
+  It and the licence texts have different roles, so having both is neither a
+  duplicate nor an inconsistency.
 - An existing document is not renamed to add or change an extension. A path here
   is a public URL that the README and pages outside this repository link to.
 - Bringing every document to one extension and one line width is not a goal.
@@ -380,7 +387,9 @@ finally intended, and merges as if it had been written that way.
 
 ### 1.17 License
 - The repository is dual licensed under the GPL version 3 or the LGPL version 3,
-  at the user's option, as stated in [`LICENSE.md`](LICENSE.md).
+  at the user's option, as stated in [`LICENSE.md`](LICENSE.md). The full texts
+  live in [`COPYING`](COPYING) and [`COPYING.LESSER`](COPYING.LESSER), and are
+  kept verbatim.
 - A dependency is added only when its licence is compatible with that choice.
 
 ### 1.18 Judging a Change
