@@ -148,7 +148,7 @@ is "clone and load" buys nothing this version is judged on.
 {
   "manifest_version": 3,
   "name": "web-digest",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Summarize the page you are reading, with your own Sakura AI Engine token.",
   "minimum_chrome_version": "114",
   "permissions": ["activeTab", "scripting", "storage", "sidePanel"],
