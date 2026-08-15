@@ -82,7 +82,12 @@ Then, in Chrome:
 1. Open `chrome://extensions`.
 2. Turn on **Developer mode**.
 3. Choose **Load unpacked**.
-4. Select the cloned `web-digest` directory — the one holding `manifest.json`. **The repository root is the extension**; there is no build output and no subdirectory to point at instead.
+4. Select the cloned `web-digest` directory — the directory that contains
+   `manifest.json`. Do not select the `manifest.json` file itself. **The repository
+   root is the extension**; there is no build output or subdirectory to select.
+5. Open Chrome's **Extensions** menu at the top right of the browser.
+6. Find **web-digest** and pin it.
+7. Confirm that the **web-digest** button appears on the Chrome toolbar.
 
 Nothing runs at this point. The extension does nothing until you click its toolbar action on a page.
 
@@ -103,7 +108,27 @@ Two settings, and that is the whole of them. Both are held in `chrome.storage.lo
 | API token | yes | — | The Sakura AI Engine credential the request is made with. |
 | Model | no | a name recorded in `src/common/settings.js` | Which model the AI Engine summarizes with. |
 
-The settings page opens from **Settings** in the side panel's header, and from Chrome's extension list. It carries:
+### First-time setup
+
+After loading and pinning the extension, configure your token:
+
+1. Open `chrome://extensions`.
+2. Find **web-digest** and open **Details**.
+3. Choose **Extension options** to open the settings page.
+4. Enter your own API token in **Sakura AI Engine API token**.
+5. To use a different model, enter its name in **Model**. Otherwise, leave it empty
+   to use the default.
+6. Choose **Save**.
+7. Confirm that **Saved.** and **A token is configured.** are shown.
+
+After saving, the token field becomes empty. This is normal: a stored token is never
+displayed again. The line **A token is configured.** confirms that it was saved.
+
+The settings page also opens from **Settings** in the side panel's header. When a run
+fails because no token is configured, choose **Open settings** in the side panel. Use
+either route whenever you need to change the API token or model.
+
+The settings page carries:
 
 - **API token**, a password field. It is **never prefilled**, whatever is stored; a line beside it says whether a token is configured.
 - **Model**, a text field, prefilled with the stored value. Leaving it empty means the default.
@@ -123,11 +148,24 @@ One thing this does not promise: a token held by a browser extension is not a se
 
 ## Usage
 
-1. Open the page you want summarized.
-2. Click the **web-digest** toolbar action — *Summarize this page*. That click is the whole of the interface, and it is the only way a run begins.
-3. The side panel opens for that tab and the run starts. The main content of the page is extracted: the title, the headings, the body text, lists, the significant text of tables, quotations and code, with navigation, banners, menus, footers and other interface furniture left out as far as they can be recognized.
-4. What was extracted is sent to the Sakura AI Engine with your token and the configured model.
-5. The summary is shown in the side panel, as text, beside the page it came from.
+After the first-time installation, pinning and token setup, follow these steps for
+each page:
+
+1. Open the web page you want summarized.
+2. Click the **web-digest** button on the Chrome toolbar.
+3. The side panel opens on the right, and the summary run starts automatically from
+   that same click. You do not need to choose **Summarize this page** after the panel
+   opens.
+4. While the run is in progress, the side panel shows **Summarizing… this can take a
+   while.** and disables its run button.
+5. The extension extracts the page's main content and sends it to the Sakura AI
+   Engine with your token and configured model.
+6. When the run succeeds, the page title and summary appear in the side panel beside
+   the original page.
+
+To summarize the same page again while the side panel is already open, choose
+**Summarize again**. Before any run has been made for the page, the same control is
+labelled **Summarize this page**. After a failure it is labelled **Try again**.
 
 What the panel shows:
 
@@ -176,6 +214,19 @@ The permissions are the smallest set that allows this: `activeTab` for the tab y
 Every failure ends the run and shows one message in the panel that names the cause and what would address it: that no token is configured and where to enter one, that the token was refused, that the AI Engine could not be reached or took too long or reported an error, that the content of this page could not be obtained, that this page has too little text, that it is larger than can be summarized in one request, or that no usable summary came back.
 
 Causes that lead to different actions stay apart — "no token" and "token refused" are never merged into one message about the API. A message carries no status line, no response body, no internal detail and no API token. What a status code was is recorded in the service worker's console log, which carries counts and durations and never the page's text, its title, its URL, the prompt, the request, the answer or the summary.
+
+For the most common problems:
+
+- **The web-digest button is missing:** Open Chrome's **Extensions** menu, find
+  **web-digest**, and pin it to the toolbar.
+- **The panel says no API token is configured:** Choose **Open settings**, or open the
+  extension's options from `chrome://extensions`, and save your token in
+  **Sakura AI Engine API token**.
+- **The page cannot be summarized:** Try an ordinary web page. Unusual page
+  structures and pages where Chrome does not allow extension scripts — including
+  Chrome internal pages — may not be readable.
+- **The Sakura AI Engine reports an API error:** Check the API token, model name and
+  availability of your Sakura AI Engine account or service.
 
 ## Limitations
 
