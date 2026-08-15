@@ -60,7 +60,7 @@ The extension separates into parts that each own one concern:
    │ service worker                                              │
    │   orchestrates one run and holds its state                  │
    └──┬──────────────┬───────────────┬────────────┬──────────────┘
-      │ inject once  │ read settings │ build      │ one request
+      │ inject once  │ read settings │ build      │ request(s)
       v              v               │ prompt     v
    extraction     chrome.storage     v         engine client
    in the tab       .local        prompt          │
@@ -117,7 +117,7 @@ other.
 The background context, event driven, holding no state that matters across a
 browser restart. It is where a run happens:
 
-- it receives the action click and the panel's request to run again,
+- it receives the action click,
 - it reads the settings,
 - it injects the extraction pass into the target tab and receives its result,
 - it hands the blocks to shaping,
@@ -145,8 +145,8 @@ and leaves nothing behind in the page: **the page is read, never written**.
 ### 5.3 The side panel
 
 The surface the reader looks at. It renders one of four states (§14) and, on
-success, the summary. It offers running the summary again for the page it is
-showing, and a way to the options page.
+success, the summary. It shows state and results, and offers a way to the
+options page. It does not start a run.
 
 It performs no extraction and makes no request to the AI Engine. It receives
 what to display and displays it.
@@ -216,7 +216,7 @@ can disturb the page.
 
 The click is the reader's explicit request, and it is the only way a run begins.
 Opening the panel by other means shows the state of that tab — for a page never
-summarized, that state is "not run yet" and a button to run it.
+summarized, that state is "not run yet" and waits for the toolbar action.
 
 Navigating to another page **never starts a run**. The panel returns to "not run
 yet" for the new page, and waits to be asked.
@@ -349,24 +349,18 @@ run stops before anything is sent and reports the "not enough text" case of §17
 **The threshold is a design constant, not a setting** (§13), because a reader
 has no way to choose a good value and no reason to want one.
 
-### 9.3 Too much content
+### 9.3 Long content
 
-The material is bounded by a size budget, checked before the request is built.
+The material is bounded by a conservative per-request size budget. Material
+within it follows the one-request path. Material over it is divided by major
+heading, lower heading and block boundaries, in that order; only a block that
+cannot fit alone is split internally.
 
-**Over the budget, the run stops and says so.** It does not truncate the page
-and summarize the part that fits. A summary that claims to keep the substance of
-a page, produced from half of it, is wrong in the way this project exists to
-avoid, and the reader would have no way of knowing.
-
-The budget is a conservative design constant rather than a setting, for the same
-reason as §9.2. Because the model is configurable (§13) and a model's capacity
-is its own, the endpoint may also refuse material this budget allowed; **that
-answer is translated into the same message the reader would have seen from the
-local check** (§17), so one situation has one explanation.
-
-Nothing here retrieves, indexes, chunks or embeds anything. Requirement §23
-excludes RAG, vector databases and crawling, and **a size problem is answered by
-declining, not by building a retrieval system.**
+Every chunk is semantically compressed with the page title and heading context.
+The chunk summaries are then integrated by the model into one whole-page
+summary. If that integration material is itself over budget, the same staged
+compression is repeated. Nothing is sampled, ranked away, retrieved, indexed
+or embedded, and this is not RAG.
 
 ## 10. The summarization prompt
 
@@ -631,7 +625,6 @@ taxonomy beyond this table, and no failure is silent.
 | the endpoint returned an error | the engine client, from the answer | that the AI Engine reported an error, and which kind it was |
 | the page could not be read | the service worker, from the injection failing | that the content of this page could not be obtained |
 | not enough text | shaping (§9.2) | that this page has too little text to summarize |
-| too much text | shaping (§9.3), or the endpoint's refusal (§11.1) | that this page is larger than can be summarized in one request |
 | no usable summary in the answer | the engine client (§11.2) | that no summary came back, and that trying again is reasonable |
 
 Two rules hold across the table.

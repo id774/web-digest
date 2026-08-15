@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 
 import {
   DEDUPE_MIN_CHARS,
-  MAX_MATERIAL_CHARS,
+  MAX_REQUEST_MATERIAL_CHARS,
   MIN_MATERIAL_CHARS,
+  chunkMaterial,
   judgeSize,
   normalizeCode,
   normalizeText,
@@ -121,8 +122,8 @@ test("charCount is the title plus the rendered body", () => {
 test("the size verdicts sit exactly on their boundaries", () => {
   assert.equal(judgeSize(MIN_MATERIAL_CHARS - 1), "too-little-text");
   assert.equal(judgeSize(MIN_MATERIAL_CHARS), "ok");
-  assert.equal(judgeSize(MAX_MATERIAL_CHARS), "ok");
-  assert.equal(judgeSize(MAX_MATERIAL_CHARS + 1), "too-much-text");
+  assert.equal(judgeSize(MAX_REQUEST_MATERIAL_CHARS), "ok");
+  assert.equal(judgeSize(MAX_REQUEST_MATERIAL_CHARS + 1), "ok");
 });
 
 test("a page with no blocks and one with too little text are one verdict", () => {
@@ -136,12 +137,42 @@ test("a page with no blocks and one with too little text are one verdict", () =>
   });
 });
 
-test("an oversized page is declined, never truncated", () => {
+test("an oversized page is retained for long-page summarization", () => {
   const result = shape({
     title: "T",
-    blocks: [paragraph("x".repeat(MAX_MATERIAL_CHARS + 1))],
+    blocks: [paragraph("x".repeat(MAX_REQUEST_MATERIAL_CHARS + 1))],
   });
-  assert.deepEqual(result, { ok: false, kind: "too-much-text" });
+  assert.equal(result.ok, true);
+  assert.equal(result.material.text.length, MAX_REQUEST_MATERIAL_CHARS + 1);
+});
+
+test("chunking keeps content in order without dropping blocks", () => {
+  const blocks = [
+    { kind: "heading", level: 2, text: "First" },
+    paragraph("a".repeat(70)),
+    { kind: "heading", level: 2, text: "Second" },
+    paragraph("b".repeat(70)),
+    { kind: "heading", level: 3, text: "Detail" },
+    paragraph("c".repeat(70)),
+  ];
+  const chunks = chunkMaterial({ title: "T", blocks }, 120);
+  assert.ok(chunks.length > 1);
+  assert.deepEqual(chunks.flatMap((chunk) => chunk.blocks), blocks);
+  assert.equal(chunks[1].blocks[0].kind, "heading");
+  assert.equal(chunks[1].blocks[0].level, 2);
+});
+
+test("only an individually oversized block is split internally", () => {
+  const text = `${"sentence one. ".repeat(20)}sentence two.`;
+  const chunks = chunkMaterial({ title: "T", blocks: [paragraph(text)] }, 120);
+  assert.ok(chunks.length > 1);
+  assert.equal(
+    chunks
+      .flatMap((chunk) => chunk.blocks)
+      .map((block) => block.text)
+      .join(" "),
+    text,
+  );
 });
 
 test("shaping does not reorder or rewrite what it keeps", () => {

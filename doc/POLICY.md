@@ -11,7 +11,7 @@ than looked up elsewhere.
 
 The Invariants below decide over the rest of it. Some of what they forbid is
 what a general policy would otherwise ask for: this extension does not retry a
-failed request, does not truncate a page that is too large in order to return
+failed request, does not discard part of a page in order to return
 something, does not keep what it was given so that a fault can be reproduced
 later, and does not grow a backend of its own. Those are deliberate, and are not
 to be relaxed to match a more general rule.
@@ -87,10 +87,11 @@ These lines are not crossed by a setting or by an extension.
 - Do not put text from the page, from the model or from a setting into a
   document as markup.
 - Do not load or evaluate code that is not packaged with the extension.
-- Do not truncate, chunk, sample or rank material in order to fit a page into a
-  request. A page over the budget is declined.
-- Do not retry a failed run automatically. One click by the reader is one
-  request to the AI Engine.
+- Do not truncate, sample or rank material to fit a request. Split long pages
+  at structural boundaries, semantically compress every part, and integrate
+  all parts into one whole-page summary.
+- Do not retry a failed run automatically. One action click is one run; the
+  requests of a staged long-page run are not retries.
 
 ### 1.5 Deciding During Implementation
 Where there are several ways to do something, the requirements fix the order in
@@ -453,8 +454,7 @@ that the requirements are incomplete, and that is where it is taken.
 
 ### 2.3 Only on the Reader's Action
 - **A run begins only from the reader's explicit action.** The toolbar action
-  click, and the run control in the panel for the tab the panel is showing, are
-  the only two ways.
+  click is the only way.
 - **Nothing watches.** No listener starts a run, no navigation triggers one, no
   schedule exists, and no page is read because it happened to be open.
 - A listener that exists for housekeeping — discarding the stored state of a tab
@@ -598,9 +598,8 @@ that the requirements are incomplete, and that is where it is taken.
   - **The engine client** owns every detail of talking to the AI Engine — the
     endpoint, the header, the body, the timeout, the shape of the answer and the
     mapping of a failure to an error kind. Nothing else knows any of them.
-  - **The panel** renders the state and sends the request to run. It decides
-    nothing, holds no setting and no token, performs no extraction and makes no
-    request to the AI Engine.
+  - **The panel** renders the state. It decides nothing, holds no setting and no
+    token, performs no extraction and makes no request to the AI Engine.
   - **The options page** reads and writes the two settings, and nothing else.
   - **The common modules** hold the storage keys and the model default, the
     error kinds and their messages, and the message names. They import nothing

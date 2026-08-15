@@ -93,8 +93,8 @@ document needs, and nothing else is split because it could be.
 | `src/extract/extract.js` | the injected pass | reading one document into blocks (§7) | nothing |
 | `src/shape/shape.js` | a pure module | blocks in, material out; the two size verdicts (§8, §9) | nothing |
 | `src/engine/engine.js` | a pure module but for `fetch` | the request to the engine, the timeout, reading the answer, mapping a failure to an error kind (§11) | `errors.js` |
-| `src/panel/panel.html` | the panel document | the four state regions, the run control, the way to the options page | `panel.js`, `panel.css` |
-| `src/panel/panel.js` | the panel's script | asking for the state, rendering it, sending `run` (§16, §17) | `errors.js`, `messages.js` |
+| `src/panel/panel.html` | the panel document | the four state regions and the way to the options page | `panel.js`, `panel.css` |
+| `src/panel/panel.js` | the panel's script | asking for the state and rendering it (§16, §17) | `errors.js`, `messages.js` |
 | `src/panel/panel.css` | the panel's stylesheet | legibility of the result beside the page | nothing |
 | `src/options/options.html` | the settings document | the token field, the model field, save, delete, status | `options.js`, `options.css` |
 | `src/options/options.js` | the settings script | validation, reading and writing the two settings (§6.2, §12, §13) | `settings.js` |
@@ -233,7 +233,7 @@ the settings.
 | 3 | opens a page and clicks the action | the panel opens and one run starts (§22) |
 | 4 | waits | the panel shows the run is in progress |
 | 5 | reads the summary beside the page | the panel shows it as text |
-| 6 | clicks "Summarize again", or clicks the action again | a second run, one request |
+| 6 | clicks the action again | a second run; one request for a normal page |
 
 Step 2 can be skipped: clicking the action with no token configured is a run
 that ends immediately in the `token-missing` error, whose message names the
@@ -242,18 +242,10 @@ reader gets to configure a token** — no first-run wizard, no modal, no badge.
 
 ### 5.3 Re-running
 
-The panel's control sends `run` for the tab it belongs to. A run started this
-way is identical to one started by the action click but for one thing: it
-relies on the `activeTab` grant an earlier action click left on that tab.
-
-| Situation | Outcome |
-|---|---|
-| the action was clicked on this page and it has not navigated | the injection is allowed; the run proceeds |
-| the tab has navigated since, or was never summarized | the injection is refused; the run ends as `page-unreadable`, whose message names the toolbar action as the way to run it |
-
-**No permission is added to close that gap.** The grant lapsing is Chrome
-enforcing what basic design §6 chose, and the honest answer to a lapsed grant
-is to tell the reader to click the action again.
+A second run starts only when the reader clicks the toolbar action again. This
+renews the `activeTab` grant for the current page before extraction. The panel
+has no run control and no message that can start a run; no broader host
+permission is added.
 
 ### 5.4 What no operation does
 
@@ -278,10 +270,10 @@ One document, four regions, one visible at a time, chosen by the phase in §17.
 
 | Phase | Shown | Controls |
 |---|---|---|
-| `idle` | "No summary has been run for this tab yet." | **Summarize this page** |
-| `running` | the title, when the state carries one, and "Summarizing… this can take a while." | **Summarize this page**, disabled |
-| `succeeded` | the title and the summary | **Summarize again** |
-| `failed` | the title, when the state carries one, and the message for the error kind (§18) | **Try again**; and for `token-missing`, **Open settings** as the leading control |
+| `idle` | "No summary has been run for this tab yet." | **Settings** |
+| `running` | the title, when the state carries one, and "Summarizing… this can take a while." | **Settings** |
+| `succeeded` | the title and the summary | **Settings** |
+| `failed` | the title, when the state carries one, and the message for the error kind (§18) | for `token-missing`, **Open settings** |
 
 `Settings` in the header calls `chrome.runtime.openOptionsPage()` and is
 available in every phase.
@@ -298,8 +290,8 @@ available in every phase.
 - On load it sends `getState`; afterwards it re-renders on each `stateChanged`
   it receives for its own tab and ignores the others.
 
-**The panel decides nothing.** It sends `run`, it renders what it is given, and
-it holds no copy of a setting and no token.
+**The panel decides nothing.** It renders what it is given, and it holds no
+copy of a setting and no token.
 
 ### 6.2 The options page
 
@@ -548,28 +540,29 @@ that produced no blocks at all reaches the same verdict by the same test, so
 "there was no body" and "the body was too short" are one situation with one
 message, as basic design §17 has them.
 
-### 9.2 Too much
+### 9.2 Long material
 
-`charCount > MAX_MATERIAL_CHARS` ends the run with `too-much-text`. **Nothing
-is truncated, chunked, sampled or dropped by rank.** A summary that claims to
-keep the substance of a page, produced from part of it, is the failure this
-project exists to avoid, and the reader would have no way of telling.
+`charCount > MAX_REQUEST_MATERIAL_CHARS` selects staged summarization rather
+than ending the run. The 40,000-character budget is conservative, reserves
+space for the prompt and response, and does not equate characters with tokens.
 
-The only reduction anywhere in this document is the removal of what is not
-content: whitespace in §8.1, empty and stray blocks in §8.2, and exact
-repetition in §8.3. When what survives that is still over the budget, the run
-stops and says so.
+The splitter keeps the ordered shaped blocks. It prefers level 2 heading
+boundaries, then lower headings, then paragraph, list, quote, code and table
+boundaries. Only a block too large to fit alone is divided within its text, at
+a line, sentence or whitespace boundary where possible. Each chunk carries the
+page title and the heading context active at its start.
 
-Nothing here retrieves, indexes, chunks, embeds or scores anything for
-inclusion. Requirement §23 excludes retrieval-augmented generation and vector
-databases, and a size problem is answered by declining.
+Each chunk is semantically compressed. Their summaries are combined and sent
+through an integration task which reconstructs one page-level summary and
+unifies repetition. If the combined summaries exceed the same budget, they are
+compressed and integrated in further stages. No original chunk is omitted and
+no partial result is displayed after an API failure.
 
 ### 9.3 The engine's own refusal
 
-The budget is local and conservative; the model is configurable, and its
-capacity is its own. An answer from the engine that refuses the request for
-length is mapped to **the same** `too-much-text` kind by §11.5, so one
-situation has one explanation wherever it was detected.
+The model is configurable and its capacity is its own. A refusal for context
+length remains `too-much-text` as a safety result for input the conservative
+local budget could not protect. It is not the normal path for a long page.
 
 ## 10. The prompt
 
@@ -724,7 +717,7 @@ One `AbortController`, aborted by a timer at `REQUEST_TIMEOUT_MS`, covering the
 whole request including reading the body. An abort ends the run as
 `engine-timeout`.
 
-**A failed run is never retried automatically.** One click is one request.
+**A failed run is never retried automatically.** One action click is one run. Staged long-page requests are parts of that run, not retries.
 Retrying is the reader clicking again, which keeps what their token is spent on
 visible to them.
 
@@ -865,20 +858,17 @@ choose, and each one exposed would be a second decision on a path requirement
 | `LINK_DENSITY_MAX` | 0.7 | `extract.js` | when a block is a list of links rather than prose (§7.2) |
 | `DEDUPE_MIN_CHARS` | 8 | `shape.js` | the shortest block that repetition removal applies to (§8.3) |
 | `MIN_MATERIAL_CHARS` | 200 | `shape.js` | below which a page has too little text (§9.1) |
-| `MAX_MATERIAL_CHARS` | 32000 | `shape.js` | above which a page is declined (§9.2) |
+| `MAX_REQUEST_MATERIAL_CHARS` | 40000 | `shape.js` | the conservative material budget for one request (§9.2) |
 | `REQUEST_TIMEOUT_MS` | 120000 | `engine.js` | one bounded wait for the whole request (§11.2) |
 | `ENGINE_BASE_URL` | `https://api.ai.sakura.ad.jp/v1` | `engine.js` | the one origin anything is sent to (§11.1) |
 | `DEFAULT_MODEL` | a name from the service's list | `settings.js` | what a reader who set only a token runs with (§13) |
 
-Two of the values are worth their reasons. `MAX_MATERIAL_CHARS` is counted in
-characters because that is what shaping can measure without a tokenizer, and
-32,000 is conservative for the worst case, a page in a language where one
-character is about one token: a page above it is declined locally rather than
-by the endpoint, and a page below it may still be declined by the endpoint,
-which §9.3 folds into the same message. `REQUEST_TIMEOUT_MS` is two minutes
-because a whole page summarized in one non-streaming request is a slow request
-by nature, and a limit short enough to cut a working run would turn a
-succeeding summary into an error the reader cannot act on.
+Two values are worth their reasons. `MAX_REQUEST_MATERIAL_CHARS` is counted
+in characters because shaping has no model-specific tokenizer. Its 40,000
+characters conservatively leave room for the prompt and response without
+assuming that a character equals a token. `REQUEST_TIMEOUT_MS` is two minutes
+because a non-streaming semantic-compression request is slow by nature, and a
+shorter limit could turn a succeeding summary into an error.
 
 ## 15. Interfaces
 
@@ -913,6 +903,7 @@ class, no id, no URL and no offset in the document.
 {
   title: "The title of the page",
   text: "# A heading\n\nA paragraph.\n\n- an item\n",
+  blocks: [ /* normalized blocks, in order */ ],
   charCount: 1234,
   blockCount: 42
 }
@@ -922,7 +913,7 @@ class, no id, no URL and no offset in the document.
 
 ```js
 { ok: true,  material: { /* §15.2 */ } }
-{ ok: false, kind: "too-little-text" }      // or "too-much-text"
+{ ok: false, kind: "too-little-text" }
 ```
 
 ### 15.4 The engine call
@@ -958,19 +949,14 @@ response in it** — it holds what the panel renders and nothing else.
 
 ## 16. Messages
 
-Three messages, all `chrome.runtime.sendMessage`, all shaped
+Two messages, both `chrome.runtime.sendMessage`, both shaped
 `{ type, ...payload }`. Their names are the constants in
 `src/common/messages.js`.
 
 | Type | From | To | Payload | Response | On failure |
 |---|---|---|---|---|---|
 | `getState` | panel | worker | `{ tabId }` | the `RunState` for that tab, or an `idle` one when there is none | the panel renders `idle` |
-| `run` | panel | worker | `{ tabId }` | `{ accepted: true }`, sent before the run proceeds | a rejected `sendMessage` leaves the panel showing what it had; the state a run produces arrives by `stateChanged` |
 | `stateChanged` | worker | any listening panel | `{ tabId, state }` | none | a broadcast with no listener rejects, and the worker ignores that: the state is already stored, and a panel that opens later reads it with `getState` |
-
-**The result of a run is never a response to `run`.** A run outlives the
-message, and a service worker may be terminated during it, so the panel learns
-what happened by reading the state — which is where it lives anyway (§17).
 
 The extraction pass is **not** a message. It is injected and its return value
 is the value of the `chrome.scripting.executeScript` promise, so nothing is
@@ -996,8 +982,8 @@ The four states of basic design §14, one per tab.
 |---|---|---|---|---|
 | `idle` | there is no stored state for the tab | §6.1 | run | nothing |
 | `running` | a run starts, before anything else | §6.1 | nothing; the control is disabled | `title`, when the click supplied one |
-| `succeeded` | a summary is read from the answer (§11.3) | §6.1 | run again | `title`, `summary` |
-| `failed` | any step ends the run (§18) | §6.1 | run again; and for `token-missing`, the settings | `title` when known, `errorKind`, `errorDetail` |
+| `succeeded` | a summary is read from the answer (§11.3) | §6.1 | click the action again | `title`, `summary` |
+| `failed` | any step ends the run (§18) | §6.1 | click the action again; and for `token-missing`, the settings | `title` when known, `errorKind`, `errorDetail` |
 
 - **The worker sets it; the panel reads it and renders it.** No other file
   writes a state.
@@ -1039,9 +1025,9 @@ for each. Nothing else composes a message.
 | `engine-error` / `refused` | `engine.js`, HTTP 403 or 404 | the status is logged | "The AI Engine refused the request. Check the model name in Settings." | yes | possibly, the model |
 | `engine-error` / `unavailable` | `engine.js`, HTTP 5xx | the status is logged | "The AI Engine reported an error. Trying again later is reasonable." | yes | no |
 | `engine-error` / `unspecified` | `engine.js`, any other non-2xx | the status is logged | "The AI Engine reported an error." | yes | no |
-| `page-unreadable` | the worker, from the injection failing or returning nothing usable (§7.5) | the rejection is not carried further | "The content of this page could not be obtained. Run it from the toolbar button on the page itself." | yes, though the same page may fail again | no |
+| `page-unreadable` | the worker, from the injection failing or returning nothing usable (§7.5) | the rejection is not carried further | "The content of this page could not be obtained." | yes, though the same page may fail again | no |
 | `too-little-text` | `shape.js` (§9.1) | the run stops before a request | "This page has too little text to summarize." | yes | no |
-| `too-much-text` | `shape.js` (§9.2), or `engine.js` from the endpoint's refusal (§9.3, §11.5) | the run stops; one kind for both places | "This page is larger than can be summarized in one request." | yes, though the same page will fail again | no |
+| `too-much-text` | the staged summarizer safety bound, or `engine.js` from the endpoint's refusal (§9.3, §11.5) | the run stops | "This page is larger than can be summarized in one request." | yes | no |
 | `no-usable-summary` | `engine.js` (§11.3) | the answer is discarded, not shown | "No summary came back. Trying again is reasonable." | yes | no |
 | `internal-error` | the worker, any unexpected exception, including the prompt resource failing to load | caught at the top of the run and logged | "The extension failed to complete the run. Trying again is reasonable." | yes | no |
 
@@ -1138,7 +1124,7 @@ What one run does with data, end to end.
 
 | Data | Where it comes from | Where it goes | How long it lives |
 |---|---|---|---|
-| the page's text | the tab the reader clicked on, read once | shaped, then into one request to the engine | the run; it is in memory and is not stored |
+| the page's text | the tab the reader clicked on, read once | shaped, then sent in one request or structurally chunked staged requests | the run; it is in memory and is not stored |
 | the page's title | the same | the request, and the state the panel renders | until the browser closes, or the tab navigates or closes |
 | the summary | the engine's answer | the state, and the panel | the same |
 | the API token | the reader, on the options page | `storage.local`, and one `Authorization` header | until the reader deletes it |
@@ -1189,9 +1175,8 @@ What one run does with data, end to end.
 
 The steps, at the granularity they are written at:
 
-1. **The reader asks.** `chrome.action.onClicked` fires with the tab, or the
-   panel sends `run` with its tab id (§5.3).
-2. **The panel is opened**, when the run came from the action click, **and the
+1. **The reader asks.** `chrome.action.onClicked` fires with the tab (§5.3).
+2. **The panel is opened**, **and the
    state is set to `running`** for that tab, and `stateChanged` is broadcast.
    The title from the click's tab, when there is one, is put into the state so
    the reader sees which page is being worked on.
@@ -1207,15 +1192,14 @@ The steps, at the granularity they are written at:
    string, every block carrying a known `kind` and a string `text`. Anything
    else is `page-unreadable`.
 7. **Shaping produces the material** (§8).
-8. **The size is judged** (§9): `too-little-text` or `too-much-text` ends the
-   run here, before a request exists.
-9. **The messages are composed** from the prompt resource and the material
-   (§10.3).
-10. **The request goes to the engine** with the reader's token and the
-    configured model, under one bounded wait (§11).
-11. **The answer is judged** (§11.3, §11.5). Any failure ends the run with the
-    kind that describes it.
-12. **The summary is taken** from the first choice's message content.
+8. **The size is judged** (§9): `too-little-text` ends the run; material over
+   the per-request budget is structurally chunked.
+9. **The messages are composed** for the page or for each chunk (§10.3).
+10. **Requests go to the engine** with the reader's token and configured model,
+    each under one bounded wait (§11). Long-page chunk summaries are integrated,
+    recursively when necessary.
+11. **Every answer is judged** (§11.3, §11.5). Any failure ends the whole run.
+12. **The final integrated summary is taken** from the answer.
 13. **The state becomes `succeeded`**, carrying the title and the summary, and
     `stateChanged` is broadcast. The panel renders it as text.
 14. **Any step above may end the run instead.** Every way it can is a row of
@@ -1235,7 +1219,7 @@ specification would be written against.
 | Unit | Input | Output | Error conditions |
 |---|---|---|---|
 | extraction (§7) | a `Document`, passed as a parameter rather than read from a global, so a fixture parsed from an HTML string can stand in for a page | `ExtractResult` (§15.1) | none of its own: it returns what it found, and an empty `blocks` is a valid result that §9.1 judges |
-| shaping (§8) | `ExtractResult` | `{ ok: true, material }` (§15.2) | `too-little-text`, `too-much-text` |
+| shaping (§8) | `ExtractResult` | `{ ok: true, material }` (§15.2) | `too-little-text` |
 | the size verdicts (§9) | a `charCount` | one of three verdicts | the two above, at their exact boundaries |
 | prompt composition (§10.3) | the instruction text and a `Material` | the two-element `messages` array | none; an empty title changes the user message and is a case, not an error |
 | request construction (§11.1) | model, messages, token | a URL, a header set and a JSON body | none |
@@ -1308,7 +1292,7 @@ owns the question.
   title in the `idle` phase, and §6 grants no `tabs` permission and no host
   permission — without which Chrome does not give an extension a tab's title.
   §6 is the design of requirement §16, so this document keeps it: the `idle`
-  panel shows a neutral line and the run control, and a title appears from the
+  panel shows a neutral line, and a title appears from the
   moment a run starts, taken from the tab the action click granted and then
   from extraction.
 - **Discarding a state on navigation.** Basic design §2 rules out a listener on

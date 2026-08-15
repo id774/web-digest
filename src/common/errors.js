@@ -36,7 +36,7 @@ const MESSAGES = {
   [ErrorKind.ENGINE_TIMEOUT]:
     "The AI Engine took too long to answer. Trying again is reasonable.",
   [ErrorKind.PAGE_UNREADABLE]:
-    "The content of this page could not be obtained. Run it from the toolbar button on the page itself.",
+    "The content of this page could not be obtained.",
   [ErrorKind.TOO_LITTLE_TEXT]: "This page has too little text to summarize.",
   [ErrorKind.TOO_MUCH_TEXT]:
     "This page is larger than can be summarized in one request.",

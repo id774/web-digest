@@ -1,4 +1,4 @@
-// The side panel: it asks for the state, renders it, and sends run.
+// The side panel: it asks for the state and renders it.
 //
 // The panel decides nothing. It holds no copy of a setting and no token, it
 // performs no extraction and it makes no request to the AI Engine.
@@ -10,7 +10,6 @@ const elements = {
   title: document.getElementById("title"),
   status: document.getElementById("status"),
   summary: document.getElementById("summary"),
-  run: document.getElementById("run"),
   openSettings: document.getElementById("open-settings"),
   settings: document.getElementById("settings"),
 };
@@ -28,34 +27,28 @@ function render(state) {
 
   show(elements.title, state && state.title ? state.title : "");
   elements.openSettings.hidden = true;
-  elements.run.disabled = false;
 
   if (phase === "running") {
     show(elements.summary, "");
     show(elements.status, "Summarizing… this can take a while.");
-    elements.run.textContent = "Summarize this page";
-    elements.run.disabled = true;
     return;
   }
 
   if (phase === "succeeded") {
     show(elements.status, "");
     show(elements.summary, state.summary || "");
-    elements.run.textContent = "Summarize again";
     return;
   }
 
   if (phase === "failed") {
     show(elements.summary, "");
     show(elements.status, messageFor(state.errorKind, state.errorDetail));
-    elements.run.textContent = "Try again";
     elements.openSettings.hidden = state.errorKind !== ErrorKind.TOKEN_MISSING;
     return;
   }
 
   show(elements.summary, "");
   show(elements.status, "No summary has been run for this tab yet.");
-  elements.run.textContent = "Summarize this page";
 }
 
 function openOptions() {
@@ -64,13 +57,6 @@ function openOptions() {
 
 elements.settings.addEventListener("click", openOptions);
 elements.openSettings.addEventListener("click", openOptions);
-
-elements.run.addEventListener("click", () => {
-  if (tabId === null) return;
-  chrome.runtime
-    .sendMessage({ type: MessageType.RUN, tabId })
-    .catch(() => {});
-});
 
 // Re-render on each stateChanged for this tab, and ignore the others.
 chrome.runtime.onMessage.addListener((message) => {
