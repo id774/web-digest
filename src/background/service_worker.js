@@ -3,7 +3,12 @@
 // Every decision in a run is taken here, so that there is one place to read
 // when the question is what happened. The panel renders; it decides nothing.
 
-import { BLOCK_KINDS, shape } from "../shape/shape.js";
+import {
+  BLOCK_KINDS,
+  MAX_REQUEST_MATERIAL_CHARS,
+  chunkMaterial,
+  shape,
+} from "../shape/shape.js";
 import { callEngine } from "../engine/engine.js";
 import { readSettings } from "../common/settings.js";
 import { ErrorKind } from "../common/errors.js";
@@ -70,14 +75,57 @@ export function isValidExtractResult(value) {
 // The boundary between instruction and material is the message boundary, not a
 // delimiter inside one string. A marker inside a string is text the page could
 // contain; a separate message is structure the page cannot reach.
-export function composeMessages(instruction, material) {
+export function composeMessages(instruction, material, task = "page") {
   const body = material.title
     ? `TITLE: ${material.title}\n\nBODY:\n${material.text}`
     : `BODY:\n${material.text}`;
   return [
     { role: "system", content: instruction },
-    { role: "user", content: body },
+    { role: "user", content: `TASK: ${task}\n\n${body}` },
   ];
+}
+
+function summaryMaterial(title, summaries) {
+  const text = summaries
+    .map((summary, index) => `PART ${index + 1}:\n${summary}`)
+    .join("\n\n");
+  return { title, text, charCount: title.length + text.length };
+}
+
+export async function summarizeMaterial(
+  material,
+  instruction,
+  engineCall,
+  depth = 0,
+) {
+  if (material.charCount <= MAX_REQUEST_MATERIAL_CHARS) {
+    return await engineCall(
+      composeMessages(instruction, material, depth ? "integrate" : "page"),
+    );
+  }
+
+  // Bound malformed or non-compressing answers without declining ordinary
+  // long pages before their content has been processed.
+  if (depth >= 8) return { ok: false, kind: ErrorKind.TOO_MUCH_TEXT };
+
+  const chunks = chunkMaterial(material);
+  if (chunks.length < 2) return { ok: false, kind: ErrorKind.TOO_MUCH_TEXT };
+
+  const summaries = [];
+  for (const chunk of chunks) {
+    const answer = await engineCall(
+      composeMessages(instruction, chunk, "chunk"),
+    );
+    if (!answer.ok) return answer;
+    summaries.push(answer.summary);
+  }
+
+  return await summarizeMaterial(
+    summaryMaterial(material.title, summaries),
+    instruction,
+    engineCall,
+    depth + 1,
+  );
 }
 
 async function readState(tabId) {
@@ -198,12 +246,16 @@ async function runSummary(tabId, titleFromTab) {
       return;
     }
 
-    const messages = composeMessages(instruction, shaped.material);
-    const answer = await callEngine({
-      model: settings.model,
-      messages,
-      token: settings.token,
-    });
+    const answer = await summarizeMaterial(
+      shaped.material,
+      instruction,
+      (messages) =>
+        callEngine({
+          model: settings.model,
+          messages,
+          token: settings.token,
+        }),
+    );
 
     if (!answer.ok) {
       await fail(
@@ -257,12 +309,6 @@ function registerListeners() {
     if (message.type === MessageType.GET_STATE) {
       readState(message.tabId).then(sendResponse);
       return true;
-    }
-
-    if (message.type === MessageType.RUN) {
-      sendResponse({ accepted: true });
-      runSummary(message.tabId, "");
-      return false;
     }
 
     return false;

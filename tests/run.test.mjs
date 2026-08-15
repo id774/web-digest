@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 import {
   composeMessages,
@@ -7,8 +8,10 @@ import {
   idleState,
   isValidExtractResult,
   runningState,
+  summarizeMaterial,
   succeededState,
 } from "../src/background/service_worker.js";
+import { MAX_REQUEST_MATERIAL_CHARS } from "../src/shape/shape.js";
 import { ErrorKind, EngineErrorDetail, messageFor } from "../src/common/errors.js";
 import { MessageType } from "../src/common/messages.js";
 
@@ -24,7 +27,7 @@ test("the instruction and the material are two messages, not one string", () => 
   assert.equal(messages.length, 2);
   assert.deepEqual(messages[0], { role: "system", content: INSTRUCTION });
   assert.equal(messages[1].role, "user");
-  assert.equal(messages[1].content, "TITLE: A title\n\nBODY:\nA paragraph.");
+  assert.equal(messages[1].content, "TASK: page\n\nTITLE: A title\n\nBODY:\nA paragraph.");
 });
 
 test("an empty title omits the TITLE line", () => {
@@ -34,7 +37,7 @@ test("an empty title omits the TITLE line", () => {
     charCount: 12,
     blockCount: 1,
   });
-  assert.equal(messages[1].content, "BODY:\nA paragraph.");
+  assert.equal(messages[1].content, "TASK: page\n\nBODY:\nA paragraph.");
 });
 
 test("the instruction reaches the request unchanged", () => {
@@ -109,12 +112,105 @@ test("running carries the title the click supplied", () => {
   assert.equal(runningState(undefined).title, "");
 });
 
-test("the three message names are fixed", () => {
+test("the panel messages cannot start a run", () => {
   assert.deepEqual(MessageType, {
     GET_STATE: "getState",
-    RUN: "run",
     STATE_CHANGED: "stateChanged",
   });
+});
+
+test("the panel displays state and settings without a run control", async () => {
+  const [html, script] = await Promise.all([
+    readFile(new URL("../src/panel/panel.html", import.meta.url), "utf8"),
+    readFile(new URL("../src/panel/panel.js", import.meta.url), "utf8"),
+  ]);
+  assert.doesNotMatch(html, /Summarize this page|id="run"/);
+  assert.doesNotMatch(script, /MessageType\.RUN|runSummary/);
+  assert.match(html, /id="settings"/);
+  assert.match(script, /openOptionsPage/);
+});
+
+test("the toolbar action is the only normal run trigger", async () => {
+  const worker = await readFile(
+    new URL("../src/background/service_worker.js", import.meta.url),
+    "utf8",
+  );
+  assert.equal(worker.match(/runSummary\(/g)?.length, 2);
+  assert.match(worker, /chrome\.action\.onClicked\.addListener/);
+  assert.doesNotMatch(worker, /message\.type === MessageType\.RUN/);
+});
+
+test("a normal page uses one page request", async () => {
+  const calls = [];
+  const answer = await summarizeMaterial(
+    { title: "T", text: "A normal page.", charCount: 14 },
+    INSTRUCTION,
+    async (messages) => {
+      calls.push(messages);
+      return { ok: true, summary: "Done." };
+    },
+  );
+  assert.deepEqual(answer, { ok: true, summary: "Done." });
+  assert.equal(calls.length, 1);
+  assert.match(calls[0][1].content, /^TASK: page/);
+});
+
+test("a long page summarizes every chunk and integrates them", async () => {
+  const calls = [];
+  const blocks = Array.from({ length: 4 }, (_, index) => ({
+    kind: "paragraph",
+    text: `${index} ${"substance ".repeat(12000)}`,
+  }));
+  const text = blocks.map((block) => block.text).join("\n\n");
+  const answer = await summarizeMaterial(
+    { title: "Long", text, blocks, charCount: text.length + 4 },
+    INSTRUCTION,
+    async (messages) => {
+      calls.push(messages[1].content);
+      return { ok: true, summary: `compressed ${calls.length}` };
+    },
+  );
+  assert.equal(answer.ok, true);
+  assert.ok(calls.filter((call) => call.startsWith("TASK: chunk")).length > 1);
+  assert.equal(calls.at(-1).startsWith("TASK: integrate"), true);
+});
+
+test("large integration input is compressed in further stages", async () => {
+  const calls = [];
+  const text = "source ".repeat(MAX_REQUEST_MATERIAL_CHARS);
+  const answer = await summarizeMaterial(
+    { title: "Huge", text, charCount: text.length + 4 },
+    INSTRUCTION,
+    async (messages) => {
+      calls.push(messages[1].content);
+      return {
+        ok: true,
+        summary:
+          calls.length < 10
+            ? "summary ".repeat(MAX_REQUEST_MATERIAL_CHARS / 8)
+            : "compressed",
+      };
+    },
+  );
+  assert.deepEqual(answer, { ok: true, summary: "compressed" });
+  assert.ok(calls.filter((call) => call.startsWith("TASK: chunk")).length > 2);
+  assert.equal(calls.at(-1).startsWith("TASK: integrate"), true);
+});
+
+test("one failed chunk fails the whole long-page run", async () => {
+  let calls = 0;
+  const text = "source ".repeat(MAX_REQUEST_MATERIAL_CHARS);
+  const answer = await summarizeMaterial(
+    { title: "Huge", text, charCount: text.length + 4 },
+    INSTRUCTION,
+    async () => {
+      calls += 1;
+      if (calls === 2) return { ok: false, kind: ErrorKind.ENGINE_TIMEOUT };
+      return { ok: true, summary: "part" };
+    },
+  );
+  assert.deepEqual(answer, { ok: false, kind: ErrorKind.ENGINE_TIMEOUT });
+  assert.equal(calls, 2);
 });
 
 test("a failed state renders the message for its kind", () => {

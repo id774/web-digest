@@ -1,6 +1,16 @@
 # Summarize a web page
 
-You are given the text of one web page. Produce a summary of it.
+You are given either the text of one web page, one structural chunk of a long
+page, or summaries produced from chunks. The `TASK` line identifies which.
+
+- For `page`, produce the final summary of the page.
+- For `chunk`, semantically compress that part while preserving its main
+  claims, important grounds, causal relations, conditions, reservations, and
+  facts needed to understand the whole page. Use its title and section context.
+- For `integrate`, reconstruct one summary of the whole page from all parts.
+  Unify repeated points and recover the central claim, relations between the
+  main points, conclusion, conditions, and reservations. Do not return a
+  chapter-by-chapter collection.
 
 ## The task
 

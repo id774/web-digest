@@ -7,7 +7,9 @@
 
 export const DEDUPE_MIN_CHARS = 8;
 export const MIN_MATERIAL_CHARS = 200;
-export const MAX_MATERIAL_CHARS = 32000;
+// Keep room for the instruction and answer, without assuming a model-specific
+// token-to-character ratio.
+export const MAX_REQUEST_MATERIAL_CHARS = 40000;
 
 export const BLOCK_KINDS = [
   "heading",
@@ -96,13 +98,115 @@ export function render(blocks) {
   return lines.join("\n\n");
 }
 
-// The two size verdicts, taken on the material's charCount before any request
-// is built. Nothing is truncated, chunked, sampled or dropped by rank: a page
-// over the budget is declined and said so.
 export function judgeSize(charCount) {
   if (charCount < MIN_MATERIAL_CHARS) return "too-little-text";
-  if (charCount > MAX_MATERIAL_CHARS) return "too-much-text";
   return "ok";
+}
+
+function splitPoint(text, limit) {
+  const floor = Math.floor(limit * 0.6);
+  for (const pattern of [/\n/g, /[.!?。！？]\s/g, /\s/g]) {
+    let point = -1;
+    for (const match of text.slice(0, limit + 1).matchAll(pattern)) {
+      point = match.index + match[0].length;
+    }
+    if (point >= floor) return point;
+  }
+  return limit;
+}
+
+function splitBlock(block, limit) {
+  const pieces = [];
+  let remaining = block.text;
+  while (remaining.length > limit) {
+    const point = splitPoint(remaining, limit);
+    pieces.push({ ...block, text: remaining.slice(0, point).trim() });
+    remaining = remaining.slice(point).trim();
+  }
+  if (remaining) pieces.push({ ...block, text: remaining });
+  return pieces;
+}
+
+function contextText(headings) {
+  if (!headings.length) return "";
+  return `SECTION: ${headings.map((h) => h.text).join(" > ")}`;
+}
+
+function makeChunk(title, blocks, headings) {
+  const context = contextText(headings);
+  const body = render(blocks);
+  const text = context ? `${context}\n\n${body}` : body;
+  return {
+    title,
+    text,
+    blocks,
+    charCount: title.length + text.length,
+    blockCount: blocks.length,
+  };
+}
+
+function headingContextBefore(blocks, end) {
+  const headings = [];
+  for (let i = 0; i < end; i += 1) {
+    const block = blocks[i];
+    if (block.kind !== "heading") continue;
+    while (
+      headings.length &&
+      headings[headings.length - 1].level >= block.level
+    ) {
+      headings.pop();
+    }
+    headings.push(block);
+  }
+  return headings;
+}
+
+// Split at major headings first, then lower headings, then ordinary block
+// boundaries. Only a block that cannot fit alone is split within its text.
+export function chunkMaterial(material, limit = MAX_REQUEST_MATERIAL_CHARS) {
+  const source = material.blocks || [{ kind: "paragraph", text: material.text }];
+  const reserve = Math.min(500, Math.floor(limit / 4));
+  const blockLimit = Math.max(1, limit - reserve);
+  const expanded = source.flatMap((block) => splitBlock(block, blockLimit));
+  const chunks = [];
+  let start = 0;
+
+  while (start < expanded.length) {
+    let end = start;
+    while (end < expanded.length) {
+      const candidate = makeChunk(
+        material.title,
+        expanded.slice(start, end + 1),
+        headingContextBefore(expanded, start),
+      );
+      if (candidate.charCount > limit && end > start) break;
+      end += 1;
+      if (candidate.charCount > limit) break;
+    }
+
+    let boundary = Math.max(start + 1, end);
+    if (boundary < expanded.length) {
+      for (const maxLevel of [2, 6]) {
+        for (let i = boundary - 1; i > start; i -= 1) {
+          if (expanded[i].kind === "heading" && expanded[i].level <= maxLevel) {
+            boundary = i;
+            break;
+          }
+        }
+        if (boundary < end) break;
+      }
+    }
+
+    chunks.push(
+      makeChunk(
+        material.title,
+        expanded.slice(start, boundary),
+        headingContextBefore(expanded, start),
+      ),
+    );
+    start = boundary;
+  }
+  return chunks;
 }
 
 // An ExtractResult in, a Material out or one of the two size verdicts.
@@ -141,6 +245,6 @@ export function shape(extracted) {
 
   return {
     ok: true,
-    material: { title, text, charCount, blockCount: kept.length },
+    material: { title, text, blocks: kept, charCount, blockCount: kept.length },
   };
 }

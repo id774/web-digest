@@ -154,31 +154,27 @@ each page:
 1. Open the web page you want summarized.
 2. Click the **web-digest** button on the Chrome toolbar.
 3. The side panel opens on the right, and the summary run starts automatically from
-   that same click. You do not need to choose **Summarize this page** after the panel
-   opens.
+   that same click.
 4. While the run is in progress, the side panel shows **Summarizing… this can take a
-   while.** and disables its run button.
+   while.**
 5. The extension extracts the page's main content and sends it to the Sakura AI
    Engine with your token and configured model.
 6. When the run succeeds, the page title and summary appear in the side panel beside
    the original page.
 
-To summarize the same page again while the side panel is already open, choose
-**Summarize again**. Before any run has been made for the page, the same control is
-labelled **Summarize this page**. After a failure it is labelled **Try again**.
+To summarize the same page again, click the **web-digest** toolbar button again.
+The toolbar action is the only control that starts a summary.
 
 What the panel shows:
 
 | Phase | What you see | Control |
 | --- | --- | --- |
-| nothing run yet | that no summary has been run for this tab | **Summarize this page** |
-| in progress | that a summary is being produced, and that it may take a while | the control, disabled |
-| succeeded | the title and the summary | **Summarize again** |
-| failed | what went wrong, and what would address it | **Try again**, and **Open settings** when no token is configured |
+| nothing run yet | that no summary has been run for this tab | **Settings** |
+| in progress | that a summary is being produced, and that it may take a while | **Settings** |
+| succeeded | the title and the summary | **Settings** |
+| failed | what went wrong, and what would address it | **Open settings** when no token is configured |
 
-Navigating to another page never starts a run: the panel returns to "nothing run yet" for the new page and waits to be asked. **Summarize again** re-runs for the page the panel is showing, on the access an earlier action click granted for that tab; if the tab has navigated since, that access has lapsed and the run is refused, and clicking the toolbar action on the page is what runs it again.
-
-A failed run is never retried automatically. **One click is one request to the AI Engine**, which keeps what your token is spent on visible to you.
+Navigating to another page never starts a run: the panel returns to "nothing run yet" for the new page and waits for the toolbar action. A failed run is never retried automatically. One toolbar click starts one complete run; a long page may require several AI Engine requests within that run.
 
 ## How it summarizes
 
@@ -211,7 +207,7 @@ The permissions are the smallest set that allows this: `activeTab` for the tab y
 
 ## When something fails
 
-Every failure ends the run and shows one message in the panel that names the cause and what would address it: that no token is configured and where to enter one, that the token was refused, that the AI Engine could not be reached or took too long or reported an error, that the content of this page could not be obtained, that this page has too little text, that it is larger than can be summarized in one request, or that no usable summary came back.
+Every failure ends the run and shows one message in the panel that names the cause and what would address it: that no token is configured and where to enter one, that the token was refused, that the AI Engine could not be reached or took too long or reported an error, that the content of this page could not be obtained, that this page has too little text, that no usable summary came back.
 
 Causes that lead to different actions stay apart — "no token" and "token refused" are never merged into one message about the API. A message carries no status line, no response body, no internal detail and no API token. What a status code was is recorded in the service worker's console log, which carries counts and durations and never the page's text, its title, its URL, the prompt, the request, the answer or the summary.
 
@@ -234,9 +230,9 @@ For the most common problems:
 - **Some pages cannot be read at all**: `chrome://` pages, the Chrome Web Store, the PDF viewer and `file://` URLs are refused by Chrome, not by this extension.
 - **The summary is produced by a language model.** It is not a guarantee that the meaning of the original survived, and it is no substitute for the page where a judgement actually matters — read the original before deciding anything on it.
 - **It reports what the page says.** Whether the page is correct, whether it is worth reading, and whether it was written by a machine are not questions this extension answers.
-- **A very long page is declined rather than truncated.** The material is bounded by a conservative budget of 32,000 characters, checked before any request is built. Nothing is truncated, chunked, sampled or dropped by rank: a summary that claims to keep the substance of a page, produced from part of it, is the failure this project exists to avoid. A page under the budget may still be refused by the endpoint for its own capacity, and that is reported as the same situation.
+- **A very long page is summarized in stages.** Material within the conservative 40,000-character request budget uses one request. Longer material is split at heading and block boundaries, each chunk is semantically compressed, and the chunk summaries are integrated into one whole-page summary. Integration is repeated in stages when necessary; content is not sampled or ranked away.
 - **A page with too little text is declined too**, for the same reason: there is nothing to compress.
-- **One request per run, not streamed.** The answer arrives whole, and a whole page summarized in one request is slow by nature; the panel says the run is in progress while it waits.
+- **Requests are not streamed.** A normal page uses one request; a long page uses the staged requests needed to preserve and integrate its content. The panel says the run is in progress while it waits.
 - **The summary is displayed as plain text.** No markup from the page and none from the model is rendered — a decision that removes a class of problem rather than defending against it.
 - **The interface is English**, and it is not translated.
 

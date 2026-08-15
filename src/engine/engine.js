@@ -30,7 +30,7 @@ const LENGTH_MARKERS = [
 // model and messages are the only members sent. max_tokens and temperature are
 // not: a character count is not the constraint and neither is a setting, so
 // there is no value for either this design could honestly supply. stream is
-// not sent — one request per run, and the answer arrives whole.
+// not sent, and each answer arrives whole.
 export function buildRequest({ model, messages, token }) {
   return {
     url: `${ENGINE_BASE_URL}/chat/completions`,
