@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "web-digest",
+  "version": "0.1.0",
+  "description": "Summarize the page you are reading, with your own Sakura AI Engine token.",
+  "minimum_chrome_version": "114",
+  "permissions": ["activeTab", "scripting", "storage", "sidePanel"],
+  "host_permissions": ["https://api.ai.sakura.ad.jp/*"],
+  "background": {
+    "service_worker": "src/background/service_worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Summarize this page"
+  },
+  "side_panel": {
+    "default_path": "src/panel/panel.html"
+  },
+  "options_ui": {
+    "page": "src/options/options.html",
+    "open_in_tab": true
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}

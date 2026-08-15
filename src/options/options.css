@@ -1,0 +1,70 @@
+:root {
+  color-scheme: light dark;
+  --edge: rgba(127, 127, 127, 0.35);
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.page {
+  max-width: 34rem;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+.name {
+  font-size: 18px;
+  margin: 0 0 20px;
+}
+
+.field {
+  margin-bottom: 20px;
+}
+
+.label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.input {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+}
+
+.note {
+  margin: 6px 0 0;
+  opacity: 0.8;
+}
+
+.controls {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.primary,
+.secondary {
+  font: inherit;
+  padding: 6px 12px;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.status {
+  margin: 0 0 20px;
+  min-height: 1.7em;
+}

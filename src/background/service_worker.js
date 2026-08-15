@@ -1,0 +1,286 @@
+// The service worker: one run, start to finish.
+//
+// Every decision in a run is taken here, so that there is one place to read
+// when the question is what happened. The panel renders; it decides nothing.
+
+import { BLOCK_KINDS, shape } from "../shape/shape.js";
+import { callEngine } from "../engine/engine.js";
+import { readSettings } from "../common/settings.js";
+import { ErrorKind } from "../common/errors.js";
+import { MessageType } from "../common/messages.js";
+
+const PANEL_PATH = "src/panel/panel.html";
+const PROMPT_PATH = "prompts/summarize.md";
+const EXTRACT_FILE = "src/extract/extract.js";
+
+const KNOWN_KINDS = new Set(BLOCK_KINDS);
+
+function stateKey(tabId) {
+  return `run:${tabId}`;
+}
+
+export function idleState() {
+  return {
+    phase: "idle",
+    title: "",
+    summary: "",
+    errorKind: "",
+    errorDetail: "",
+  };
+}
+
+export function runningState(title) {
+  return { ...idleState(), phase: "running", title: title || "" };
+}
+
+export function succeededState(title, summary) {
+  return {
+    ...idleState(),
+    phase: "succeeded",
+    title: title || "",
+    summary,
+  };
+}
+
+export function failedState(title, kind, detail) {
+  return {
+    ...idleState(),
+    phase: "failed",
+    title: title || "",
+    errorKind: kind,
+    errorDetail: detail || "",
+  };
+}
+
+// An object, with blocks an array and title a string, every block carrying a
+// known kind and a string text. Anything else is page-unreadable.
+export function isValidExtractResult(value) {
+  if (!value || typeof value !== "object") return false;
+  if (typeof value.title !== "string") return false;
+  if (!Array.isArray(value.blocks)) return false;
+  return value.blocks.every(
+    (block) =>
+      block &&
+      typeof block === "object" &&
+      KNOWN_KINDS.has(block.kind) &&
+      typeof block.text === "string",
+  );
+}
+
+// The boundary between instruction and material is the message boundary, not a
+// delimiter inside one string. A marker inside a string is text the page could
+// contain; a separate message is structure the page cannot reach.
+export function composeMessages(instruction, material) {
+  const body = material.title
+    ? `TITLE: ${material.title}\n\nBODY:\n${material.text}`
+    : `BODY:\n${material.text}`;
+  return [
+    { role: "system", content: instruction },
+    { role: "user", content: body },
+  ];
+}
+
+async function readState(tabId) {
+  const stored = await chrome.storage.session.get(stateKey(tabId));
+  return stored[stateKey(tabId)] || idleState();
+}
+
+async function writeState(tabId, state) {
+  await chrome.storage.session.set({ [stateKey(tabId)]: state });
+  // A broadcast with no listener rejects, and that is ignored: the state is
+  // already stored, and a panel that opens later reads it with getState.
+  chrome.runtime
+    .sendMessage({ type: MessageType.STATE_CHANGED, tabId, state })
+    .catch(() => {});
+}
+
+async function discardState(tabId) {
+  await chrome.storage.session.remove(stateKey(tabId));
+  chrome.runtime
+    .sendMessage({
+      type: MessageType.STATE_CHANGED,
+      tabId,
+      state: idleState(),
+    })
+    .catch(() => {});
+}
+
+// Counts and durations are what a log is allowed to know here. Never the
+// token, the page's text, its title, its URL, the prompt, the request, the
+// response or the summary.
+function logRun(fields) {
+  const parts = [`phase=${fields.phase}`];
+  if (fields.kind) parts.push(`kind=${fields.kind}`);
+  if (fields.detail) parts.push(`detail=${fields.detail}`);
+  if (typeof fields.status === "number") parts.push(`status=${fields.status}`);
+  if (typeof fields.blocks === "number") parts.push(`blocks=${fields.blocks}`);
+  if (typeof fields.chars === "number") parts.push(`chars=${fields.chars}`);
+  parts.push(`elapsed=${fields.elapsed}s`);
+  const line = `web-digest run: ${parts.join(" ")}`;
+  if (fields.phase === "failed") {
+    console.error(line);
+  } else {
+    console.log(line);
+  }
+}
+
+function elapsedSince(started) {
+  return ((Date.now() - started) / 1000).toFixed(1);
+}
+
+async function loadInstruction() {
+  const response = await fetch(chrome.runtime.getURL(PROMPT_PATH));
+  if (!response.ok) throw new Error("the prompt resource could not be read");
+  return await response.text();
+}
+
+async function fail(tabId, title, started, kind, detail, status) {
+  await writeState(tabId, failedState(title, kind, detail));
+  logRun({
+    phase: "failed",
+    kind,
+    detail,
+    status,
+    elapsed: elapsedSince(started),
+  });
+}
+
+// One run, in the order of the detailed design.
+async function runSummary(tabId, titleFromTab) {
+  const started = Date.now();
+  let title = titleFromTab || "";
+
+  try {
+    // A run for a tab whose state is already running is ignored: the reader
+    // asked for a summary and one is being produced.
+    const current = await readState(tabId);
+    if (current.phase === "running") return;
+
+    // running is written before the first await of the work, so a worker
+    // terminated mid-run leaves a state that says what was happening.
+    await writeState(tabId, runningState(title));
+
+    const settings = await readSettings();
+    if (!settings.token) {
+      await fail(tabId, title, started, ErrorKind.TOKEN_MISSING);
+      return;
+    }
+
+    let instruction;
+    try {
+      instruction = await loadInstruction();
+    } catch {
+      await fail(tabId, title, started, ErrorKind.INTERNAL_ERROR);
+      return;
+    }
+
+    let extracted;
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId },
+        files: [EXTRACT_FILE],
+      });
+      extracted = results && results[0] ? results[0].result : null;
+    } catch {
+      await fail(tabId, title, started, ErrorKind.PAGE_UNREADABLE);
+      return;
+    }
+
+    if (!isValidExtractResult(extracted)) {
+      await fail(tabId, title, started, ErrorKind.PAGE_UNREADABLE);
+      return;
+    }
+    if (extracted.title) title = extracted.title;
+
+    const shaped = shape(extracted);
+    if (!shaped.ok) {
+      await fail(tabId, title, started, shaped.kind);
+      return;
+    }
+
+    const messages = composeMessages(instruction, shaped.material);
+    const answer = await callEngine({
+      model: settings.model,
+      messages,
+      token: settings.token,
+    });
+
+    if (!answer.ok) {
+      await fail(
+        tabId,
+        title,
+        started,
+        answer.kind,
+        answer.detail,
+        answer.status,
+      );
+      return;
+    }
+
+    await writeState(tabId, succeededState(title, answer.summary));
+    logRun({
+      phase: "succeeded",
+      blocks: shaped.material.blockCount,
+      chars: shaped.material.charCount,
+      elapsed: elapsedSince(started),
+    });
+  } catch {
+    // So that "no failure is silent" survives an exception nobody predicted.
+    await fail(tabId, title, started, ErrorKind.INTERNAL_ERROR);
+  }
+}
+
+function registerListeners() {
+  // Load bearing: with the behaviour turned on Chrome opens the panel itself
+  // and chrome.action.onClicked never fires, so the one click would open a
+  // panel and start nothing.
+  chrome.runtime.onInstalled.addListener(() => {
+    chrome.sidePanel
+      .setPanelBehavior({ openPanelOnActionClick: false })
+      .catch(() => {});
+  });
+
+  // The click is the reader's explicit request, and it is the only way a run
+  // begins. sidePanel.open() requires a user gesture, so the panel is opened
+  // before anything is awaited.
+  chrome.action.onClicked.addListener((tab) => {
+    if (!tab || typeof tab.id !== "number") return;
+    const tabId = tab.id;
+    chrome.sidePanel.setOptions({ tabId, path: PANEL_PATH, enabled: true });
+    chrome.sidePanel.open({ tabId });
+    runSummary(tabId, tab.title || "");
+  });
+
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (!message || typeof message !== "object") return false;
+
+    if (message.type === MessageType.GET_STATE) {
+      readState(message.tabId).then(sendResponse);
+      return true;
+    }
+
+    if (message.type === MessageType.RUN) {
+      sendResponse({ accepted: true });
+      runSummary(message.tabId, "");
+      return false;
+    }
+
+    return false;
+  });
+
+  // Discarding is all these do: they start nothing, read no page, record
+  // nothing and hold no URL.
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    chrome.storage.session.remove(stateKey(tabId)).catch(() => {});
+  });
+
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+    if (changeInfo && changeInfo.status === "loading") {
+      discardState(tabId).catch(() => {});
+    }
+  });
+}
+
+if (typeof chrome !== "undefined" && chrome.action && chrome.runtime) {
+  registerListeners();
+}

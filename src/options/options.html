@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>web-digest settings</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="page">
+      <h1 class="name">web-digest settings</h1>
+
+      <section class="field">
+        <label class="label" for="token">Sakura AI Engine API token</label>
+        <input
+          id="token"
+          class="input"
+          type="password"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <p id="token-status" class="note"></p>
+      </section>
+
+      <section class="field">
+        <label class="label" for="model">Model</label>
+        <input
+          id="model"
+          class="input"
+          type="text"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <p class="note">
+          Leave it empty to use the default. Model names come from the Sakura AI
+          Engine's own published list.
+        </p>
+      </section>
+
+      <div class="controls">
+        <button id="save" class="primary" type="button">Save</button>
+        <button id="delete" class="secondary" type="button">
+          Delete token
+        </button>
+      </div>
+
+      <p id="status" class="status"></p>
+
+      <p class="note">
+        The token is kept in this browser profile's extension storage, and is
+        sent as the authorization of one request to the Sakura AI Engine and to
+        nowhere else. There is no server belonging to this project. Whoever
+        controls this Chrome profile can read extension storage, and an unpacked
+        extension cannot change that.
+      </p>
+    </main>
+
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

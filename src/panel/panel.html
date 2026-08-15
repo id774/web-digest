@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>web-digest</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <header class="header">
+      <h1 class="name">web-digest</h1>
+      <button id="settings" class="link" type="button">Settings</button>
+    </header>
+
+    <main class="body">
+      <p id="title" class="title" hidden></p>
+      <p id="status" class="status"></p>
+      <div id="summary" class="summary" hidden></div>
+      <div class="controls">
+        <button id="open-settings" class="primary" type="button" hidden>
+          Open settings
+        </button>
+        <button id="run" class="primary" type="button">
+          Summarize this page
+        </button>
+      </div>
+    </main>
+
+    <script type="module" src="panel.js"></script>
+  </body>
+</html>
