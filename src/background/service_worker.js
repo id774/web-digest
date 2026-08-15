@@ -19,6 +19,7 @@ const PROMPT_PATH = "prompts/summarize.md";
 const EXTRACT_FILE = "src/extract/extract.js";
 
 const KNOWN_KINDS = new Set(BLOCK_KINDS);
+const activeRuns = new Set();
 
 function stateKey(tabId) {
   return `run:${tabId}`;
@@ -55,6 +56,16 @@ export function failedState(title, kind, detail) {
     errorKind: kind,
     errorDetail: detail || "",
   };
+}
+
+export function claimRun(tabId) {
+  if (activeRuns.has(tabId)) return false;
+  activeRuns.add(tabId);
+  return true;
+}
+
+export function releaseRun(tabId) {
+  activeRuns.delete(tabId);
 }
 
 // An object, with blocks an array and title a string, every block carrying a
@@ -195,15 +206,14 @@ async function fail(tabId, title, started, kind, detail, status) {
 
 // One run, in the order of the detailed design.
 async function runSummary(tabId, titleFromTab) {
+  // Track live work in memory so a stale stored running state left by worker
+  // termination cannot permanently block the reader from trying again.
+  if (!claimRun(tabId)) return;
+
   const started = Date.now();
   let title = titleFromTab || "";
 
   try {
-    // A run for a tab whose state is already running is ignored: the reader
-    // asked for a summary and one is being produced.
-    const current = await readState(tabId);
-    if (current.phase === "running") return;
-
     // running is written before the first await of the work, so a worker
     // terminated mid-run leaves a state that says what was happening.
     await writeState(tabId, runningState(title));
@@ -279,6 +289,8 @@ async function runSummary(tabId, titleFromTab) {
   } catch {
     // So that "no failure is silent" survives an exception nobody predicted.
     await fail(tabId, title, started, ErrorKind.INTERNAL_ERROR);
+  } finally {
+    releaseRun(tabId);
   }
 }
 

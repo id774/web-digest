@@ -245,7 +245,10 @@ reader gets to configure a token** — no first-run wizard, no modal, no badge.
 A second run starts only when the reader clicks the toolbar action again. This
 renews the `activeTab` grant for the current page before extraction. The panel
 has no run control and no message that can start a run; no broader host
-permission is added.
+permission is added. A second click while work for that tab is live in the same
+worker is ignored. If the worker was terminated mid-run, its in-memory record
+of live work is gone and the next click can start a new run even though the
+stored state still says `running`.
 
 ### 5.4 What no operation does
 
@@ -963,9 +966,9 @@ is the value of the `chrome.scripting.executeScript` promise, so nothing is
 listening for a message from a page and no page can send one (§4.2,
 `externally_connectable`).
 
-A `run` for a tab whose state is already `running` is ignored, and the response
-still says `accepted: true`: the reader asked for a summary and one is being
-produced.
+A `run` for a tab with live work in the current worker is ignored: the reader
+asked for a summary and one is being produced. The stored `running` phase alone
+does not block a run because it can outlive a terminated worker.
 
 ## 17. State
 
@@ -994,6 +997,9 @@ The four states of basic design §14, one per tab.
 - `running` is written before the first await of a run, so a worker terminated
   mid-run leaves a state that says what was happening rather than a state that
   says nothing did.
+- Live runs are also held in a per-worker set solely to reject a duplicate
+  click while work is actually in progress. Worker termination clears that
+  set, allowing a later click to recover from the stored `running` state.
 - A stored state is removed when its tab is closed, and when its tab starts
   loading a different document — so the panel returns to `idle` for a page that
   has not been summarized, which basic design §7.2 requires. The listener that
