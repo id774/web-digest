@@ -3,11 +3,13 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 import {
+  claimRun,
   composeMessages,
   failedState,
   idleState,
   isValidExtractResult,
   runningState,
+  releaseRun,
   summarizeMaterial,
   succeededState,
 } from "../src/background/service_worker.js";
@@ -110,6 +112,18 @@ test("running carries the title the click supplied", () => {
   assert.equal(runningState("A title").title, "A title");
   assert.equal(runningState("").title, "");
   assert.equal(runningState(undefined).title, "");
+});
+
+test("only live work blocks another run for the same tab", () => {
+  assert.equal(claimRun(17), true);
+  assert.equal(claimRun(17), false);
+  assert.equal(claimRun(18), true);
+
+  releaseRun(17);
+  assert.equal(claimRun(17), true);
+
+  releaseRun(17);
+  releaseRun(18);
 });
 
 test("the panel messages cannot start a run", () => {
