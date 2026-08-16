@@ -302,8 +302,10 @@ finally intended, and merges as if it had been written that way.
 ### 1.14 Versioning
 - **[`doc/VERSIONS`](VERSIONS) is the release history of this repository**, and
   the authority for what a release contained. It is not a commit log.
-- The initial release is v1.0. Release versions may use a three-level
-  `major.minor.patch` scheme, so the release after v1.0 is v1.0.1.
+- Release versions follow Chrome's extension version format: one to four
+  dot-separated integers between 0 and 65535, with no leading zero in a
+  multi-digit integer and with at least one non-zero integer.
+- This repository uses three integers from that format and starts at v1.0.0.
 - Work that is not released yet takes no version of its own: it belongs to the
   entry already standing at the top of `doc/VERSIONS`.
 - **An unreleased entry carries `(Release Date: TBD)`.** Releasing it is
