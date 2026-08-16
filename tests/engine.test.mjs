@@ -178,6 +178,14 @@ test("the bounded wait ends the run as engine-timeout", async () => {
   assert.deepEqual(result, { ok: false, kind: "engine-timeout" });
 });
 
+test("the bounded wait does not depend on fetch honoring abort", async () => {
+  const result = await callEngine(CALL, {
+    timeoutMs: 20,
+    fetchImpl: () => new Promise(() => {}),
+  });
+  assert.deepEqual(result, { ok: false, kind: "engine-timeout" });
+});
+
 test("a 2xx body that is not JSON is no-usable-summary", async () => {
   const result = await callEngine(CALL, {
     fetchImpl: answering(200, null, { json: false }),

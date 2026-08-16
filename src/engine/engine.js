@@ -127,29 +127,41 @@ export async function callEngine(
   const send = fetchImpl || globalThis.fetch;
   const request = buildRequest({ model, messages, token });
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let timer;
+
+  const operation = (async () => {
+    try {
+      const response = await send(request.url, {
+        method: request.method,
+        headers: request.headers,
+        body: request.body,
+        signal: controller.signal,
+      });
+
+      const data = await readJson(response);
+      if (controller.signal.aborted) {
+        return { ok: false, kind: ErrorKind.ENGINE_TIMEOUT };
+      }
+      if (!response.ok) {
+        return mapHttpFailure(response.status, data);
+      }
+      return readAnswer(data);
+    } catch {
+      if (controller.signal.aborted) {
+        return { ok: false, kind: ErrorKind.ENGINE_TIMEOUT };
+      }
+      return { ok: false, kind: ErrorKind.ENGINE_UNREACHABLE };
+    }
+  })();
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      resolve({ ok: false, kind: ErrorKind.ENGINE_TIMEOUT });
+    }, timeoutMs);
+  });
 
   try {
-    const response = await send(request.url, {
-      method: request.method,
-      headers: request.headers,
-      body: request.body,
-      signal: controller.signal,
-    });
-
-    const data = await readJson(response);
-    if (controller.signal.aborted) {
-      return { ok: false, kind: ErrorKind.ENGINE_TIMEOUT };
-    }
-    if (!response.ok) {
-      return mapHttpFailure(response.status, data);
-    }
-    return readAnswer(data);
-  } catch {
-    if (controller.signal.aborted) {
-      return { ok: false, kind: ErrorKind.ENGINE_TIMEOUT };
-    }
-    return { ok: false, kind: ErrorKind.ENGINE_UNREACHABLE };
+    return await Promise.race([operation, timeout]);
   } finally {
     clearTimeout(timer);
   }
