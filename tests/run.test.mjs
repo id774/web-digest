@@ -5,8 +5,11 @@ import { readFile } from "node:fs/promises";
 import {
   claimRun,
   composeMessages,
+  currentRun,
   failedState,
   idleState,
+  invalidateRun,
+  isCurrentRun,
   isValidExtractResult,
   runningState,
   releaseRun,
@@ -116,14 +119,29 @@ test("running carries the title the click supplied", () => {
 
 test("only live work blocks another run for the same tab", () => {
   assert.equal(claimRun(17), true);
+  const firstRun = currentRun(17);
   assert.equal(claimRun(17), false);
   assert.equal(claimRun(18), true);
 
-  releaseRun(17);
+  releaseRun(17, firstRun);
   assert.equal(claimRun(17), true);
+  const secondRun = currentRun(17);
 
-  releaseRun(17);
+  releaseRun(17, firstRun);
+  assert.equal(isCurrentRun(17, secondRun), true);
+  releaseRun(17, secondRun);
   releaseRun(18);
+});
+
+test("navigation invalidates work for its tab", () => {
+  assert.equal(claimRun(23), true);
+  const run = currentRun(23);
+
+  invalidateRun(23);
+
+  assert.equal(isCurrentRun(23, run), false);
+  assert.equal(claimRun(23), true);
+  releaseRun(23);
 });
 
 test("the panel messages cannot start a run", () => {
@@ -167,6 +185,22 @@ test("a normal page uses one page request", async () => {
   assert.deepEqual(answer, { ok: true, summary: "Done." });
   assert.equal(calls.length, 1);
   assert.match(calls[0][1].content, /^TASK: page/);
+});
+
+test("an invalidated run ignores an engine answer", async () => {
+  let active = true;
+  const answer = await summarizeMaterial(
+    { title: "T", text: "A normal page.", charCount: 14 },
+    INSTRUCTION,
+    async () => {
+      active = false;
+      return { ok: true, summary: "Stale." };
+    },
+    0,
+    () => active,
+  );
+
+  assert.equal(answer, null);
 });
 
 test("a long page summarizes every chunk and integrates them", async () => {

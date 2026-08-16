@@ -19,7 +19,7 @@ const PROMPT_PATH = "prompts/summarize.md";
 const EXTRACT_FILE = "src/extract/extract.js";
 
 const KNOWN_KINDS = new Set(BLOCK_KINDS);
-const activeRuns = new Set();
+const activeRuns = new Map();
 
 function stateKey(tabId) {
   return `run:${tabId}`;
@@ -60,11 +60,23 @@ export function failedState(title, kind, detail) {
 
 export function claimRun(tabId) {
   if (activeRuns.has(tabId)) return false;
-  activeRuns.add(tabId);
+  activeRuns.set(tabId, Symbol());
   return true;
 }
 
-export function releaseRun(tabId) {
+export function currentRun(tabId) {
+  return activeRuns.get(tabId);
+}
+
+export function isCurrentRun(tabId, run) {
+  return activeRuns.get(tabId) === run;
+}
+
+export function releaseRun(tabId, run = activeRuns.get(tabId)) {
+  if (isCurrentRun(tabId, run)) activeRuns.delete(tabId);
+}
+
+export function invalidateRun(tabId) {
   activeRuns.delete(tabId);
 }
 
@@ -108,11 +120,14 @@ export async function summarizeMaterial(
   instruction,
   engineCall,
   depth = 0,
+  isActive = () => true,
 ) {
+  if (!isActive()) return null;
   if (material.charCount <= MAX_REQUEST_MATERIAL_CHARS) {
-    return await engineCall(
+    const answer = await engineCall(
       composeMessages(instruction, material, depth ? "integrate" : "page"),
     );
+    return isActive() ? answer : null;
   }
 
   // Bound malformed or non-compressing answers without declining ordinary
@@ -124,9 +139,11 @@ export async function summarizeMaterial(
 
   const summaries = [];
   for (const chunk of chunks) {
+    if (!isActive()) return null;
     const answer = await engineCall(
       composeMessages(instruction, chunk, "chunk"),
     );
+    if (!isActive()) return null;
     if (!answer.ok) return answer;
     summaries.push(answer.summary);
   }
@@ -136,6 +153,7 @@ export async function summarizeMaterial(
     instruction,
     engineCall,
     depth + 1,
+    isActive,
   );
 }
 
@@ -193,8 +211,10 @@ async function loadInstruction() {
   return await response.text();
 }
 
-async function fail(tabId, title, started, kind, detail, status) {
+async function fail(tabId, run, title, started, kind, detail, status) {
+  if (!isCurrentRun(tabId, run)) return;
   await writeState(tabId, failedState(title, kind, detail));
+  if (!isCurrentRun(tabId, run)) return;
   logRun({
     phase: "failed",
     kind,
@@ -209,6 +229,7 @@ async function runSummary(tabId, titleFromTab) {
   // Track live work in memory so a stale stored running state left by worker
   // termination cannot permanently block the reader from trying again.
   if (!claimRun(tabId)) return;
+  const run = currentRun(tabId);
 
   const started = Date.now();
   let title = titleFromTab || "";
@@ -219,8 +240,9 @@ async function runSummary(tabId, titleFromTab) {
     await writeState(tabId, runningState(title));
 
     const settings = await readSettings();
+    if (!isCurrentRun(tabId, run)) return;
     if (!settings.token) {
-      await fail(tabId, title, started, ErrorKind.TOKEN_MISSING);
+      await fail(tabId, run, title, started, ErrorKind.TOKEN_MISSING);
       return;
     }
 
@@ -228,9 +250,10 @@ async function runSummary(tabId, titleFromTab) {
     try {
       instruction = await loadInstruction();
     } catch {
-      await fail(tabId, title, started, ErrorKind.INTERNAL_ERROR);
+      await fail(tabId, run, title, started, ErrorKind.INTERNAL_ERROR);
       return;
     }
+    if (!isCurrentRun(tabId, run)) return;
 
     let extracted;
     try {
@@ -240,19 +263,20 @@ async function runSummary(tabId, titleFromTab) {
       });
       extracted = results && results[0] ? results[0].result : null;
     } catch {
-      await fail(tabId, title, started, ErrorKind.PAGE_UNREADABLE);
+      await fail(tabId, run, title, started, ErrorKind.PAGE_UNREADABLE);
       return;
     }
+    if (!isCurrentRun(tabId, run)) return;
 
     if (!isValidExtractResult(extracted)) {
-      await fail(tabId, title, started, ErrorKind.PAGE_UNREADABLE);
+      await fail(tabId, run, title, started, ErrorKind.PAGE_UNREADABLE);
       return;
     }
     if (extracted.title) title = extracted.title;
 
     const shaped = shape(extracted);
     if (!shaped.ok) {
-      await fail(tabId, title, started, shaped.kind);
+      await fail(tabId, run, title, started, shaped.kind);
       return;
     }
 
@@ -265,11 +289,15 @@ async function runSummary(tabId, titleFromTab) {
           messages,
           token: settings.token,
         }),
+      0,
+      () => isCurrentRun(tabId, run),
     );
 
+    if (!answer) return;
     if (!answer.ok) {
       await fail(
         tabId,
+        run,
         title,
         started,
         answer.kind,
@@ -279,7 +307,9 @@ async function runSummary(tabId, titleFromTab) {
       return;
     }
 
+    if (!isCurrentRun(tabId, run)) return;
     await writeState(tabId, succeededState(title, answer.summary));
+    if (!isCurrentRun(tabId, run)) return;
     logRun({
       phase: "succeeded",
       blocks: shaped.material.blockCount,
@@ -288,9 +318,9 @@ async function runSummary(tabId, titleFromTab) {
     });
   } catch {
     // So that "no failure is silent" survives an exception nobody predicted.
-    await fail(tabId, title, started, ErrorKind.INTERNAL_ERROR);
+    await fail(tabId, run, title, started, ErrorKind.INTERNAL_ERROR);
   } finally {
-    releaseRun(tabId);
+    releaseRun(tabId, run);
   }
 }
 
@@ -334,6 +364,7 @@ function registerListeners() {
 
   chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     if (changeInfo && changeInfo.status === "loading") {
+      invalidateRun(tabId);
       discardState(tabId).catch(() => {});
     }
   });
