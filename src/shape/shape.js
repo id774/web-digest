@@ -166,7 +166,7 @@ function headingContextBefore(blocks, end) {
 export function chunkMaterial(material, limit = MAX_REQUEST_MATERIAL_CHARS) {
   const source = material.blocks || [{ kind: "paragraph", text: material.text }];
   const reserve = Math.min(500, Math.floor(limit / 4));
-  const blockLimit = Math.max(1, limit - reserve);
+  const blockLimit = Math.max(1, limit - material.title.length - reserve);
   const expanded = source.flatMap((block) => splitBlock(block, blockLimit));
   const chunks = [];
   let start = 0;
