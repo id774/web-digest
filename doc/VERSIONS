@@ -1,10 +1,9 @@
 web-digest Repository Version History
 =====================================
 
-v1.0.0 (Release Date: TBD)
---------------------------
+v1.0.0 (2026-08-16)
+-------------------
 - Initial release.
-- Keep long-page summary chunks within the request material limit when a page has a long title.
 
 Version History Guidelines
 ==========================
