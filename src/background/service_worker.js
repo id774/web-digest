@@ -20,6 +20,7 @@ const EXTRACT_FILE = "src/extract/extract.js";
 
 const KNOWN_KINDS = new Set(BLOCK_KINDS);
 const activeRuns = new Map();
+const pendingDiscards = new Map();
 
 function stateKey(tabId) {
   return `run:${tabId}`;
@@ -78,6 +79,20 @@ export function releaseRun(tabId, run = activeRuns.get(tabId)) {
 
 export function invalidateRun(tabId) {
   activeRuns.delete(tabId);
+}
+
+export function startDiscard(tabId, discard) {
+  const pending = Promise.resolve()
+    .then(discard)
+    .finally(() => {
+      if (pendingDiscards.get(tabId) === pending) pendingDiscards.delete(tabId);
+    });
+  pendingDiscards.set(tabId, pending);
+  return pending;
+}
+
+export async function waitForDiscard(tabId) {
+  await pendingDiscards.get(tabId);
 }
 
 // An object, with blocks an array and title a string, every block carrying a
@@ -235,6 +250,10 @@ async function runSummary(tabId, titleFromTab) {
   let title = titleFromTab || "";
 
   try {
+    // Wait for navigation cleanup so it cannot remove this run's new state.
+    await waitForDiscard(tabId);
+    if (!isCurrentRun(tabId, run)) return;
+
     // running is written before the first await of the work, so a worker
     // terminated mid-run leaves a state that says what was happening.
     await writeState(tabId, runningState(title));
@@ -365,7 +384,7 @@ function registerListeners() {
   chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     if (changeInfo && changeInfo.status === "loading") {
       invalidateRun(tabId);
-      discardState(tabId).catch(() => {});
+      startDiscard(tabId, () => discardState(tabId)).catch(() => {});
     }
   });
 }
