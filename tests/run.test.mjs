@@ -13,8 +13,10 @@ import {
   isValidExtractResult,
   runningState,
   releaseRun,
+  startDiscard,
   summarizeMaterial,
   succeededState,
+  waitForDiscard,
 } from "../src/background/service_worker.js";
 import { MAX_REQUEST_MATERIAL_CHARS } from "../src/shape/shape.js";
 import { ErrorKind, EngineErrorDetail, messageFor } from "../src/common/errors.js";
@@ -142,6 +144,29 @@ test("navigation invalidates work for its tab", () => {
   assert.equal(isCurrentRun(23, run), false);
   assert.equal(claimRun(23), true);
   releaseRun(23);
+});
+
+test("a new run waits for navigation state cleanup", async () => {
+  let finishDiscard;
+  const events = [];
+  const discard = startDiscard(
+    24,
+    () =>
+      new Promise((resolve) => {
+        finishDiscard = () => {
+          events.push("discarded");
+          resolve();
+        };
+      }),
+  );
+
+  const write = waitForDiscard(24).then(() => events.push("written"));
+  await Promise.resolve();
+  assert.deepEqual(events, []);
+
+  finishDiscard();
+  await Promise.all([discard, write]);
+  assert.deepEqual(events, ["discarded", "written"]);
 });
 
 test("the panel messages cannot start a run", () => {
