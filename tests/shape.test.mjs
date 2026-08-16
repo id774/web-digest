@@ -175,6 +175,24 @@ test("only an individually oversized block is split internally", () => {
   );
 });
 
+test("chunking reserves room for a long title", () => {
+  const limit = 1000;
+  const title = "t".repeat(300);
+  const text = "body ".repeat(300).trim();
+  const blocks = [paragraph(text)];
+  const chunks = chunkMaterial({ title, text, blocks }, limit);
+
+  assert.ok(chunks.length > 1);
+  assert.ok(chunks.every((chunk) => chunk.charCount <= limit));
+  assert.equal(
+    chunks
+      .flatMap((chunk) => chunk.blocks)
+      .map((block) => block.text)
+      .join(" "),
+    text,
+  );
+});
+
 test("shaping does not reorder or rewrite what it keeps", () => {
   const result = shape({
     title: "  A   title  ",
