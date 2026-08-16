@@ -314,6 +314,13 @@ finally intended, and merges as if it had been written that way.
 - The version number an entry is released under is decided from what the entry
   actually accumulated, by the maintainer, at the moment of release. A number
   standing over an unreleased entry is provisional until then.
+- **A repository that has not yet made its first release is in its initial
+  construction stage**, and that stage takes no entry here. This repository
+  starts at v1.0.0, so that is the state while nothing has been released and
+  v1.0.0 itself still stands unreleased. The changes made while building up to
+  that release are not accumulated in `doc/VERSIONS` one by one: the file is the
+  record of released versions, not of the construction that precedes the first
+  of them, and its first entry is written when that release is made.
 - **Do not split one release into finely divided versions.** Changes that belong
   to the same release belong to the same entry, however many commits produced
   them.
