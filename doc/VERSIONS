@@ -1,6 +1,10 @@
 web-digest Repository Version History
 =====================================
 
+v1.0.1 (Release Date: TBD)
+--------------------------
+- Aligned the supported Chrome version with what opening the side panel actually requires.
+
 v1.0.0 (2026-08-16)
 -------------------
 - Initial release.

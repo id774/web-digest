@@ -63,7 +63,7 @@ Ordinary web pages whose main content is prose. There is no list of supported si
 
 ## Requirements
 
-- Google Chrome 114 or later. That is the first version with `chrome.sidePanel`, and the manifest states it so that an older browser refuses the extension rather than failing at the first click.
+- Google Chrome 116 or later. `chrome.sidePanel` itself arrived in 114, but the `sidePanel.open()` this extension calls needs 116, and the manifest states that so an older browser refuses the extension rather than failing at the first click.
 - An environment able to use the Sakura AI Engine, and an API token of your own for it.
 - Outbound HTTPS access to `https://api.ai.sakura.ad.jp`, and nothing else.
 

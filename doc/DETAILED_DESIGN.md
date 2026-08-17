@@ -150,7 +150,7 @@ is "clone and load" buys nothing this version is judged on.
   "name": "web-digest",
   "version": "1.0.0",
   "description": "Summarize the page you are reading, with your own Sakura AI Engine token.",
-  "minimum_chrome_version": "114",
+  "minimum_chrome_version": "116",
   "permissions": ["activeTab", "scripting", "storage", "sidePanel"],
   "host_permissions": ["https://api.ai.sakura.ad.jp/*"],
   "background": {
@@ -181,7 +181,7 @@ is "clone and load" buys nothing this version is judged on.
 | `name` | the repository name; the extension is not published, so no store title is needed |
 | `version` | the extension's own version string. This document settles no release scheme and no tag convention |
 | `description` | one line, naming what it does and whose token it uses, because the reader installs it from a clone and this line is what Chrome shows them |
-| `minimum_chrome_version` | `114`, the first Chrome with `chrome.sidePanel`. Stated so that an older browser refuses the extension instead of failing at the first click |
+| `minimum_chrome_version` | `116`. `chrome.sidePanel` arrived in 114, but `sidePanel.open()`, which §5.1 uses, requires 116. Stated so that an older browser refuses the extension instead of failing at the first click |
 | `permissions` | the four of basic design §6, and no fifth |
 | `host_permissions` | one origin, the engine's. §11.1 |
 | `background` | one worker, as a module so it can import §3.2 |
