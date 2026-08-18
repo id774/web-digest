@@ -378,6 +378,9 @@ function registerListeners() {
   // Discarding is all these do: they start nothing, read no page, record
   // nothing and hold no URL.
   chrome.tabs.onRemoved.addListener((tabId) => {
+    // Invalidate before removing, so a late answer cannot restore the state of
+    // a tab that no longer exists.
+    invalidateRun(tabId);
     chrome.storage.session.remove(stateKey(tabId)).catch(() => {});
   });
 
