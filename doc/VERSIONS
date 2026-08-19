@@ -5,6 +5,7 @@ v1.0.1 (Release Date: TBD)
 --------------------------
 - Aligned the supported Chrome version with what opening the side panel actually requires.
 - Stopped work that finishes after its tab was closed from restoring the removed session state.
+- Prevented summaries from starting when their side panel could not be opened.
 
 v1.0.0 (2026-08-16)
 -------------------

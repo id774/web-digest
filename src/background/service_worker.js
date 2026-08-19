@@ -343,6 +343,23 @@ async function runSummary(tabId, titleFromTab) {
   }
 }
 
+export async function openPanelAndRun(
+  tab,
+  sidePanel = chrome.sidePanel,
+  startRun = runSummary,
+) {
+  if (!tab || typeof tab.id !== "number") return;
+  const tabId = tab.id;
+  const configured = sidePanel.setOptions({
+    tabId,
+    path: PANEL_PATH,
+    enabled: true,
+  });
+  const opened = sidePanel.open({ tabId });
+  await Promise.all([configured, opened]);
+  startRun(tabId, tab.title || "");
+}
+
 function registerListeners() {
   // Load bearing: with the behaviour turned on Chrome opens the panel itself
   // and chrome.action.onClicked never fires, so the one click would open a
@@ -354,14 +371,10 @@ function registerListeners() {
   });
 
   // The click is the reader's explicit request, and it is the only way a run
-  // begins. sidePanel.open() requires a user gesture, so the panel is opened
-  // before anything is awaited.
+  // begins. sidePanel.open() requires a user gesture, so openPanelAndRun calls
+  // it before awaiting either panel operation.
   chrome.action.onClicked.addListener((tab) => {
-    if (!tab || typeof tab.id !== "number") return;
-    const tabId = tab.id;
-    chrome.sidePanel.setOptions({ tabId, path: PANEL_PATH, enabled: true });
-    chrome.sidePanel.open({ tabId });
-    runSummary(tabId, tab.title || "");
+    openPanelAndRun(tab).catch(() => {});
   });
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
