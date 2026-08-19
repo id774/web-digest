@@ -11,6 +11,7 @@ import {
   invalidateRun,
   isCurrentRun,
   isValidExtractResult,
+  openPanelAndRun,
   runningState,
   releaseRun,
   startDiscard,
@@ -192,9 +193,50 @@ test("the toolbar action is the only normal run trigger", async () => {
     new URL("../src/background/service_worker.js", import.meta.url),
     "utf8",
   );
-  assert.equal(worker.match(/runSummary\(/g)?.length, 2);
+  assert.equal(worker.match(/runSummary\(/g)?.length, 1);
+  assert.equal(worker.match(/openPanelAndRun\(/g)?.length, 2);
   assert.match(worker, /chrome\.action\.onClicked\.addListener/);
   assert.doesNotMatch(worker, /message\.type === MessageType\.RUN/);
+});
+
+test("a run starts only after its side panel opens", async () => {
+  const events = [];
+  const sidePanel = {
+    async setOptions(options) {
+      events.push(["configured", options]);
+    },
+    async open(options) {
+      events.push(["opened", options]);
+    },
+  };
+
+  await openPanelAndRun({ id: 31, title: "A title" }, sidePanel, (id, title) => {
+    events.push(["started", { id, title }]);
+  });
+
+  assert.deepEqual(events, [
+    ["configured", { tabId: 31, path: "src/panel/panel.html", enabled: true }],
+    ["opened", { tabId: 31 }],
+    ["started", { id: 31, title: "A title" }],
+  ]);
+});
+
+test("a run does not start when its side panel cannot open", async () => {
+  let started = false;
+  const sidePanel = {
+    async setOptions() {},
+    async open() {
+      throw new Error("panel unavailable");
+    },
+  };
+
+  await assert.rejects(
+    openPanelAndRun({ id: 32, title: "A title" }, sidePanel, () => {
+      started = true;
+    }),
+    /panel unavailable/,
+  );
+  assert.equal(started, false);
 });
 
 test("a normal page uses one page request", async () => {
