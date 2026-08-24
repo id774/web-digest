@@ -101,7 +101,9 @@ Once you have a token, enter it as described below.
 
 ## Configuration
 
-Two settings, and that is the whole of them. Both are held in `chrome.storage.local`, in your own Chrome profile.
+The configurable settings are listed below. Their storage keys and model
+default are defined in `src/common/settings.js`, and the stored values live
+in `chrome.storage.local` in your own Chrome profile.
 
 | Setting | Required | Default | What it decides |
 | --- | :---: | --- | --- |
@@ -203,7 +205,7 @@ How a summary is written is decided by `prompts/summarize.md`, outside the code.
 - **No page text and no summary is written to disk.** The result of the last run is held in session storage, per tab, and is gone when the browser closes, when the tab closes, or when the tab navigates elsewhere.
 - **The token reaches one origin**, as one header, and no other.
 
-The permissions are the smallest set that allows this: `activeTab` for the tab you acted on and no longer, `scripting` to read it once, `storage` for the two settings and the state of the last run, `sidePanel` for the display, and one host permission naming the Sakura AI Engine origin. There is no host permission for any site you visit, so a request to anywhere else is refused by Chrome rather than by this design being obeyed.
+The permissions are the smallest set that allows this: `activeTab` for the tab you acted on and no longer, `scripting` to read it once, `storage` for the extension settings and the state of the last run, `sidePanel` for the display, and one host permission naming the Sakura AI Engine origin. There is no host permission for any site you visit, so a request to anywhere else is refused by Chrome rather than by this design being obeyed.
 
 ## When something fails
 
