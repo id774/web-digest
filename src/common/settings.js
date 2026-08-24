@@ -1,7 +1,8 @@
-// The two settings, their storage keys, and the model default.
+// Extension settings, their storage keys, and the model default.
 //
-// Both live in chrome.storage.local, in the reader's own profile. Nothing else
-// in the extension names a storage key, and nothing else names a model.
+// Stored settings live in chrome.storage.local, in the reader's own profile.
+// Nothing else in the extension names a storage key, and nothing else names
+// a model.
 
 export const STORAGE_KEY_TOKEN = "apiToken";
 export const STORAGE_KEY_MODEL = "model";
