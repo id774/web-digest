@@ -45,6 +45,19 @@
 
       <p id="status" class="status"></p>
 
+      <section class="field">
+        <label class="checkbox-label" for="japanese-summary">
+          <input id="japanese-summary" type="checkbox" />
+          Summarize in Japanese
+        </label>
+        <p class="note">
+          Disabled: the summary is written in the page's own language.
+          Enabled: the summary is written in Japanese, regardless of the
+          page's language. Saved on its own, without re-entering the token.
+        </p>
+        <p id="japanese-summary-status" class="status"></p>
+      </section>
+
       <p class="note">
         The token is kept in this browser profile's extension storage, and is
         sent as the authorization of one request to the Sakura AI Engine and to

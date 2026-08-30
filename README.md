@@ -48,6 +48,7 @@ the summary is shown in the side panel, beside the page
 - **Only the page you asked about**: nothing runs until you click, no page is read because it happened to be open, and no run starts on a navigation or on a schedule
 - **Substance kept, redundancy dropped**: the central claim, the causal relations that matter, the conclusion and the conditions that qualify it survive the summary
 - **No target length**: the length that results from removing the redundancy of a particular page is the length that page gets
+- **Optional Japanese summary output**: off by default, the summary is written in the page's own language; turn on **Summarize in Japanese** in settings to have it written in Japanese instead, regardless of the page's language
 - **The Sakura AI Engine does the summarizing**: the extension prepares the material, asks for the summary and displays what comes back
 - **Bring your own key**: your own API token is used, and this project holds none and supplies none
 - **No backend of its own**: there is no server belonging to this project anywhere in the design
@@ -109,6 +110,7 @@ in `chrome.storage.local` in your own Chrome profile.
 | --- | :---: | --- | --- |
 | API token | yes | — | The Sakura AI Engine credential the request is made with. |
 | Model | no | a name recorded in `src/common/settings.js` | Which model the AI Engine summarizes with. |
+| Summarize in Japanese | no | off | Off: the summary is written in the page's own language. On: the summary is written in Japanese, regardless of the page's language. |
 
 ### First-time setup
 
@@ -136,6 +138,7 @@ The settings page carries:
 - **Model**, a text field, prefilled with the stored value. Leaving it empty means the default.
 - **Save**, which validates both fields locally and writes them. A token is refused when it is empty or contains a space or a line break; a model name is refused when it contains a space. **Nothing is checked by contacting the AI Engine** — a token that does not work is discovered by the first run that uses it.
 - **Delete token**, which removes the token and leaves the model alone. Saving with an empty token field is refused rather than treated as a deletion, so an accidental save cannot clear a working token.
+- **Summarize in Japanese**, a checkbox reflecting the stored preference. Changing it saves that preference on its own, immediately, independently of **Save** — it never requires the token to be re-entered.
 
 The endpoint, the timeout, the size budget and the summarization prompt are design constants and resources rather than settings. None of them is something a reader has the information to choose, and each one exposed would be a second decision on a path that is meant to stay at one.
 
@@ -194,6 +197,8 @@ What is reduced, where it is not itself the substance: repetition of the same co
 
 Nothing is added that the page does not carry — no fact, no conclusion and no evaluation. The text of the page is material, never instruction: a sentence inside a page that addresses a model is part of the text being summarized.
 
+**By default, the summary is written in the language of the page.** Turning on **Summarize in Japanese** in settings writes the summary in Japanese instead, directly, regardless of the page's language — the page is never first summarized in its own language and then translated. The preference is read once when a run starts and used for that whole run, so a long page's chunk summaries and its integrated summary always share the same output language. This is not a standalone translator: there is no separate translation result, and nothing but the summary's own language changes.
+
 How a summary is written is decided by `prompts/summarize.md`, outside the code. Improving the summaries is editing that file.
 
 ## Privacy
@@ -240,7 +245,7 @@ For the most common problems:
 
 ## Not built
 
-Deliberately absent from the initial version, and not prepared for anywhere in the design: publication on the Chrome Web Store; official support for Firefox, Safari or Edge; a backend server belonging to this project; user accounts; billing; a shared API token supplied to readers; collecting browsing history; storing summaries in the cloud; summarizing across several pages; web crawling; summarizing on a schedule; retrieval-augmented generation; a vector database; integration with web search; fact checking; judging whether a page is good, correct or machine-generated; translation; a choice of several summarization modes; and a large body of site-specific implementations.
+Deliberately absent from the initial version, and not prepared for anywhere in the design: publication on the Chrome Web Store; official support for Firefox, Safari or Edge; a backend server belonging to this project; user accounts; billing; a shared API token supplied to readers; collecting browsing history; storing summaries in the cloud; summarizing across several pages; web crawling; summarizing on a schedule; retrieval-augmented generation; a vector database; integration with web search; fact checking; judging whether a page is good, correct or machine-generated; a standalone translator, as distinct from the summary's own output-language setting; a choice of several summarization modes; and a large body of site-specific implementations.
 
 None of these is a gap to be filled later. Should one become necessary, the requirements change first and the design follows.
 
@@ -257,7 +262,7 @@ None of these is a gap to be filled later. Should one become necessary, the requ
 │   ├── shape/                  blocks in, the material to summarize out
 │   ├── engine/                 the only module that speaks to the AI Engine
 │   ├── panel/                  the side panel document: the state and the result
-│   ├── options/                the settings document: the token and the model
+│   ├── options/                the settings document: the token, the model and the Japanese summary preference
 │   └── common/                 the settings accessor, the error kinds, the message names
 └── doc/                        the requirements and the designs
 ```

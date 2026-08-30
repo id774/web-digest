@@ -153,8 +153,9 @@ what to display and displays it.
 
 ### 5.4 The options page
 
-The token and the model, and nothing else (§13). It is opened from the panel and
-from Chrome's extension list, and it is the only place a token is entered.
+The token, the model, and the Japanese summary preference, and nothing else
+(§13). It is opened from the panel and from Chrome's extension list, and it is
+the only place a token is entered.
 
 ## 6. Permissions
 
@@ -164,7 +165,7 @@ Least privilege, and each entry earns its place:
 |---|---|
 | `activeTab` | the right to read the tab the reader acted on, granted by that click and lasting no longer |
 | `scripting` | to inject the extraction pass once, on request |
-| `storage` | the token and the model in the profile; the state of the last run for the session |
+| `storage` | the token, the model and the Japanese summary preference in the profile; the state of the last run for the session |
 | `sidePanel` | to show the result beside the page it came from |
 
 | Host permission | Why it is needed |
@@ -393,6 +394,10 @@ One instruction, carrying these principles:
   addresses a model is part of the text being summarized.
 - **The answer is the summary.** No preamble, no account of how it was produced,
   no closing remark.
+- **The output language follows a per-run preference.** By default the summary
+  is written in the page's own language; with the Japanese summary preference
+  on (§13), it is written in Japanese instead, directly, and not by writing it
+  in the page's language first and translating that draft.
 
 ### 10.2 The page kinds are guidance, not a classification step
 
@@ -408,7 +413,9 @@ have to get wrong.
 Two parts, and the boundary between them is explicit:
 
 ```text
-  instruction   the prompt resource, unchanged, run after run
+  instruction   the prompt resource, plus the one-line output-language
+                control fixed for the run (§13), unchanged for every
+                request the run makes
   material      the title and the shaped body, clearly delimited
                 and labelled as the text to be summarized
 ```
@@ -521,6 +528,7 @@ of this design.
 |---|---|---|
 | the Sakura AI Engine API token | `storage.local` | entered by the reader; no default |
 | the model | `storage.local` | a documented default, so a reader who sets only a token can run |
+| the Japanese summary preference | `storage.local` | a boolean, off by default; saved independently of the token and the model |
 
 **That is the whole of the settings.** The endpoint, the timeout, the size
 budget, the minimum length and the prompt are design constants and resources,
@@ -666,7 +674,11 @@ Requirement §23 lists what the initial version excludes, and **none of it is
 prepared for here.** In particular this design has no seam kept open for a
 backend, no account model waiting to be filled in, no storage schema for a
 summary history, no retrieval or embedding stage, no scheduling, no
-cross-page state, no translation path and no second summarization mode.
+cross-page state, no standalone translation path, and no second
+summarization mode. The Japanese summary preference (§13) is not an
+exception to the last two: it adds no translation result separate from the
+summary, and no mode besides the one summarization instruction the design
+already has — it only fixes which language that one instruction writes in.
 
 Where a decision above could have left room for one of those and chose not to —
 the single origin in §6, the refusal rather than truncation in §9.3, the session
@@ -689,6 +701,6 @@ state in §14 — that is the reason.
 | §17 the state of a run | the four states and their home in §14 |
 | §18 errors, distinguishable | the table in §17 |
 | §19 maintainability | four modules with one direction of dependency, §2 and §4; the prompt as a resource, §10 |
-| §20 simplicity | one action, §7.2; two settings, §13; no build step, §4 |
+| §20 simplicity | one action, §7.2; three settings, §13; no build step, §4 |
 | §23 out of scope | §19 |
 | §24 acceptance conditions | conditions 1–3 by §4–§7, 4 by §2 and §5.2, 5 by §8, 6–7 by §10 and §11, 8 by §7.3, 9 by §14, 10 by §17, 11–12 by §12 and §16, 13 by the README work that requirement §21.1 records |

@@ -1,6 +1,11 @@
 web-digest Repository Version History
 =====================================
 
+v1.0.2 (Release Date: TBD)
+--------------------------
+- Added an opt-in "Summarize in Japanese" setting; off by default, the summary keeps
+  using the page's own language as before.
+
 v1.0.1 (2026-08-26)
 -------------------
 - Aligned the supported Chrome version with what opening the side panel actually requires.

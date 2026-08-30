@@ -6,6 +6,7 @@
 
 export const STORAGE_KEY_TOKEN = "apiToken";
 export const STORAGE_KEY_MODEL = "model";
+export const STORAGE_KEY_JAPANESE_SUMMARY = "japaneseSummary";
 
 // A name from the Sakura AI Engine's own published list of models, confirmed
 // against that list when this constant was written. It is the one place a
@@ -26,15 +27,26 @@ export function resolveModel(value) {
     : DEFAULT_MODEL;
 }
 
+// Japanese summary output is on only when the stored value is the boolean
+// true. Absent, malformed, or any other stored value resolves to off, so a
+// profile upgraded from an earlier version keeps its current behavior.
+export function resolveJapaneseSummary(value) {
+  return value === true;
+}
+
 export async function readSettings() {
   const stored = await chrome.storage.local.get([
     STORAGE_KEY_TOKEN,
     STORAGE_KEY_MODEL,
+    STORAGE_KEY_JAPANESE_SUMMARY,
   ]);
   const token = stored[STORAGE_KEY_TOKEN];
   return {
     token: isTokenSet(token) ? token.trim() : "",
     model: resolveModel(stored[STORAGE_KEY_MODEL]),
+    japaneseSummary: resolveJapaneseSummary(
+      stored[STORAGE_KEY_JAPANESE_SUMMARY],
+    ),
   };
 }
 
@@ -51,6 +63,11 @@ export async function readStoredModel() {
   return typeof model === "string" ? model : "";
 }
 
+export async function readJapaneseSummary() {
+  const stored = await chrome.storage.local.get(STORAGE_KEY_JAPANESE_SUMMARY);
+  return resolveJapaneseSummary(stored[STORAGE_KEY_JAPANESE_SUMMARY]);
+}
+
 export async function saveSettings({ token, model }) {
   await chrome.storage.local.set({
     [STORAGE_KEY_TOKEN]: token,
@@ -60,4 +77,12 @@ export async function saveSettings({ token, model }) {
 
 export async function deleteToken() {
   await chrome.storage.local.remove(STORAGE_KEY_TOKEN);
+}
+
+// Saved on its own, independent of saveSettings, so that turning this
+// preference on or off never requires the token to be re-entered.
+export async function saveJapaneseSummary(value) {
+  await chrome.storage.local.set({
+    [STORAGE_KEY_JAPANESE_SUMMARY]: value === true,
+  });
 }

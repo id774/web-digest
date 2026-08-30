@@ -1,4 +1,5 @@
-// The settings document: the token and the model, and nothing else.
+// The settings document: the token, the model, and the Japanese summary
+// preference, and nothing else.
 //
 // Nothing is validated by contacting the AI Engine. A token that does not work
 // is discovered by the first run that uses it, and reported as an error kind.
@@ -7,7 +8,9 @@ import {
   DEFAULT_MODEL,
   deleteToken,
   hasToken,
+  readJapaneseSummary,
   readStoredModel,
+  saveJapaneseSummary,
   saveSettings,
 } from "../common/settings.js";
 
@@ -45,10 +48,16 @@ function wire() {
     save: document.getElementById("save"),
     remove: document.getElementById("delete"),
     status: document.getElementById("status"),
+    japaneseSummary: document.getElementById("japanese-summary"),
+    japaneseSummaryStatus: document.getElementById("japanese-summary-status"),
   };
 
   function say(text) {
     fields.status.textContent = text;
+  }
+
+  function sayJapaneseSummary(text) {
+    fields.japaneseSummaryStatus.textContent = text;
   }
 
   async function refreshTokenStatus() {
@@ -63,6 +72,7 @@ function wire() {
     fields.token.value = "";
     fields.model.placeholder = DEFAULT_MODEL;
     fields.model.value = await readStoredModel();
+    fields.japaneseSummary.checked = await readJapaneseSummary();
     await refreshTokenStatus();
   }
 
@@ -88,6 +98,13 @@ function wire() {
     fields.token.value = "";
     await refreshTokenStatus();
     say("The token was deleted.");
+  });
+
+  // Independent of Save above: changing this preference neither requires nor
+  // touches the token or the model.
+  fields.japaneseSummary.addEventListener("change", async () => {
+    await saveJapaneseSummary(fields.japaneseSummary.checked);
+    sayJapaneseSummary("Saved.");
   });
 
   load();
