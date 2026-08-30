@@ -542,8 +542,14 @@ that the requirements are incomplete, and that is where it is taken.
   nothing from an earlier run.
 
 ### 2.8 Settings and State
-- **The two settings are the token and the model**, and they live in
-  `chrome.storage.local`. Nothing else is a setting.
+- **The three settings are the token, the model, and the Japanese summary
+  preference**, and they live in `chrome.storage.local`. Nothing else is a
+  setting.
+- A boolean preference is saved on its own, independently of the token and the
+  model: changing it neither requires nor performs a token/model save, and
+  saving or deleting the token or the model leaves it untouched. Its absence,
+  or any stored value other than the boolean `true`, resolves to the same
+  behavior as before the preference existed.
 - The endpoint, the timeout, the size budget, the minimum length and the prompt
   are design constants and resources, not settings: none is something a reader
   has the information to choose, and each one exposed would be a second decision
@@ -562,8 +568,11 @@ that the requirements are incomplete, and that is where it is taken.
   keeps, what it drops, how long it is or how it reads belongs there, not in a
   branch in JavaScript, unless the rule is mechanical and cannot be expressed as
   an instruction.
-- The prompt is substituted into nothing and formats nothing: the instruction
-  reaches the request unchanged.
+- The prompt is substituted into nothing and formats nothing. What the request
+  carries as the instruction is the prompt text plus one short, fixed
+  run-level control line naming the output-language mode; the prompt's own
+  wording reaches the request unchanged, and that control line is the only
+  thing composed with it.
 - A prompt resource that cannot be read ends the run as a failure. No built-in
   text stands in for it, because a summary written by a fallback prompt would be
   indistinguishable from one written by the intended prompt.
@@ -609,10 +618,11 @@ that the requirements are incomplete, and that is where it is taken.
     mapping of a failure to an error kind. Nothing else knows any of them.
   - **The panel** renders the state. It decides nothing, holds no setting and no
     token, performs no extraction and makes no request to the AI Engine.
-  - **The options page** reads and writes the two settings, and nothing else.
-  - **The common modules** hold the storage keys and the model default, the
-    error kinds and their messages, and the message names. They import nothing
-    of their own.
+  - **The options page** reads and writes the three settings, and nothing
+    else.
+  - **The common modules** hold the storage keys, the model default and the
+    Japanese summary resolver, the error kinds and their messages, and the
+    message names. They import nothing of their own.
 - A new responsibility goes to the part that owns it. Where it appears to belong
   to two, the boundary is wrong and is corrected, rather than the code being
   written across it.

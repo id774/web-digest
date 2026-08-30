@@ -68,3 +68,11 @@ body {
   margin: 0 0 20px;
   min-height: 1.7em;
 }
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  cursor: pointer;
+}

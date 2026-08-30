@@ -78,8 +78,9 @@ in terms of the content, and what is removed is stated in terms of redundancy.
 - **Not a fact checker.** It reports what the page says. Whether the page is
   correct, whether it is worth reading, and whether it was written by a machine
   are not questions this project answers.
-- **Not a translator.** Rendering a page into another language is a different
-  job from compressing it.
+- **Not a translator.** Rendering a page into another language, as a job in
+  itself, is different from compressing it. Choosing the language the summary
+  itself is written in is not that job.
 - **Not a hosted service.** There is no server belonging to this project, no
   account, and no shared credential.
 
@@ -423,7 +424,7 @@ comes from another project, and no document here is completed by one.
 - fact checking the content of a page,
 - automatically judging whether a page is good, correct or worth reading,
 - judging whether a page is machine-generated slop,
-- translation,
+- a standalone translator, as distinct from the summary's own output language,
 - a choice of several summarization modes,
 - a large body of site-specific implementations.
 

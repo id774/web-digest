@@ -1,11 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { readFile } from "node:fs/promises";
+
 import {
   DEFAULT_MODEL,
+  STORAGE_KEY_JAPANESE_SUMMARY,
   STORAGE_KEY_MODEL,
   STORAGE_KEY_TOKEN,
   isTokenSet,
+  resolveJapaneseSummary,
   resolveModel,
 } from "../src/common/settings.js";
 import { validateModel, validateToken } from "../src/options/options.js";
@@ -41,6 +45,43 @@ test("the model name lives in one place", () => {
 test("the storage keys are the ones the design fixed", () => {
   assert.equal(STORAGE_KEY_TOKEN, "apiToken");
   assert.equal(STORAGE_KEY_MODEL, "model");
+  assert.equal(STORAGE_KEY_JAPANESE_SUMMARY, "japaneseSummary");
+});
+
+test("Japanese summary is off unless the stored value is exactly true", () => {
+  assert.equal(resolveJapaneseSummary(true), true);
+  assert.equal(resolveJapaneseSummary(false), false);
+  assert.equal(resolveJapaneseSummary(undefined), false);
+  assert.equal(resolveJapaneseSummary(null), false);
+  assert.equal(resolveJapaneseSummary("true"), false);
+  assert.equal(resolveJapaneseSummary(1), false);
+  assert.equal(resolveJapaneseSummary({}), false);
+});
+
+test("saving or deleting the token never touches the Japanese summary preference", async () => {
+  const source = await readFile(
+    new URL("../src/common/settings.js", import.meta.url),
+    "utf8",
+  );
+  const saveSettingsBody = source.match(
+    /export async function saveSettings\([^)]*\) \{([\s\S]*?)\n\}/,
+  );
+  const deleteTokenBody = source.match(
+    /export async function deleteToken\(\) \{([\s\S]*?)\n\}/,
+  );
+  assert.ok(saveSettingsBody, "expected to find saveSettings");
+  assert.ok(deleteTokenBody, "expected to find deleteToken");
+  assert.doesNotMatch(saveSettingsBody[1], /STORAGE_KEY_JAPANESE_SUMMARY/);
+  assert.doesNotMatch(deleteTokenBody[1], /STORAGE_KEY_JAPANESE_SUMMARY/);
+});
+
+test("the Japanese summary preference has its own save function", async () => {
+  const source = await readFile(
+    new URL("../src/common/settings.js", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /export async function saveJapaneseSummary\(/);
+  assert.match(source, /export async function readJapaneseSummary\(/);
 });
 
 test("an empty token is refused rather than treated as a deletion", () => {

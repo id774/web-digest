@@ -22,6 +22,19 @@ const KNOWN_KINDS = new Set(BLOCK_KINDS);
 const activeRuns = new Map();
 const pendingDiscards = new Map();
 
+// The two output-language modes `prompts/summarize.md` defines. The mode is
+// fixed once per run and carried by the instruction itself, so page content
+// in the material message can never reach or change it.
+export const LanguageMode = {
+  SOURCE: "source",
+  JAPANESE: "japanese",
+};
+
+export function composeInstruction(baseInstruction, japaneseSummary) {
+  const mode = japaneseSummary ? LanguageMode.JAPANESE : LanguageMode.SOURCE;
+  return `${baseInstruction}\n\nLANGUAGE MODE: ${mode}`;
+}
+
 function stateKey(tabId) {
   return `run:${tabId}`;
 }
@@ -267,7 +280,10 @@ async function runSummary(tabId, titleFromTab) {
 
     let instruction;
     try {
-      instruction = await loadInstruction();
+      instruction = composeInstruction(
+        await loadInstruction(),
+        settings.japaneseSummary,
+      );
     } catch {
       await fail(tabId, run, title, started, ErrorKind.INTERNAL_ERROR);
       return;
