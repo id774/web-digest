@@ -923,11 +923,12 @@ normalized result of §11.5.
   of every `message` item in `data.output`, or the convenience `data
   .output_text` field when the answer carries one, trimmed. No usable text is
   `no-usable-summary`.
-- **Claude**: when `data.stop_reason` is `"max_tokens"`, the answer ended at
-  the protocol output ceiling rather than completing normally, and is not
-  shown as a summary — a cut-off fragment is worse than being told the run
-  failed. The summary is otherwise the concatenation of every `text` block's
-  `text` in `data.content`, trimmed. No text block, or only empty ones, is
+- **Claude**: when `data.stop_reason` is `"max_tokens"` or
+  `"model_context_window_exceeded"`, the answer is truncated and is not shown
+  as a summary. When it is `"refusal"`, Claude declined to answer, and that
+  response is likewise not shown as a summary even if it carries text. The
+  summary is otherwise the concatenation of every `text` block's `text` in
+  `data.content`, trimmed. No text block, or only empty ones, is
   `no-usable-summary`.
 
 A body that is not JSON, or JSON without the path an adapter reads, is also

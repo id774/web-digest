@@ -530,13 +530,14 @@ to the one usable summary text, or to no usable summary. For Sakura, that is
 the generated text of the first returned choice. For OpenAI, it is the
 concatenated `output_text` of a `completed` response; an `incomplete` or
 otherwise not-completed response is not shown as a summary. For Claude, it is
-the concatenated text of the answer's text blocks; a response whose
-`stop_reason` shows it was cut off at the output-length ceiling is not shown
-as a summary either. In every case, anything else in the answer is ignored
-rather than interpreted, and an answer that is missing, empty, incomplete, or
-not the documented shape is the same "no usable summary" case of §17. A blank
-panel and a fragment of protocol are both worse than being told the run
-failed.
+the concatenated text of the answer's text blocks; a response with
+`stop_reason` `max_tokens` or `model_context_window_exceeded` is truncated,
+and a response with `stop_reason` `refusal` is a refusal. None of those
+responses is shown as a summary, even if it carries text. In every case,
+anything else in the answer is ignored rather than interpreted, and an
+answer that is missing, empty, incomplete, or not the documented shape is
+the same "no usable summary" case of §17. A blank panel and a fragment of
+protocol are both worse than being told the run failed.
 
 ### 11.4 The normalized result
 

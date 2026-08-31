@@ -77,7 +77,12 @@ export async function changeProvider({
   save = saveProvider,
 }) {
   if (needsPermission(provider)) {
-    const granted = await requestPermission(provider, permissionsApi);
+    let granted;
+    try {
+      granted = await requestPermission(provider, permissionsApi);
+    } catch {
+      return { ok: false, provider };
+    }
     if (!granted) return { ok: false, provider };
   }
   await save(provider);

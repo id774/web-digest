@@ -105,16 +105,23 @@ export function mapHttpFailure(status, data) {
 }
 
 // The concatenation of every text block's text, trimmed, is the summary.
-// A response whose `stop_reason` is `max_tokens` ended at the protocol
-// ceiling rather than completing normally, and is not shown as a summary —
-// a cut-off fragment is worse than being told the run failed. A response
-// with no text block at all, or only empty ones, is the same
-// no-usable-summary case.
+// `max_tokens` and `model_context_window_exceeded` are truncated responses:
+// the answer ended at a ceiling rather than completing normally. `refusal`
+// is Claude declining to answer. None of these is shown as a summary, even
+// if it carries text — a cut-off or declined fragment is worse than being
+// told the run failed. A response with no text block at all, or only empty
+// ones, is the same no-usable-summary case.
+const UNUSABLE_STOP_REASONS = new Set([
+  "max_tokens",
+  "refusal",
+  "model_context_window_exceeded",
+]);
+
 export function readAnswer(data) {
   if (!data || typeof data !== "object") {
     return { ok: false, kind: ErrorKind.NO_USABLE_SUMMARY };
   }
-  if (data.stop_reason === "max_tokens") {
+  if (UNUSABLE_STOP_REASONS.has(data.stop_reason)) {
     return { ok: false, kind: ErrorKind.NO_USABLE_SUMMARY };
   }
   const blocks = Array.isArray(data.content) ? data.content : [];

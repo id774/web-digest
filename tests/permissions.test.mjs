@@ -52,29 +52,14 @@ test("an optional-permission provider is checked with chrome.permissions.contain
   assert.deepEqual(seen, [{ origins: ["https://api.openai.com/*"] }]);
 });
 
-test("requesting does not prompt again once already granted", async () => {
-  let requestCalls = 0;
+test("requesting an optional permission calls chrome.permissions.request directly", async () => {
+  const requestCalls = [];
   const permissionsApi = {
-    contains: async () => true,
-    request: async () => {
-      requestCalls += 1;
-      return true;
+    contains: async () => {
+      throw new Error("must not be called");
     },
-  };
-  const granted = await requestProviderPermission(
-    Provider.ANTHROPIC,
-    permissionsApi,
-  );
-  assert.equal(granted, true);
-  assert.equal(requestCalls, 0);
-});
-
-test("requesting prompts only when not already granted", async () => {
-  let requestCalls = 0;
-  const permissionsApi = {
-    contains: async () => false,
-    request: async () => {
-      requestCalls += 1;
+    request: async (query) => {
+      requestCalls.push(query);
       return true;
     },
   };
@@ -83,7 +68,19 @@ test("requesting prompts only when not already granted", async () => {
     permissionsApi,
   );
   assert.equal(granted, true);
-  assert.equal(requestCalls, 1);
+  assert.equal(requestCalls.length, 1);
+  assert.deepEqual(requestCalls[0], { origins: ["https://api.openai.com/*"] });
+});
+
+test("requesting an optional permission returns false when Chrome denies it", async () => {
+  const permissionsApi = {
+    request: async () => false,
+  };
+  const granted = await requestProviderPermission(
+    Provider.ANTHROPIC,
+    permissionsApi,
+  );
+  assert.equal(granted, false);
 });
 
 test("changeProvider saves the provider once permission is granted", async () => {
@@ -128,4 +125,19 @@ test("changeProvider never requests a permission for Sakura", async () => {
   assert.deepEqual(result, { ok: true, provider: Provider.SAKURA });
   assert.equal(requestCalls, 0);
   assert.equal(saved, Provider.SAKURA);
+});
+
+test("changeProvider treats a rejected permission request as a denial", async () => {
+  let saveCalls = 0;
+  const result = await changeProvider({
+    provider: Provider.OPENAI,
+    requestPermission: async () => {
+      throw new Error("permissions.request rejected");
+    },
+    save: async () => {
+      saveCalls += 1;
+    },
+  });
+  assert.deepEqual(result, { ok: false, provider: Provider.OPENAI });
+  assert.equal(saveCalls, 0);
 });
