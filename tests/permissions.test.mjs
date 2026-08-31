@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 import {
   PROVIDER_HOST_PERMISSION,
@@ -140,4 +141,47 @@ test("changeProvider treats a rejected permission request as a denial", async ()
   });
   assert.deepEqual(result, { ok: false, provider: Provider.OPENAI });
   assert.equal(saveCalls, 0);
+});
+
+test("the options page exposes an explicit optional-permission restore action", async () => {
+  const html = await readFile(
+    new URL("../src/options/options.html", import.meta.url),
+    "utf8",
+  );
+  const script = await readFile(
+    new URL("../src/options/options.js", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(html, /id="grant-permission"/);
+  assert.ok(html.includes("Grant or restore permission"));
+
+  assert.ok(
+    script.includes(
+      'grantPermission: document.getElementById("grant-permission")',
+    ),
+  );
+  assert.ok(
+    script.includes(
+      "fields.grantPermission.hidden = !needsOptionalPermission(provider)",
+    ),
+  );
+
+  const handlerStart = script.indexOf(
+    'fields.grantPermission.addEventListener("click"',
+  );
+  assert.notEqual(handlerStart, -1);
+  const handlerEnd = script.indexOf("});", handlerStart);
+  assert.notEqual(handlerEnd, -1);
+  const handlerBody = script.slice(handlerStart, handlerEnd);
+
+  assert.ok(handlerBody.includes("requestProviderPermission(currentProvider)"));
+  for (const forbidden of [
+    "saveProvider(",
+    "saveProviderSettings(",
+    "fields.provider.value =",
+    "currentProvider =",
+  ]) {
+    assert.equal(handlerBody.includes(forbidden), false);
+  }
 });

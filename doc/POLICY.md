@@ -468,9 +468,12 @@ that the requirements are incomplete, and that is where it is taken.
   _permissions` (required, always present); OpenAI's and Claude's are
   `optional_host_permissions`.
 - **An optional host permission is requested only from the reader's own
-  action in the options page**, when they select that provider, never from a
-  run and never speculatively. A denied request leaves the previously
-  selected provider in place and touches no stored credential or model.
+  action in the options page**, never from a run and never speculatively:
+  either when they select OpenAI or Claude as the provider, or, for whichever
+  of the two is currently selected, by choosing `Grant or restore permission`
+  there. A denial or a rejected request leaves the currently selected
+  provider in place and touches no stored credential or model; there is no
+  fallback.
 - **No host permission for the sites the reader visits.** Access to a page comes
   from `activeTab`, granted by the reader's click and lasting no longer.
 - **No `tabs`, `history`, `webNavigation`, `bookmarks` or `alarms`.** Each would

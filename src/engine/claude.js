@@ -7,8 +7,9 @@
 // This uses Anthropic's native Messages API, never an OpenAI-compatible
 // endpoint or a compatibility layer. No tool, no web search or fetch, no
 // prompt caching, no service tier selection, no sampling tuning and no
-// streaming is used. Adaptive thinking is explicitly disabled, so the output
-// budget for a summary is never spent on thinking.
+// streaming is used. No model-specific thinking configuration is sent: the
+// selected model uses whichever thinking default Anthropic has defined for
+// it, and this adapter never branches its behaviour on the model name.
 
 import { ErrorKind, ProviderErrorDetail } from "../common/errors.js";
 import { sendRequest, REQUEST_TIMEOUT_MS } from "./transport.js";
@@ -18,9 +19,10 @@ export const ANTHROPIC_VERSION = "2023-06-01";
 
 // The Messages API requires `max_tokens`. 32768 is a hard protocol ceiling on
 // the length of one answer, not a summary target length and not a setting: no
-// reader has the information to choose it. Thinking is disabled, so this
-// budget is not shared with thinking, and the prompt's own "no target length"
-// instruction is what actually governs how long a summary is.
+// reader has the information to choose it. If the selected model uses
+// thinking, thinking and the response text can share this ceiling. The
+// prompt's own "no target length" instruction is what actually governs how
+// long a summary is.
 export const MAX_OUTPUT_TOKENS = 32768;
 
 // Matched, not parsed. An endpoint that words its refusal differently falls
@@ -51,7 +53,6 @@ export function buildRequest({ model, instruction, content, credential }) {
       model,
       system: instruction,
       max_tokens: MAX_OUTPUT_TOKENS,
-      thinking: { type: "disabled" },
       messages: [{ role: "user", content }],
     }),
   };

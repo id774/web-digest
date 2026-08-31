@@ -46,8 +46,10 @@ The reader is the person using the extension; requirements §6 has only one.
 
 ## 3. Layout and files
 
-The repository is what is loaded in developer mode, so the layout below is both
-the source tree and the extension (basic design §4).
+The repository root is what Chrome loads in developer mode. The layout below is
+the architectural view relevant to this design: it shows the runtime and design
+files and their responsibility boundaries, not an exhaustive repository file
+listing (basic design §4).
 
 ```text
 .
@@ -87,12 +89,11 @@ the source tree and the extension (basic design §4).
         └── messages.js
 ```
 
-Eighteen files. **The count is deliberate**: the four concerns requirement
-§19 asks to keep apart get their own file or files — the engine concern now
-being one dispatcher, one shared transport helper and one adapter per
-supported provider rather than one file, since three protocols cannot
-honestly be one module — the two documents get the three files a document
-needs, and nothing else is split because it could be.
+The split is deliberate: extraction, shaping, provider communication, display,
+settings and shared contracts remain separate. The provider client is one
+dispatcher, one shared transport helper and one adapter per provider. Tests,
+icons, package metadata, policy, version history and licence files remain part
+of the repository but are outside this architectural view.
 
 ### 3.1 What each file is
 
@@ -116,7 +117,7 @@ needs, and nothing else is split because it could be.
 | `src/common/settings.js` | the settings accessor | the storage keys, reading, writing, deleting, the unset tests, the provider resolver, the per-provider model default, the Japanese summary resolver (§12, §13, §13.1) | nothing |
 | `src/common/permissions.js` | the permission helper | which providers need an optional host permission, checking it, requesting it (§6, §11.1 of the basic design) | `settings.js` |
 | `src/common/errors.js` | the error kinds | the kind constants and the reader-facing message for each (§18) | nothing |
-| `src/common/messages.js` | the message names | the three message type constants and the shape of each (§16) | nothing |
+| `src/common/messages.js` | the message names | the two message type constants and the shape of each (§16) | nothing |
 | `prompts/summarize.md` | the instruction | what a summary keeps and what it drops (§10) | nothing |
 
 `settings.js`, `permissions.js`, `errors.js` and `messages.js` are the basic
@@ -338,7 +339,8 @@ the summary.
 | Element | Kind | Notes |
 |---|---|---|
 | AI provider | `<select>` | one of `sakura`, `openai`, `anthropic`; changing it may request an optional host permission (§12.2) before the selection is saved |
-| provider status | text | the result of the last provider change, or why it was not made |
+| provider status | text | the result of the last provider change or restore action, or why it was not made |
+| Grant or restore permission | button | visible for OpenAI or Claude; requests that selected provider's optional host permission without changing the provider or any stored credential/model |
 | API credential | `<input type="password">` | for the selected provider; **never prefilled**, whatever is stored |
 | credential status | text | "A credential is configured." or "No credential is configured.", for the selected provider |
 | Model | `<input type="text">` | for the selected provider; the placeholder is that provider's default of §13 |
@@ -375,6 +377,19 @@ touched. If it is granted — or was already granted, in which case
 `chrome.permissions.request` resolves without prompting again — the new
 provider selection is written to `storage.local` only afterward, never
 before.
+
+The `Grant or restore permission` button is a second, independent way to reach
+`requestProviderPermission`, for a permission Chrome has since revoked rather
+than one never granted. It is visible only while the selected provider is
+OpenAI or Claude, and hidden for Sakura. Clicking it calls
+`requestProviderPermission(currentProvider)` directly, without first awaiting
+`chrome.permissions.contains` — the click itself is the user gesture the
+request needs, and checking first would spend it. A grant leaves the selected
+provider unchanged and the provider status line says permission is granted; a
+denial or a rejected request leaves the selected provider unchanged and the
+provider status line says permission was not granted. Neither outcome touches
+any provider's stored credential, model or the Japanese summary preference,
+the provider `<select>`'s value, or `currentProvider`.
 
 The Japanese summary checkbox is outside Save, Delete credential and the
 provider selector entirely: it is read on load and written the moment it
@@ -874,19 +889,19 @@ Content-Type: application/json
   "model": "<the configured model>",
   "system": "<instruction>",
   "max_tokens": 32768,
-  "thinking": { "type": "disabled" },
   "messages": [ { "role": "user", "content": "<content>" } ]
 }
 ```
 
 `max_tokens` is `MAX_OUTPUT_TOKENS`, fixed at 32768 in this adapter (§14). It
 is a hard protocol ceiling, never a reader-facing setting or a target summary
-length. Claude Sonnet 5 enables adaptive thinking when `thinking` is omitted,
-and thinking shares the same `max_tokens` budget with response text, so this
-adapter explicitly sends `thinking: { "type": "disabled" }`. The prompt's own
-"no target length" instruction, not the ceiling, governs how long a summary
-actually is. No `tools`, no web search or fetch, no prompt caching, no service
-tier selection, no sampling parameter, and no `stream` is sent.
+length. This request sends no `thinking` field: the selected model follows
+whichever thinking default Anthropic has documented for it, and where that
+model uses thinking, thinking and the response text can share this one
+ceiling. This adapter never branches its behaviour on the model name. The
+prompt's own "no target length" instruction, not the ceiling, governs how long
+a summary actually is. No `tools`, no web search or fetch, no prompt caching,
+no service tier selection, no sampling parameter, and no `stream` is sent.
 
 No other header beyond what each table above lists is sent by any adapter. No
 `User-Agent` of this project's own, no request id, no telemetry.
@@ -1032,9 +1047,11 @@ hasProviderPermission(provider)         // chrome.permissions.contains; always t
 requestProviderPermission(provider)     // chrome.permissions.request; always true for sakura
 ```
 
-`requestProviderPermission` is called only from the options page, as part of
-the reader's own change of the provider `<select>` (§6.2), and never from a
-run. `hasProviderPermission` is called from the worker at the start of a run
+`requestProviderPermission` is called only from the options page, from either
+of two reader gestures there and never from a run: changing the provider
+`<select>` to OpenAI or Claude (§6.2), or clicking `Grant or restore
+permission` while OpenAI or Claude is the selected provider (§6.2).
+`hasProviderPermission` is called from the worker at the start of a run
 (§22) to check, never to request, an optional-permission provider's
 permission: if it has since been revoked in Chrome's own settings, the run
 ends as `permission-missing` before the page is read (§18), rather than
@@ -1129,7 +1146,7 @@ choose, and each one exposed would be a second decision on a path requirement
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | `openai.js` | the OpenAI origin (§11.2) |
 | `ANTHROPIC_BASE_URL` | `https://api.anthropic.com/v1` | `claude.js` | the Claude (Anthropic) origin (§11.2) |
 | `ANTHROPIC_VERSION` | `2023-06-01` | `claude.js` | the `anthropic-version` header every Claude request sends (§11.2) |
-| `MAX_OUTPUT_TOKENS` | 32768 | `claude.js` | the Messages API's hard output ceiling, not a target summary length; thinking is disabled in the request, so this budget is for the response text (§11.2) |
+| `MAX_OUTPUT_TOKENS` | 32768 | `claude.js` | the Messages API's hard output ceiling, not a target summary length; no model-specific thinking configuration is sent, so where the selected model uses thinking, thinking and the response text can share this budget (§11.2) |
 | `DEFAULT_MODEL` | a name from Sakura's list | `settings.js` | what a reader who set only a Sakura credential runs with (§13) |
 | `OPENAI_DEFAULT_MODEL` | a name from OpenAI's list | `settings.js` | what a reader who set only an OpenAI credential runs with (§13) |
 | `ANTHROPIC_DEFAULT_MODEL` | a name from Anthropic's list | `settings.js` | what a reader who set only a Claude credential runs with (§13) |

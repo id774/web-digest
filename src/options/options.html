@@ -17,6 +17,16 @@
           <option value="anthropic">Claude</option>
         </select>
         <p id="provider-status" class="note"></p>
+        <div class="controls">
+          <button
+            id="grant-permission"
+            class="secondary"
+            type="button"
+            hidden
+          >
+            Grant or restore permission
+          </button>
+        </div>
       </section>
 
       <section class="field">
@@ -84,7 +94,11 @@
       <p id="permission-note" class="note">
         OpenAI and Claude each need a browser permission for their own API
         origin before they can be used. Selecting either one asks for that
-        permission if it has not already been granted.
+        permission if it has not already been granted. If that permission is
+        later removed or revoked in Chrome, use
+        <strong>Grant or restore permission</strong>, above, to request it
+        again without changing the selected provider. Sakura AI Engine's
+        permission is required, so it needs no such control.
       </p>
     </main>
 

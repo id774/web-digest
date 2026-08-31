@@ -176,7 +176,11 @@ The provider, its credential and its model, and the Japanese summary
 preference, and nothing else (§13). It is opened from the panel and from
 Chrome's extension list, and it is the only place a credential is entered.
 Selecting a provider whose host permission is optional (OpenAI, Claude) asks
-Chrome's own permission prompt from here, before the selection is saved.
+Chrome's own permission prompt from here, before the selection is saved. When
+OpenAI or Claude is the selected provider, the page also offers a
+`Grant or restore permission` action that requests that same permission again
+directly, without changing the provider selection, so a permission later
+revoked in Chrome can be restored from the reader's own action here.
 
 ## 6. Permissions
 
@@ -196,10 +200,14 @@ Least privilege, and each entry earns its place:
 | the Claude (Anthropic) API origin | optional | requested only when the reader selects Claude in settings |
 
 An optional host permission is requested only from the reader's own action in
-the options page, never when a run starts. A denied request leaves the
-previous provider selected; a permission later revoked in Chrome's own
-settings fails the next run for that provider, before the page is read,
-rather than falling back to another provider (§17).
+the options page, never when a run starts: either by selecting OpenAI or
+Claude as the provider, or, for whichever of the two is currently selected,
+by choosing the options page's `Grant or restore permission` action. A denied
+request leaves the previous provider selected; a permission later revoked in
+Chrome's own settings fails the next run for that provider, before the page
+is read, rather than falling back to another provider (§17), and can be
+requested again through that same restore action without changing the
+provider, its credential or its model.
 
 **What is deliberately absent matters as much as what is present.**
 
@@ -517,13 +525,14 @@ dispatcher ever parses a provider's own response format.
 - **The OpenAI request always carries `store: false`.** No tool, no web or
   file search, no conversation state, and no `previous_response_id` is used by
   any adapter.
-- **The Claude request carries `max_tokens: 32768` and explicitly disables
-  adaptive thinking with `thinking: { type: "disabled" }`.** The token value is
-  a hard protocol ceiling, not a target length and not a setting. With thinking
-  disabled, that output budget is available to the summary text rather than
-  being shared with internal reasoning. The prompt's own "no target length"
-  instruction (§10.1), not this ceiling, governs how long a summary actually
-  is.
+- **The Claude request carries `max_tokens: 32768` and sends no `thinking`
+  configuration.** The token value is a hard protocol ceiling, not a target
+  length and not a setting. The selected Claude model follows whichever
+  thinking default Anthropic has defined for it; where that model uses
+  thinking, thinking and the summary text can share this one ceiling. This
+  adapter never branches its behaviour on the model name. The prompt's own
+  "no target length" instruction (§10.1), not this ceiling, governs how long a
+  summary actually is.
 
 ### 11.3 The answer
 
