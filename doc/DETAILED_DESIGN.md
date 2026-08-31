@@ -620,8 +620,10 @@ message, as basic design §17 has them.
 ### 9.2 Long material
 
 `charCount > MAX_REQUEST_MATERIAL_CHARS` selects staged summarization rather
-than ending the run. The 40,000-character budget is conservative, reserves
-space for the prompt and response, and does not equate characters with tokens.
+than ending the run. The 200,000-character budget intentionally lets large
+material stay on the one-request path. It is counted in characters because
+shaping has no provider-specific tokenizer and does not equate characters with
+tokens.
 
 The splitter keeps the ordered shaped blocks. It prefers level 2 heading
 boundaries, then lower headings, then paragraph, list, quote, code and table
@@ -1147,7 +1149,7 @@ choose, and each one exposed would be a second decision on a path requirement
 | `LINK_DENSITY_MAX` | 0.7 | `extract.js` | when a block is a list of links rather than prose (§7.2) |
 | `DEDUPE_MIN_CHARS` | 8 | `shape.js` | the shortest block that repetition removal applies to (§8.3) |
 | `MIN_MATERIAL_CHARS` | 200 | `shape.js` | below which a page has too little text (§9.1) |
-| `MAX_REQUEST_MATERIAL_CHARS` | 40000 | `shape.js` | the conservative material budget for one request (§9.2) |
+| `MAX_REQUEST_MATERIAL_CHARS` | 200000 | `shape.js` | the material budget for one request (§9.2) |
 | `REQUEST_TIMEOUT_MS` | 120000 | `transport.js` | one bounded wait for the whole request, shared by every adapter (§11.3) |
 | `SAKURA_BASE_URL` | `https://api.ai.sakura.ad.jp/v1` | `sakura.js` | the Sakura AI Engine origin (§11.2) |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | `openai.js` | the OpenAI origin (§11.2) |
@@ -1159,9 +1161,9 @@ choose, and each one exposed would be a second decision on a path requirement
 | `ANTHROPIC_DEFAULT_MODEL` | a name from Anthropic's list | `settings.js` | what a reader who set only a Claude credential runs with (§13) |
 
 Three values are worth their reasons. `MAX_REQUEST_MATERIAL_CHARS` is counted
-in characters because shaping has no model-specific tokenizer. Its 40,000
-characters conservatively leave room for the prompt and response without
-assuming that a character equals a token. `REQUEST_TIMEOUT_MS` is two minutes
+in characters because shaping has no model-specific tokenizer. Its 200000
+characters are the one budget that lets large material stay on the one-request
+path, without assuming that a character equals a token. `REQUEST_TIMEOUT_MS` is two minutes
 because a non-streaming semantic-compression request is slow by nature, and a
 shorter limit could turn a succeeding summary into an error — the same reason
 holds for every provider, which is why the three adapters share the one
