@@ -1,8 +1,8 @@
 web-digest Repository Version History
 =====================================
 
-v1.1.0 (Release Date: TBD)
---------------------------
+v1.1.0 (2026-08-31)
+-------------------
 - Added an opt-in "Summarize in Japanese" setting; off by default, summaries
   continue to use the page's own language.
 - Added OpenAI and Claude alongside Sakura AI Engine as selectable AI providers,
