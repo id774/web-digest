@@ -54,12 +54,16 @@ test("max_tokens is the fixed 32768 protocol ceiling", () => {
   const body = JSON.parse(buildRequest(CALL).body);
   assert.equal(MAX_OUTPUT_TOKENS, 32768);
   assert.equal(body.max_tokens, 32768);
-  assert.deepEqual(body.thinking, { type: "disabled" });
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(body, "thinking"),
+    false,
+  );
 });
 
 test("no tool, caching, service tier or stream field is sent", () => {
   const body = JSON.parse(buildRequest(CALL).body);
   for (const field of [
+    "thinking",
     "tools",
     "tool_choice",
     "service_tier",

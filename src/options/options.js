@@ -93,6 +93,7 @@ function wire() {
   const fields = {
     provider: document.getElementById("provider"),
     providerStatus: document.getElementById("provider-status"),
+    grantPermission: document.getElementById("grant-permission"),
     credential: document.getElementById("credential"),
     credentialLabel: document.getElementById("credential-label"),
     credentialStatus: document.getElementById("credential-status"),
@@ -121,6 +122,7 @@ function wire() {
   function applyProviderLabels(provider) {
     fields.credentialLabel.textContent = CREDENTIAL_LABEL[provider];
     fields.model.placeholder = DEFAULT_MODEL_FOR[provider];
+    fields.grantPermission.hidden = !needsOptionalPermission(provider);
   }
 
   async function refreshCredentialStatus(provider) {
@@ -158,6 +160,27 @@ function wire() {
     currentProvider = requested;
     await loadProviderFields(currentProvider);
     sayProvider(`Now using ${PROVIDER_LABEL[currentProvider]}.`);
+  });
+
+  // A direct restore path for a permission Chrome revoked after it was
+  // granted: it only requests, never changes the provider, a credential, a
+  // model or the Japanese summary preference.
+  fields.grantPermission.addEventListener("click", async () => {
+    let granted;
+    try {
+      granted = await requestProviderPermission(currentProvider);
+    } catch {
+      granted = false;
+    }
+
+    if (!granted) {
+      sayProvider(
+        `Permission for ${PROVIDER_LABEL[currentProvider]} was not granted.`,
+      );
+      return;
+    }
+
+    sayProvider(`Permission for ${PROVIDER_LABEL[currentProvider]} is granted.`);
   });
 
   fields.save.addEventListener("click", async () => {

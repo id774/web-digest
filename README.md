@@ -173,6 +173,11 @@ The settings page carries:
   its model, every other provider's settings, the provider selection and the Japanese
   summary preference alone. Saving with an empty credential field is refused rather
   than treated as a deletion, so an accidental save cannot clear a working credential.
+- **Grant or restore permission**, visible only when the selected provider is OpenAI
+  or Claude. It requests that provider's optional browser permission directly, without
+  changing the selected provider, its credential, its model or the Japanese summary
+  preference — useful if that permission was later removed or revoked in Chrome.
+  Sakura AI Engine's permission is required, so it does not need this control.
 - **Summarize in Japanese**, a checkbox reflecting the stored preference, shared by
   every provider. Changing it saves that preference on its own, immediately,
   independently of **Save** — it never requires a credential to be re-entered.
@@ -185,7 +190,7 @@ The endpoint, the timeout, the size budget and the summarization prompt are desi
 - **Your credential stays in your own browser profile**, in `chrome.storage.local`, until you delete it, and each provider's credential is stored under its own key, independent of the others.
 - It is used as the value of one authentication header or field, to one origin: the origin of the provider it belongs to, and no other.
 - **It is never sent to a backend belonging to this project**, because there is none. It reaches no log, no error message, no page and no part of the side panel.
-- Sakura AI Engine's host permission is required and is always present. OpenAI's and Claude's host permissions are optional, and Chrome asks for the one you need at the moment you select that provider in settings — never when a run starts, and never for a provider you have not selected.
+- Sakura AI Engine's host permission is required and is always present. OpenAI's and Claude's host permissions are optional, and Chrome asks for the one you need at the moment you select that provider in settings. If that permission is later removed or revoked in Chrome's own settings, use **Grant or restore permission** on the selected OpenAI or Claude provider to request it again — never when a run starts, and never for a provider you have not selected.
 
 One thing this does not promise: a credential held by a browser extension is not a secret kept from the person at the keyboard. Whoever controls the Chrome profile can read extension storage, and no arrangement inside an unpacked extension changes that.
 
@@ -264,9 +269,8 @@ For the most common problems:
 - **The panel says no credential is configured:** Choose **Open settings**, or open the
   extension's options from `chrome://extensions`, and save a credential for the
   selected **AI provider**.
-- **The panel says a browser permission is missing:** Open **Settings** and select
-  OpenAI or Claude again; Chrome's own permission prompt reappears if it is not
-  already granted.
+- **The panel says a browser permission is missing:** Open **Settings** and choose
+  **Grant or restore permission** for the selected OpenAI or Claude provider.
 - **The page cannot be summarized:** Try an ordinary web page. Unusual page
   structures and pages where Chrome does not allow extension scripts — including
   Chrome internal pages — may not be readable.

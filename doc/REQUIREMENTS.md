@@ -86,9 +86,9 @@ in terms of the content, and what is removed is stated in terms of redundancy.
 
 ## 6. Who uses it
 
-One reader, who is also the holder of the API token and the person who installed
-the extension. There are no accounts, no roles and no data shared between
-several people.
+One reader, who is also the holder of the API credential used for a run and the
+person who installed the extension. There are no accounts, no roles and no data
+shared between several people.
 
 The use it is built for is personal reading of long pages: technical articles,
 essays, news, documentation and the like, read one at a time in a browser.
@@ -364,7 +364,10 @@ The reader is told when any of these happens, in terms they can act on:
 - the selected provider could not be reached,
 - the request to the selected provider timed out,
 - the selected provider returned an error, or refused the request,
-- a browser permission the selected provider needs is missing,
+- a browser permission the selected provider needs is missing — the reader can
+  request that permission again directly from settings, for the selected
+  provider, without switching to another provider first; that request is made
+  only from the reader's own explicit action there, never during a run,
 - the content of the page could not be obtained,
 - there is not enough text on the page to summarize,
 - the content is larger than can be processed,
@@ -387,7 +390,7 @@ Four concerns exist in this system, and **none of them is bound more tightly to
 another than it has to be**:
 
 - obtaining the content of the page,
-- communicating with the AI Engine,
+- communicating with the selected AI provider,
 - the summarization prompt,
 - displaying the result.
 
@@ -471,7 +474,7 @@ comes from another project, and no document here is completed by one.
 - a backend server belonging to this project,
 - user accounts,
 - billing,
-- a shared API token supplied to readers,
+- a shared API credential supplied to readers,
 - collecting browsing history,
 - storing summaries in the cloud,
 - summarizing across several pages,
