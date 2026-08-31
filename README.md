@@ -24,7 +24,7 @@
 
 **The task is semantic compression, not shortening.** A summary that is short and has lost the condition a claim depends on has failed; a summary that is long because the page carried little redundancy has not. What the summary keeps is the central claim, the main grounds for it, the causal relations that matter, the conclusion, and the conditions and reservations that could change it. What it removes is repetition, several examples of one proposition, rhetorical elaboration, introductory throat-clearing and digression.
 
-The summarizing is done by the provider you selected in settings, through your own API credential for it. There is no server belonging to this project: nothing is sent anywhere but the one provider you selected, and nothing is collected anywhere at all.
+The summarizing is done by the provider you selected in settings, through your own API credential for it. There is no server belonging to this project: the extracted content and that provider's credential are sent only to the one provider you selected, and this project itself collects nothing.
 
 ```text
 open a page

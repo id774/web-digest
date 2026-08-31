@@ -33,15 +33,19 @@ export async function hasProviderPermission(
   });
 }
 
-// Prompts the reader, through the browser's own permission UI, only when the
-// permission is not already held. Resolves to whether the permission holds
-// afterward, granted just now or already in place.
+// Calls chrome.permissions.request() directly, from within the caller's own
+// user gesture (the provider selector's change event), for OpenAI and Claude.
+// Sakura's permission is required, not optional, so it is never requested.
+// This does not wait on hasProviderPermission() / permissions.contains()
+// first: Chrome itself resolves without a prompt when the permission already
+// holds, and an asynchronous pre-check here would only risk losing the user
+// gesture before request() runs. Checking whether a permission already holds
+// is hasProviderPermission()'s job, at the start of a run.
 export async function requestProviderPermission(
   provider,
   permissionsApi = chrome.permissions,
 ) {
   if (!needsOptionalPermission(provider)) return true;
-  if (await hasProviderPermission(provider, permissionsApi)) return true;
   return await permissionsApi.request({
     origins: [PROVIDER_HOST_PERMISSION[provider]],
   });

@@ -92,11 +92,20 @@ test("several text blocks are concatenated", () => {
   });
 });
 
-test("a response cut off at the output limit is not shown as a summary", () => {
-  assert.deepEqual(readAnswer(textBody("cut short", "max_tokens")), {
-    ok: false,
-    kind: "no-usable-summary",
-  });
+test("a truncated or refused response is not shown as a summary", () => {
+  for (const stopReason of [
+    "max_tokens",
+    "refusal",
+    "model_context_window_exceeded",
+  ]) {
+    assert.deepEqual(
+      readAnswer(textBody("not a usable summary", stopReason)),
+      {
+        ok: false,
+        kind: "no-usable-summary",
+      },
+    );
+  }
 });
 
 test("a response with no text block is no-usable-summary", () => {
