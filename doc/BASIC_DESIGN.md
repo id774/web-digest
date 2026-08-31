@@ -23,11 +23,14 @@ for, not by the functions it will contain, and no code appears here.
 
 Seven decisions shape everything below.
 
-- **Nothing runs until the reader asks.** There is no content script declared in
-  the manifest and no listener on navigation. The extraction pass is injected
-  into a tab at the moment a summary is requested, and the extension has no
-  standing presence in any page. This is the design of requirement §9, not a
-  rule laid over it.
+- **Nothing runs until the reader asks.** There is no content script declared
+  in the manifest, and no listener reads a page or starts a summary on
+  navigation. The extraction pass is injected into a tab at the moment a
+  summary is requested, and the extension has no standing presence in any
+  page. A navigation housekeeping listener does exist, but it only discards
+  the stored state of the tab that is navigating — it reads no page, holds
+  no URL and starts no run (§7.3, §16). This is the design of requirement
+  §9, not a rule laid over it.
 - **One action is the whole interface.** Clicking the toolbar action is the
   request to summarize. Everything else the reader can do — reading the result,
   running it again, choosing a provider and setting its credential — follows
@@ -265,12 +268,19 @@ yet" for the new page, and waits to be asked.
 
 ### 7.3 What the panel shows
 
-| State | What the reader sees |
-|---|---|
-| not run yet | the page's title, and the control that runs a summary |
-| in progress | that a summary is being produced, and that it may take some time |
-| succeeded | the summary, and the control to run it again |
-| failed | what went wrong, in the terms of §17, and the control to try again |
+| State | What the reader sees | Controls |
+|---|---|---|
+| not run yet | no summary has been run for this tab yet | `Settings` |
+| in progress | title when state carries one, and that summarization is in progress | `Settings` |
+| succeeded | title and summary | `Settings` |
+| failed | title when state carries one, and the §17 error message | `Settings`; additionally `Open settings` only for credential-missing or permission-missing |
+
+The panel itself starts and re-runs nothing: the toolbar action (§7.2) is the
+only way a summary begins or begins again. The `Settings` header control is
+available in every phase; `Open settings` is added in the failed phase only
+when the error is `credential-missing` or `permission-missing`, since only
+those two are addressed by a setting. The not-run-yet phase does not fetch or
+show the page's title.
 
 The summary is rendered as text. **No markup from the page and no markup from
 the model is put into the panel's DOM** (§18), and no summary is written to
@@ -727,7 +737,7 @@ promissory:
 
 | Requirement | What makes it true |
 |---|---|
-| a page is read only when a summary is asked for | no declared content script, no navigation listener; injection happens on the click |
+| a page is read only when a summary is asked for | no declared content script; the navigation housekeeping listener reads no page, holds no URL and starts no run — it only discards stored state; injection happens on the click |
 | no page but the target is touched | the run reads one tab, the one `activeTab` was granted for |
 | no browsing history is collected | no `history` or `tabs` permission, and nothing records a URL beyond the state of the run |
 | no page text reaches a server of this project's | there is no such server; the only outbound origins are the three supported providers', one required and two optional, and the dispatcher sends to exactly the one selected |

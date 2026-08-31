@@ -115,6 +115,8 @@ test("the failure mapping table", () => {
     mapHttpFailure(400, { error: { code: "context_length_exceeded" } }).kind,
     "too-much-text",
   );
+  assert.equal(mapHttpFailure(403, null).detail, "unspecified");
+  assert.equal(mapHttpFailure(404, null).detail, "refused");
 });
 
 test("a successful call returns the summary and no credential", async () => {
