@@ -7,9 +7,10 @@
 
 export const DEDUPE_MIN_CHARS = 8;
 export const MIN_MATERIAL_CHARS = 200;
-// Keep room for the instruction and answer, without assuming a model-specific
-// token-to-character ratio.
-export const MAX_REQUEST_MATERIAL_CHARS = 40000;
+// Counted in characters because shaping has no provider-specific tokenizer.
+// Large material stays on the one-request path, and only material past this
+// budget uses the structural chunking below.
+export const MAX_REQUEST_MATERIAL_CHARS = 200000;
 
 export const BLOCK_KINDS = [
   "heading",

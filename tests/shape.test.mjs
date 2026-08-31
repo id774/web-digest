@@ -120,6 +120,7 @@ test("charCount is the title plus the rendered body", () => {
 });
 
 test("the size verdicts sit exactly on their boundaries", () => {
+  assert.equal(MAX_REQUEST_MATERIAL_CHARS, 200000);
   assert.equal(judgeSize(MIN_MATERIAL_CHARS - 1), "too-little-text");
   assert.equal(judgeSize(MIN_MATERIAL_CHARS), "ok");
   assert.equal(judgeSize(MAX_REQUEST_MATERIAL_CHARS), "ok");
