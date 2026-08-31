@@ -873,18 +873,20 @@ Content-Type: application/json
 {
   "model": "<the configured model>",
   "system": "<instruction>",
-  "max_tokens": 8192,
+  "max_tokens": 32768,
+  "thinking": { "type": "disabled" },
   "messages": [ { "role": "user", "content": "<content>" } ]
 }
 ```
 
-`max_tokens` is `MAX_OUTPUT_TOKENS`, a design constant in this adapter (§14):
-the Messages API requires the field, but it is a protocol ceiling on an
-answer's length, never a reader-facing setting — the prompt's own "no target
-length" instruction, not this ceiling, governs how long a summary actually
-is. No `tools`, no web search or fetch, no prompt caching, no service tier
-selection, no sampling parameter, no explicit thinking configuration, and no
-`stream` is sent.
+`max_tokens` is `MAX_OUTPUT_TOKENS`, fixed at 32768 in this adapter (§14). It
+is a hard protocol ceiling, never a reader-facing setting or a target summary
+length. Claude Sonnet 5 enables adaptive thinking when `thinking` is omitted,
+and thinking shares the same `max_tokens` budget with response text, so this
+adapter explicitly sends `thinking: { "type": "disabled" }`. The prompt's own
+"no target length" instruction, not the ceiling, governs how long a summary
+actually is. No `tools`, no web search or fetch, no prompt caching, no service
+tier selection, no sampling parameter, and no `stream` is sent.
 
 No other header beyond what each table above lists is sent by any adapter. No
 `User-Agent` of this project's own, no request id, no telemetry.
@@ -1127,7 +1129,7 @@ choose, and each one exposed would be a second decision on a path requirement
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | `openai.js` | the OpenAI origin (§11.2) |
 | `ANTHROPIC_BASE_URL` | `https://api.anthropic.com/v1` | `claude.js` | the Claude (Anthropic) origin (§11.2) |
 | `ANTHROPIC_VERSION` | `2023-06-01` | `claude.js` | the `anthropic-version` header every Claude request sends (§11.2) |
-| `MAX_OUTPUT_TOKENS` | 8192 | `claude.js` | the Messages API's required `max_tokens` protocol ceiling, not a target length (§11.2) |
+| `MAX_OUTPUT_TOKENS` | 32768 | `claude.js` | the Messages API's hard output ceiling, not a target summary length; thinking is disabled in the request, so this budget is for the response text (§11.2) |
 | `DEFAULT_MODEL` | a name from Sakura's list | `settings.js` | what a reader who set only a Sakura credential runs with (§13) |
 | `OPENAI_DEFAULT_MODEL` | a name from OpenAI's list | `settings.js` | what a reader who set only an OpenAI credential runs with (§13) |
 | `ANTHROPIC_DEFAULT_MODEL` | a name from Anthropic's list | `settings.js` | what a reader who set only a Claude credential runs with (§13) |
