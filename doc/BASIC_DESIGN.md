@@ -517,11 +517,13 @@ dispatcher ever parses a provider's own response format.
 - **The OpenAI request always carries `store: false`.** No tool, no web or
   file search, no conversation state, and no `previous_response_id` is used by
   any adapter.
-- **The Claude request carries a `max_tokens` value.** The Messages API
-  requires one; it is a fixed protocol ceiling on an answer's length, set as a
-  design constant in that adapter, and is not a setting — the prompt's own "no
-  target length" instruction (§10.1), not this ceiling, is what actually
-  governs how long a summary is.
+- **The Claude request carries `max_tokens: 32768` and explicitly disables
+  adaptive thinking with `thinking: { type: "disabled" }`.** The token value is
+  a hard protocol ceiling, not a target length and not a setting. With thinking
+  disabled, that output budget is available to the summary text rather than
+  being shared with internal reasoning. The prompt's own "no target length"
+  instruction (§10.1), not this ceiling, governs how long a summary actually
+  is.
 
 ### 11.3 The answer
 
