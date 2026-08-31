@@ -164,6 +164,19 @@ A service worker can be terminated between events. The state of the last run is
 therefore kept where a restart does not lose it — see §14 — rather than in a
 variable the worker happens to still have.
 
+The worker is ephemeral in the middle of a run as well. A provider request is
+not an extension API call, so a summarization that waits on one can pass
+Chrome's ordinary inactivity window without the worker doing anything Chrome
+counts as activity. While a summarization operation is running — and only then
+— the worker therefore calls the trivial `chrome.runtime.getPlatformInfo()`
+every 25 seconds, which resets that lifetime timer. The pulse begins
+immediately before the summarization operation starts and is cleared when the
+operation ends, whether it succeeded, failed, timed out or threw. It is not a
+continuous background keepalive, it uses no `chrome.alarms` and it needs no
+permission the extension does not already declare. It also does not make an
+unexpected termination impossible, which is why the state of a run is still
+kept where a restart does not lose it.
+
 ### 5.2 The injected extraction pass
 
 Not a declared content script. It is injected with `chrome.scripting` into the
@@ -622,6 +635,12 @@ run against one provider. Retrying is the reader clicking again, which keeps
 what their credential is spent on visible to them and keeps a failing
 endpoint from being called repeatedly on their behalf. Nothing here retries
 against a different provider either — see the no-fallback rule in §11.1.
+
+The two-minute bounded provider wait and the 25-second service-worker keepalive
+of §5.1 are separate responsibilities. The keepalive keeps Chrome's worker
+lifetime from ending a run that is still waiting; it does not change, extend or
+shorten the request's own deadline. A wait that expires is still the timeout
+case of §17, and the keepalive causes no retry and no fallback.
 
 ### 11.6 The model
 

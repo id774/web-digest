@@ -100,7 +100,7 @@ of the repository but are outside this architectural view.
 | File | What it is | Responsible for | Depends on |
 |---|---|---|---|
 | `manifest.json` | the MV3 declaration | permissions, the action, the panel, the options page, the CSP (§4) | names the entry points |
-| `src/background/service_worker.js` | the worker, an ES module | one run start to finish: the action click, settings, the permission check, injection, shaping, the prompt, the request, the state, telling the panel (§22) | `shape.js`, `dispatcher.js`, `settings.js`, `permissions.js`, `errors.js`, `messages.js`, `prompts/summarize.md` |
+| `src/background/service_worker.js` | the worker, an ES module | one run start to finish: the action click, settings, the permission check, injection, shaping, the prompt, the request, the state, telling the panel (§22); and the service-worker lifetime keepalive held only while the summarization operation runs (§22) | `shape.js`, `dispatcher.js`, `settings.js`, `permissions.js`, `errors.js`, `messages.js`, `prompts/summarize.md` |
 | `src/extract/extract.js` | the injected pass | reading one document into blocks (§7) | nothing |
 | `src/shape/shape.js` | a pure module | blocks in, material out; the two size verdicts (§8, §9) | nothing |
 | `src/engine/dispatcher.js` | a pure module of its own logic | selecting one adapter by provider and calling it; no fallback path (§11.1) | `sakura.js`, `openai.js`, `claude.js`, `transport.js`, `settings.js`, `errors.js` |
@@ -1222,6 +1222,7 @@ choose, and each one exposed would be a second decision on a path requirement
 | `MIN_MATERIAL_CHARS` | 200 | `shape.js` | below this many characters of rendered body text (never the title) a page has too little text (§9.1) |
 | `MAX_REQUEST_MATERIAL_CHARS` | 200000 | `shape.js` | the material budget for one request (§9.2) |
 | `REQUEST_TIMEOUT_MS` | 120000 | `transport.js` | one bounded wait for the whole request, shared by every adapter (§11.3) |
+| `SERVICE_WORKER_KEEPALIVE_INTERVAL_MS` | 25000 | `service_worker.js` | the interval between trivial runtime API calls that reset the worker's lifetime timer while the summarization operation is active, and no reader-facing setting or provider deadline (§22) |
 | `SAKURA_BASE_URL` | `https://api.ai.sakura.ad.jp/v1` | `sakura.js` | the Sakura AI Engine origin (§11.2) |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | `openai.js` | the OpenAI origin (§11.2) |
 | `ANTHROPIC_BASE_URL` | `https://api.anthropic.com/v1` | `claude.js` | the Claude (Anthropic) origin (§11.2) |
@@ -1635,7 +1636,16 @@ The steps, at the granularity they are written at:
     dispatcher and its one adapter, with that provider's own credential and
     configured model, each under one bounded wait common to every adapter
     (§11). Long-page chunk summaries are integrated, recursively when
-    necessary, against that same provider throughout.
+    necessary, against that same provider throughout. Immediately before the
+    summarization operation starts, the worker opens one run-local keepalive
+    interval, which calls `chrome.runtime.getPlatformInfo()` every
+    `SERVICE_WORKER_KEEPALIVE_INTERVAL_MS` so Chrome's worker lifetime timer
+    is reset while the operation waits. One page request, or every chunk and
+    integrate request of a long page, runs inside that one scope; the
+    interval is cleared in a `finally` when the operation reaches its final
+    success, failure, timeout or exception. The 120-second bounded wait per
+    request stays with the transport, and the interval itself produces no
+    provider result and no state transition.
 13. **Every answer is judged** by its adapter (§11.4, §11.6). Any failure
     ends the whole run; nothing here calls a second provider.
 14. **The final integrated summary is taken** from the answer.
@@ -1672,6 +1682,7 @@ specification would be written against.
 | optional permission checking (§12.2) | a provider identifier and a fake `chrome.permissions` | whether the permission holds, or is granted | Sakura never calls the fake at all |
 | the state machine (§17) | a phase and an event | the next phase and what it carries | an event that is not allowed in a phase leaves it unchanged |
 | error kinds (§18) | a kind, and a detail | one message string | a kind with no message is a fault of this repository |
+| the service-worker keepalive (§22) | an async operation function, a fake runtime API and fake interval functions, all passed as parameters | the operation's resolved value, or its rejection propagated unchanged | none of its own: the interval period is `SERVICE_WORKER_KEEPALIVE_INTERVAL_MS`, the pulse is one `getPlatformInfo` call, and the interval is cleared on resolve as on reject, all without a browser profile, a network or a real timer |
 
 Four properties make that possible, and each is a constraint on the
 implementation rather than an observation about it:
