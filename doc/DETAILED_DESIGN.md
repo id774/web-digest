@@ -313,7 +313,7 @@ One document, four regions, one visible at a time, chosen by the phase in §17.
 | `idle` | "No summary has been run for this tab yet." | **Settings** |
 | `running` | the title, when the state carries one, and "Summarizing… this can take a while." | **Settings** |
 | `succeeded` | the title and the summary | **Settings** |
-| `failed` | the title, when the state carries one, and the message for the error kind (§18) | for `credential-missing` or `permission-missing`, **Open settings** |
+| `failed` | the title, when the state carries one, and the message for the error kind (§18) | **Settings**; additionally **Open settings** for `credential-missing` or `permission-missing` |
 
 `Settings` in the header calls `chrome.runtime.openOptionsPage()` and is
 available in every phase.
@@ -1578,7 +1578,9 @@ The steps, at the granularity they are written at:
     `stateChanged` is broadcast. The panel renders it as text.
 16. **Any step above may end the run instead.** Every way it can is a row of
     §18; the state becomes `failed` with that kind, `stateChanged` is
-    broadcast, and the panel shows the message and the control to try again.
+    broadcast, and the panel shows the message. Another run starts only when
+    the reader clicks the toolbar action again; the panel itself has no retry
+    control.
 
 The whole of a run is in `service_worker.js`, so the question "what happened"
 has one file to read; which provider it used is answered by what was
