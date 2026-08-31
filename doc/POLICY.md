@@ -694,9 +694,12 @@ that the requirements are incomplete, and that is where it is taken.
 - A new responsibility goes to the part that owns it. Where it appears to belong
   to two, the boundary is wrong and is corrected, rather than the code being
   written across it.
-- **The reader-facing message for a failure is composed in one place**, from the
-  error kind alone. Nothing else in the extension composes one, and nothing is
-  interpolated into one from the page, the answer or the settings.
+- **The reader-facing message for a failure is composed in one place**, in the
+  common error module: from the error kind, and for `provider-error` from that
+  kind together with its fixed `detail`. Nothing else in the extension composes
+  one, and nothing is interpolated into one — not the page, the answer, the
+  settings, a raw status, a response body, an exception, a credential, nor the
+  name of the provider that was used.
 
 ### 3.3 State and Side Effects
 - **Do not grow global state.** A run is contained in the call that performs it;

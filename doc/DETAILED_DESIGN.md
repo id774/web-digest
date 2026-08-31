@@ -979,9 +979,9 @@ own provider's status codes and error body:
 | the abort fired | `timeout` | — |
 | HTTP 401 | `credential-rejected` | — |
 | HTTP 400, 413 or 422 whose error names the context length or a maximum input | `too-much-text` | — |
-| HTTP 403 for Sakura | `provider-error` | `refused` |
-| HTTP 403 for OpenAI or Claude | `provider-error` | `unspecified` |
-| HTTP 404 | `provider-error` | `refused` |
+| HTTP 403 | `provider-error` | `unspecified` |
+| HTTP 404 for OpenAI or Claude | `provider-error` | `refused` |
+| HTTP 404 for Sakura | `provider-error` | `unspecified` |
 | HTTP 429 | `provider-error` | `rate-limited` |
 | HTTP 5xx (and, for Claude, 529 "overloaded") | `provider-error` | `unavailable` |
 | any other non-2xx | `provider-error` | `unspecified` |
@@ -1001,8 +1001,14 @@ reader to the model setting, but to the generic `unspecified` provider error.
 OpenAI's HTTP 403 is the same kind of case: it can be raised for permission
 reasons that have nothing to do with the model name, so it is not specific
 enough to justify `refused`'s model-name guidance either, and is mapped to
-`unspecified` for the same reason. Sakura's HTTP 403 is not changed by
-either of these: its own semantics still justify `refused`.
+`unspecified` for the same reason. Sakura's HTTP 403 and HTTP 404 are read the
+same way: the current official AI Engine Inference API documentation does not
+establish that either of them means the model name, so neither is specific
+enough to send the reader to the model field of Settings, and both take the
+default `unspecified` mapping — which is this section's own rule against
+guessing at a status code's meaning, applied to Sakura. OpenAI's and Claude's
+HTTP 404 keeps its existing `refused` mapping. An undocumented response from
+one provider does not become a failure category of its own.
 
 The status code and the wording are read here and go no further. They reach the
 log (§19) and never the reader (§18).
@@ -1346,9 +1352,9 @@ selected AI provider" rather than assuming which of the three it is.
 | `provider-unreachable` | the selected provider's adapter, `fetch` rejects | the exception is not carried further | "The selected AI provider could not be reached. Check your connection and try again." | yes | no |
 | `timeout` | the selected provider's adapter, the abort at `REQUEST_TIMEOUT_MS` (§11.3) | the elapsed time is logged | "The selected AI provider took too long to answer. Trying again is reasonable." | yes | no |
 | `provider-error` / `rate-limited` | the selected provider's adapter, HTTP 429 | the status is logged | "The selected AI provider reported a rate limit. Try again later." | yes | no |
-| `provider-error` / `refused` | the selected provider's adapter, HTTP 403 for Sakura or HTTP 404 for any provider | the status is logged | "The selected AI provider refused the request. Check the model name in Settings." | yes | possibly, the model |
+| `provider-error` / `refused` | the selected provider's adapter, HTTP 404 for OpenAI or Claude | the status is logged | "The selected AI provider refused the request. Check the model name in Settings." | yes | possibly, the model |
 | `provider-error` / `unavailable` | the selected provider's adapter, HTTP 5xx (529 for Claude) | the status is logged | "The selected AI provider reported an error. Trying again later is reasonable." | yes | no |
-| `provider-error` / `unspecified` | the selected provider's adapter, HTTP 403 for OpenAI or Claude, or any other non-2xx not mapped elsewhere in this table | the status is logged | "The selected AI provider reported an error." | yes | no |
+| `provider-error` / `unspecified` | the selected provider's adapter, HTTP 403 for any provider, HTTP 404 for Sakura, or any other non-2xx not mapped elsewhere in this table | the status is logged | "The selected AI provider reported an error." | yes | no |
 | `page-unreadable` | the worker, from the injection failing or returning nothing usable (§7.5) | the rejection is not carried further | "The content of this page could not be obtained." | yes, though the same page may fail again | no |
 | `too-little-text` | `shape.js` (§9.1) | the run stops before a request | "This page has too little text to summarize." | yes | no |
 | `too-much-text` | the staged summarizer safety bound, or an adapter from its provider's refusal (§9.3, §11.6) | the run stops | "This page is too large to process." | yes | no |
@@ -1393,9 +1399,9 @@ web-digest run: phase=failed kind=provider-error detail=rate-limited status=429 
 
 `status` appears only on a failure that had one. It is worth recording even
 though the panel never shows it: 401 is a credential to replace, 429 a rate
-limit, and 403 is mapped per provider (§11.6) rather than assumed to always
-mean the model, since it carries different permission and refusal semantics
-across Sakura, OpenAI and Claude — only the log, with the raw status, can say
+limit, and 403 is mapped by what each adapter's provider documents (§11.6)
+rather than assumed to always mean the model — every adapter maps it to the
+generic provider error today, so only the log, with the raw status, can say
 which happened. `elapsed` is recorded on success too, because an answer that
 arrived in almost the whole of `REQUEST_TIMEOUT_MS` is next run's timeout,
 seen one run early. **Which provider was used is deliberately not logged**:

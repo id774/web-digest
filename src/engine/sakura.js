@@ -67,14 +67,6 @@ export function mapHttpFailure(status, data) {
   ) {
     return { ok: false, kind: ErrorKind.TOO_MUCH_TEXT, status };
   }
-  if (status === 403 || status === 404) {
-    return {
-      ok: false,
-      kind: ErrorKind.PROVIDER_ERROR,
-      detail: ProviderErrorDetail.REFUSED,
-      status,
-    };
-  }
   if (status === 429) {
     return {
       ok: false,

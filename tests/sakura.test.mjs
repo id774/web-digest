@@ -93,8 +93,8 @@ test("a response cut off at the output limit is not shown as a summary", () => {
 
 test("the failure mapping table", () => {
   assert.equal(mapHttpFailure(401, null).kind, "credential-rejected");
-  assert.equal(mapHttpFailure(403, null).detail, "refused");
-  assert.equal(mapHttpFailure(404, null).detail, "refused");
+  assert.equal(mapHttpFailure(403, null).detail, "unspecified");
+  assert.equal(mapHttpFailure(404, null).detail, "unspecified");
   assert.equal(mapHttpFailure(429, null).detail, "rate-limited");
   assert.equal(mapHttpFailure(500, null).detail, "unavailable");
   assert.equal(mapHttpFailure(503, null).detail, "unavailable");
