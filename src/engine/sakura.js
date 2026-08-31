@@ -1,24 +1,25 @@
 // The only module that speaks to the Sakura AI Engine.
 //
 // Nothing else knows the endpoint, the header, the body or the shape of the
-// answer. The token is a parameter: it is never stored here, never logged here
-// and never returned from here.
+// answer. The credential is a parameter: it is never stored here, never
+// logged here and never returned from here.
+//
+// This adapter's protocol is unchanged from before this project supported
+// more than one provider: the same endpoint, the same OpenAI-compatible chat
+// completions body, the same response handling. Multi-provider support does
+// not change what an existing Sakura user's requests look like on the wire.
 
-import { ErrorKind, EngineErrorDetail } from "../common/errors.js";
+import { ErrorKind, ProviderErrorDetail } from "../common/errors.js";
+import { sendRequest, REQUEST_TIMEOUT_MS } from "./transport.js";
 
 // The service's OpenAI-compatible API base. The official Sakura AI Engine
 // documentation is the authority for it; this constant is the one place an
 // implementation records what that documentation says. It is not a setting,
-// which is what lets the manifest name exactly one origin.
-export const ENGINE_BASE_URL = "https://api.ai.sakura.ad.jp/v1";
-
-// Two minutes. A whole page summarized in one non-streaming request is a slow
-// request by nature, and a limit short enough to cut a working run would turn
-// a succeeding summary into an error the reader cannot act on.
-export const REQUEST_TIMEOUT_MS = 120000;
+// which is what lets the manifest name exactly one required origin for it.
+export const SAKURA_BASE_URL = "https://api.ai.sakura.ad.jp/v1";
 
 // Matched, not parsed. An endpoint that words its refusal differently falls
-// through to engine-error, which is a worse message but never a wrong one.
+// through to provider-error, which is a worse message but never a wrong one.
 const LENGTH_MARKERS = [
   "context_length",
   "context length",
@@ -31,12 +32,16 @@ const LENGTH_MARKERS = [
 // not: a character count is not the constraint and neither is a setting, so
 // there is no value for either this design could honestly supply. stream is
 // not sent, and each answer arrives whole.
-export function buildRequest({ model, messages, token }) {
+export function buildRequest({ model, instruction, content, credential }) {
+  const messages = [
+    { role: "system", content: instruction },
+    { role: "user", content },
+  ];
   return {
-    url: `${ENGINE_BASE_URL}/chat/completions`,
+    url: `${SAKURA_BASE_URL}/chat/completions`,
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${credential}`,
       "Content-Type": "application/json",
       Accept: "application/json",
     },
@@ -54,7 +59,7 @@ function namesALengthProblem(data) {
 // endpoint's wording are read here and go no further than the log.
 export function mapHttpFailure(status, data) {
   if (status === 401) {
-    return { ok: false, kind: ErrorKind.TOKEN_REJECTED, status };
+    return { ok: false, kind: ErrorKind.CREDENTIAL_REJECTED, status };
   }
   if (
     (status === 400 || status === 413 || status === 422) &&
@@ -65,31 +70,31 @@ export function mapHttpFailure(status, data) {
   if (status === 403 || status === 404) {
     return {
       ok: false,
-      kind: ErrorKind.ENGINE_ERROR,
-      detail: EngineErrorDetail.REFUSED,
+      kind: ErrorKind.PROVIDER_ERROR,
+      detail: ProviderErrorDetail.REFUSED,
       status,
     };
   }
   if (status === 429) {
     return {
       ok: false,
-      kind: ErrorKind.ENGINE_ERROR,
-      detail: EngineErrorDetail.RATE_LIMITED,
+      kind: ErrorKind.PROVIDER_ERROR,
+      detail: ProviderErrorDetail.RATE_LIMITED,
       status,
     };
   }
   if (status >= 500) {
     return {
       ok: false,
-      kind: ErrorKind.ENGINE_ERROR,
-      detail: EngineErrorDetail.UNAVAILABLE,
+      kind: ErrorKind.PROVIDER_ERROR,
+      detail: ProviderErrorDetail.UNAVAILABLE,
       status,
     };
   }
   return {
     ok: false,
-    kind: ErrorKind.ENGINE_ERROR,
-    detail: EngineErrorDetail.UNSPECIFIED,
+    kind: ErrorKind.PROVIDER_ERROR,
+    detail: ProviderErrorDetail.UNSPECIFIED,
     status,
   };
 }
@@ -109,60 +114,19 @@ export function readAnswer(data) {
   return { ok: true, summary: content.trim() };
 }
 
-async function readJson(response) {
-  try {
-    return await response.json();
-  } catch {
-    return null;
-  }
-}
-
-// One request, under one bounded wait covering the whole of it including
-// reading the body. A failed run is never retried automatically: one click is
-// one request, which keeps what the reader's token is spent on visible.
-export async function callEngine(
-  { model, messages, token },
+// One call: build the documented request, send it under the common bounded
+// wait, and map whatever comes back to a normalized result. No fallback to
+// another provider exists here or anywhere else this is called from.
+export async function callSakura(
+  { model, instruction, content, credential },
   { fetchImpl, timeoutMs = REQUEST_TIMEOUT_MS } = {},
 ) {
-  const send = fetchImpl || globalThis.fetch;
-  const request = buildRequest({ model, messages, token });
-  const controller = new AbortController();
-  let timer;
-
-  const operation = (async () => {
-    try {
-      const response = await send(request.url, {
-        method: request.method,
-        headers: request.headers,
-        body: request.body,
-        signal: controller.signal,
-      });
-
-      const data = await readJson(response);
-      if (controller.signal.aborted) {
-        return { ok: false, kind: ErrorKind.ENGINE_TIMEOUT };
-      }
-      if (!response.ok) {
-        return mapHttpFailure(response.status, data);
-      }
-      return readAnswer(data);
-    } catch {
-      if (controller.signal.aborted) {
-        return { ok: false, kind: ErrorKind.ENGINE_TIMEOUT };
-      }
-      return { ok: false, kind: ErrorKind.ENGINE_UNREACHABLE };
-    }
-  })();
-  const timeout = new Promise((resolve) => {
-    timer = setTimeout(() => {
-      controller.abort();
-      resolve({ ok: false, kind: ErrorKind.ENGINE_TIMEOUT });
-    }, timeoutMs);
-  });
-
-  try {
-    return await Promise.race([operation, timeout]);
-  } finally {
-    clearTimeout(timer);
+  const request = buildRequest({ model, instruction, content, credential });
+  const result = await sendRequest(request, { fetchImpl, timeoutMs });
+  if (result.timedOut) return { ok: false, kind: ErrorKind.TIMEOUT };
+  if (result.unreachable) {
+    return { ok: false, kind: ErrorKind.PROVIDER_UNREACHABLE };
   }
+  if (!result.ok) return mapHttpFailure(result.status, result.data);
+  return readAnswer(result.data);
 }

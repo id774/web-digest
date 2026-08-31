@@ -9,8 +9,12 @@ import {
   chunkMaterial,
   shape,
 } from "../shape/shape.js";
-import { callEngine } from "../engine/engine.js";
+import { callProvider } from "../engine/dispatcher.js";
 import { readSettings } from "../common/settings.js";
+import {
+  hasProviderPermission,
+  needsOptionalPermission,
+} from "../common/permissions.js";
 import { ErrorKind } from "../common/errors.js";
 import { MessageType } from "../common/messages.js";
 
@@ -123,17 +127,18 @@ export function isValidExtractResult(value) {
   );
 }
 
-// The boundary between instruction and material is the message boundary, not a
-// delimiter inside one string. A marker inside a string is text the page could
-// contain; a separate message is structure the page cannot reach.
-export function composeMessages(instruction, material, task = "page") {
+// The boundary between instruction and material is a field boundary in this
+// provider-neutral logical request, not a delimiter inside one string. Each
+// adapter maps `instruction` and `content` to its own protocol's trusted and
+// untrusted parts (a system message and a user message, `instructions` and
+// `input`, or `system` and a user message) — never one string a marker could
+// be found inside, and a marker inside `content` is text the page could
+// contain, never structure the page can reach.
+export function composeRequest(instruction, material, task = "page") {
   const body = material.title
     ? `TITLE: ${material.title}\n\nBODY:\n${material.text}`
     : `BODY:\n${material.text}`;
-  return [
-    { role: "system", content: instruction },
-    { role: "user", content: `TASK: ${task}\n\n${body}` },
-  ];
+  return { instruction, content: `TASK: ${task}\n\n${body}` };
 }
 
 function summaryMaterial(title, summaries) {
@@ -146,14 +151,14 @@ function summaryMaterial(title, summaries) {
 export async function summarizeMaterial(
   material,
   instruction,
-  engineCall,
+  providerCall,
   depth = 0,
   isActive = () => true,
 ) {
   if (!isActive()) return null;
   if (material.charCount <= MAX_REQUEST_MATERIAL_CHARS) {
-    const answer = await engineCall(
-      composeMessages(instruction, material, depth ? "integrate" : "page"),
+    const answer = await providerCall(
+      composeRequest(instruction, material, depth ? "integrate" : "page"),
     );
     return isActive() ? answer : null;
   }
@@ -168,8 +173,8 @@ export async function summarizeMaterial(
   const summaries = [];
   for (const chunk of chunks) {
     if (!isActive()) return null;
-    const answer = await engineCall(
-      composeMessages(instruction, chunk, "chunk"),
+    const answer = await providerCall(
+      composeRequest(instruction, chunk, "chunk"),
     );
     if (!isActive()) return null;
     if (!answer.ok) return answer;
@@ -179,7 +184,7 @@ export async function summarizeMaterial(
   return await summarizeMaterial(
     summaryMaterial(material.title, summaries),
     instruction,
-    engineCall,
+    providerCall,
     depth + 1,
     isActive,
   );
@@ -210,9 +215,9 @@ async function discardState(tabId) {
     .catch(() => {});
 }
 
-// Counts and durations are what a log is allowed to know here. Never the
-// token, the page's text, its title, its URL, the prompt, the request, the
-// response or the summary.
+// Counts and durations are what a log is allowed to know here. Never a
+// credential, the page's text, its title, its URL, the prompt, the request,
+// the response, the summary, or which provider was used.
 function logRun(fields) {
   const parts = [`phase=${fields.phase}`];
   if (fields.kind) parts.push(`kind=${fields.kind}`);
@@ -273,9 +278,22 @@ async function runSummary(tabId, titleFromTab) {
 
     const settings = await readSettings();
     if (!isCurrentRun(tabId, run)) return;
-    if (!settings.token) {
-      await fail(tabId, run, title, started, ErrorKind.TOKEN_MISSING);
+    if (!settings.credential) {
+      await fail(tabId, run, title, started, ErrorKind.CREDENTIAL_MISSING);
       return;
+    }
+
+    // A provider whose host permission is optional (OpenAI, Claude) may have
+    // had that permission revoked since it was granted. This is checked, not
+    // requested: a run never prompts for a permission, and a missing one ends
+    // the run here, before the page is read, the same as a missing credential.
+    if (needsOptionalPermission(settings.provider)) {
+      const granted = await hasProviderPermission(settings.provider);
+      if (!isCurrentRun(tabId, run)) return;
+      if (!granted) {
+        await fail(tabId, run, title, started, ErrorKind.PERMISSION_MISSING);
+        return;
+      }
     }
 
     let instruction;
@@ -318,11 +336,13 @@ async function runSummary(tabId, titleFromTab) {
     const answer = await summarizeMaterial(
       shaped.material,
       instruction,
-      (messages) =>
-        callEngine({
+      (logicalRequest) =>
+        callProvider({
+          provider: settings.provider,
           model: settings.model,
-          messages,
-          token: settings.token,
+          credential: settings.credential,
+          instruction: logicalRequest.instruction,
+          content: logicalRequest.content,
         }),
       0,
       () => isCurrentRun(tabId, run),

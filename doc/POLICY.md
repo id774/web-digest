@@ -55,8 +55,8 @@ to be relaxed to match a more general rule.
 - Do not add a feature whose necessity has not been demonstrated, and do not
   design in advance for a requirement nobody has written down.
 - Keep the four concerns of requirement §19 apart: obtaining the content of the
-  page, communicating with the AI Engine, the summarization prompt, and
-  displaying the result.
+  page, communicating with the selected AI provider, the summarization
+  prompt, and displaying the result.
 - Keep the quality of a summary in the prompt. How a summary reads is adjusted
   by editing `prompts/summarize.md` wherever that is possible, and not by adding
   a branch to JavaScript.
@@ -73,13 +73,20 @@ These lines are not crossed by a setting or by an extension.
 - Do not read or record the URL of a page, and do not accumulate anything from
   which a browsing history could be reconstructed.
 - Do not add a backend belonging to this project, and do not send anything to
-  any host but the Sakura AI Engine origin the manifest names.
-- Do not supply an API token, ship one, or arrange for a page to be summarized
-  without a token the reader configured.
-- Do not let the API token leave the service worker except as the value of one
-  `Authorization` header: not into the page, not into the injected pass, not
-  into the panel, not into a URL, not into the log, not into a message the
-  reader is shown.
+  any host but one of the three supported AI providers' origins the manifest
+  names — and, for one run, only the one origin belonging to the provider
+  actually selected for it.
+- Do not supply an API credential for any provider, ship one, or arrange for a
+  page to be summarized without a credential the reader configured for the
+  provider they selected.
+- Do not let a provider's API credential leave the service worker except as
+  the value of one authentication header or field, to that provider's own
+  origin: not into the page, not into the injected pass, not into the panel,
+  not into a URL, not into the log, not into a message the reader is shown,
+  and not to either of the other two supported providers.
+- Do not let a run use more than one AI provider. Do not fall back from a
+  failing provider to another one, race two providers, or compare their
+  answers.
 - Do not write page text or a summary to disk, and do not keep either beyond the
   session state the panel reads.
 - Do not treat a sentence found inside a page as an instruction to the extension
@@ -100,11 +107,12 @@ which they are weighed, and this policy applies it:
 1. Read no page the reader did not ask about, and keep nothing that need not be
    kept.
 2. Keep the summary faithful to the page: semantic compression, not shortening.
-3. Keep the reader's token to one header and one origin.
+3. Keep each provider's credential to one header or field and one origin,
+   its own.
 4. Keep the reader's path at one click.
 5. Tell the reader what happened, in terms they can act on.
 6. Do not mix the responsibilities of extraction, shaping, the prompt, the
-   engine client and the display.
+   provider client and the display.
 7. Do not put into JavaScript what belongs to the prompt.
 8. Introduce no state and no persistence that is not needed.
 9. Add no dependency, and no feature, that is not needed.
@@ -137,11 +145,12 @@ requirements, and recorded here once it has been.
   navigates elsewhere.
 - No summary is stored on a server belonging to this project, for the same
   reason, and no history of summaries is kept anywhere.
-- **The content to be summarized is sent to the Sakura AI Engine**, together
-  with the instruction, because that is where the summary is produced. This is
-  the point of the extension rather than an incidental transfer, and it is said
-  plainly in the README to a reader deciding whether to install it. No change
-  obscures it.
+- **The content to be summarized is sent to the one AI provider selected for
+  that run**, together with the instruction, because that is where the
+  summary is produced. This is the point of the extension rather than an
+  incidental transfer, and it is said plainly in the README to a reader
+  deciding whether to install it. No change obscures it, and no change sends
+  the same content to more than the one selected provider.
 - No analytics and no telemetry of this project's own is introduced: no beacon,
   no counter, no error reporting service, no usage report, and no remotely
   hosted font, stylesheet, script or image on any of its documents.
@@ -183,15 +192,19 @@ prompt, to extraction or to shaping is allowed to do.
   shows the reader one message.
 - A cause the reader can act on is shown in terms they can act on: what happened
   and what would address it.
-- Causes that lead to different actions stay apart. "No token configured" and
-  "the token was refused" are never merged into one message about the API.
-- Distinguish, as far as the information allows, a failure to reach the endpoint
-  from a failure of configuration, and both from a page that could not be read
-  or that carried too little text.
+- Causes that lead to different actions stay apart. "No credential configured"
+  and "the credential was refused" are never merged into one message about
+  the API, and a missing browser permission is its own kind, distinct from
+  both.
+- Distinguish, as far as the information allows, a failure to reach the
+  selected provider's endpoint from a failure of configuration, and both from
+  a page that could not be read or that carried too little text.
 - A message carries no internal detail: no exception, no stack, no status line,
   no response body, no request, and no part of the page.
-- **A message never carries the API token**, and never carries the page's text
-  or the summary in order to explain a failure.
+- **A message never carries an API credential**, and never carries the page's
+  text or the summary in order to explain a failure. Nor does it name which
+  of the three providers was selected — every message speaks of "the selected
+  AI provider".
 - An unforeseen exception ends the run as a failure the reader is told about,
   rather than leaving the panel in a state that cannot be told from a run that
   never started.
@@ -202,10 +215,11 @@ prompt, to extraction or to shaping is allowed to do.
 - What may be recorded is the shape of the run — the phase, the error kind and
   its detail, the HTTP status of a failure, the number of blocks, the character
   count and the elapsed time.
-- **Never logged, at any level:** the API token and the `Authorization` header;
-  the text of the page, whole or in part, including any block or excerpt; the
-  page's title and its URL; the prompt; the request body; the response body; the
-  summary.
+- **Never logged, at any level:** any provider's API credential and the
+  header or field it travels in; the text of the page, whole or in part,
+  including any block or excerpt; the page's title and its URL; the prompt;
+  the request body; the response body; the summary; which of the three
+  providers a run used.
 - An exception object is never logged whole, because what it carries is not
   bounded by this design.
 - There is no log level setting and no setting that turns any of the above back
@@ -234,7 +248,8 @@ prompt, to extraction or to shaping is allowed to do.
 - The documents of this repository have distinct responsibilities and do not
   take over each other's:
   - `README.md` is the entrance: what the project is, how it is installed, how
-    the token is configured, how it is used, and its main limitations.
+    a provider is selected and its credential configured, how it is used, and
+    its main limitations.
   - [`REQUIREMENTS.md`](REQUIREMENTS.md) states what is required and why.
   - [`BASIC_DESIGN.md`](BASIC_DESIGN.md) states what the extension is composed
     of and what each part is responsible for.
@@ -252,9 +267,10 @@ prompt, to extraction or to shaping is allowed to do.
   order in §1.2, and the wrong one is corrected as its own change.
 - **Do not document a feature, a setting or an operation that does not exist**,
   and do not write a document as though a planned change had been made.
-- Where a document must state something the Sakura AI Engine owns — how a token
-  is obtained, which models exist — the service's official documentation is the
-  authority and is referred to rather than restated.
+- Where a document must state something one of the three supported providers
+  owns — how a credential is obtained, which models exist — that provider's
+  own official documentation is the authority and is referred to rather than
+  restated.
 
 ### 1.13 Pull Request Scope and History
 A pull request presents the change it proposes, not the sequence of corrections
@@ -445,10 +461,16 @@ that the requirements are incomplete, and that is where it is taken.
 ### 2.2 Permissions
 - **Permissions are the minimum the design needs**, and each one earns its place
   by a use that exists in the code. `activeTab`, `scripting`, `storage` and
-  `sidePanel` are the whole of them.
-- **The host permission names the Sakura AI Engine origin and nothing else**, so
-  that a request anywhere else is refused by Chrome rather than by this policy
-  being obeyed.
+  `sidePanel` are the whole of the ordinary permissions.
+- **The host permissions name exactly the three supported AI providers'
+  origins and nothing else**, so that a request anywhere else is refused by
+  Chrome rather than by this policy being obeyed. Sakura's stays `host
+  _permissions` (required, always present); OpenAI's and Claude's are
+  `optional_host_permissions`.
+- **An optional host permission is requested only from the reader's own
+  action in the options page**, when they select that provider, never from a
+  run and never speculatively. A denied request leaves the previously
+  selected provider in place and touches no stored credential or model.
 - **No host permission for the sites the reader visits.** Access to a page comes
   from `activeTab`, granted by the reader's click and lasting no longer.
 - **No `tabs`, `history`, `webNavigation`, `bookmarks` or `alarms`.** Each would
@@ -459,7 +481,10 @@ that the requirements are incomplete, and that is where it is taken.
   change to the privacy properties of the extension, and it is proposed as that:
   what it grants, why the design cannot do without it, and what it costs the
   reader.
-- No permission is requested at run time to widen what the manifest declares.
+- **No permission is requested at run time to widen what the manifest
+  declares.** A run only ever checks whether an already-declared optional
+  permission currently holds (§1.4); it never calls
+  `chrome.permissions.request`.
 
 ### 2.3 Only on the Reader's Action
 - **A run begins only from the reader's explicit action.** The toolbar action
@@ -479,9 +504,13 @@ that the requirements are incomplete, and that is where it is taken.
   another host, and nothing is loaded from a CDN.
 - **No dynamic code execution.** `eval`, `new Function`, `setTimeout` with a
   string argument, and dynamic `import()` of a remote URL are not used.
-- **Nothing received from the AI Engine is ever executed**, and nothing received
+- **Nothing received from a provider is ever executed**, and nothing received
   from a page is either.
-- The only `fetch` to a network origin is the one in the engine client. A
+- **No provider SDK is used.** Every adapter speaks its provider's HTTP API
+  directly with the browser's own `fetch`; a dependency for this is refused
+  by §1.11.
+- The only `fetch` calls to a network origin are the three provider adapters',
+  one origin each, and the dispatcher calls exactly one of them per run. A
   `fetch` of a packaged resource through `chrome.runtime.getURL` is not a
   network request and is the only other one.
 
@@ -491,14 +520,16 @@ that the requirements are incomplete, and that is where it is taken.
   to the model.
 - The extraction pass reads the document and never writes it: it adds no node,
   sets no attribute, registers no listener and calls no function belonging to
-  the page. It holds no setting and no token, so there is nothing in it to leak.
+  the page. It holds no setting and no credential, so there is nothing in it
+  to leak.
 - What comes back from an injected pass is validated before it is used, in shape
   as well as in type. A result that is not what was asked for is a failure of
   the run, not something to repair into a shape that passes.
 - Text taken from a page never becomes a selector, a URL, a storage key or code.
 - The delimitation between the instruction and the material is structural — a
-  separate message — rather than a marker inside one string that a page could
-  contain.
+  field boundary in the logical request, mapped by each adapter onto its own
+  provider's message or field boundary — rather than a marker inside one
+  string that a page could contain.
 
 ### 2.6 Output to the DOM
 - **Text is written to a document with `textContent`.** `innerHTML`,
@@ -512,44 +543,68 @@ that the requirements are incomplete, and that is where it is taken.
 - The panel and the options page are extension documents with their own styling.
   They neither reach into a page nor are reachable from one.
 
-### 2.7 The Sakura AI Engine
-- **BYOK is maintained.** The reader's own API token is the only way a request
-  is made, and no arrangement is added under which a page is summarized without
-  one.
-- **No token is written into the source**, committed to this repository — not
-  even as a sample value — or embedded in anything distributed.
-- **No token is sent to a backend belonging to this project**, because there is
-  none, and none is added to receive one.
-- The token is held in the reader's own profile, in extension storage, and
-  travels only as the value of one `Authorization` header to the one origin the
-  manifest names. It reaches no URL, no page, no document of this extension
-  other than the field it is entered in, no message shown to the reader and no
-  log line.
-- The token field is never prefilled from storage; whether a token is configured
-  is stated instead.
-- **The official Sakura AI Engine documentation is the authority** for the API,
-  the endpoint and the models. The request is the documented one and the answer
-  is read as documented; no wrapper protocol of this project's own is invented.
-- **No unnecessary fixed dependence on a particular model.** The model is a
-  setting with a documented default, the default name appears in exactly one
-  place, no prompt is tuned to a model and no behaviour branches on which one is
-  configured.
-- What the service owns is not restated here or in the code: the list of
-  available models is not fetched, not embedded and not maintained in this
-  repository.
-- Only what the summary requires is sent: the instruction and the shaped content
-  of the page the reader asked about. Nothing retrieved, nothing searched,
-  nothing from an earlier run.
+### 2.7 The AI Providers
+- **Exactly three providers are supported: the Sakura AI Engine, OpenAI and
+  Claude.** A fourth provider, a custom or reader-editable endpoint, and an
+  OpenAI-compatible, Azure OpenAI, Amazon Bedrock or Google Vertex AI
+  provider are out of scope; adding one changes the requirements first.
+- **BYOK is maintained, per provider.** The reader's own API credential for
+  the provider they selected is the only way a request is made, and no
+  arrangement is added under which a page is summarized without one.
+- **One provider is selected at a time, and one run uses exactly that one.**
+  No fallback from a failing provider to another, no race between providers,
+  and no comparison of their answers. Selecting a provider is the reader's
+  own explicit choice in settings, never inferred from a credential or from
+  the content of a page.
+- **An absent or unrecognized provider selection resolves to Sakura AI
+  Engine.** This is what an existing reader's profile, which never wrote a
+  provider selection, keeps resolving to — no migration script and no
+  one-shot conversion exists or is added.
+- **Each provider's protocol is used natively.** Sakura's OpenAI-compatible
+  Chat Completions endpoint, OpenAI's own Responses API (`store: false`,
+  never Chat Completions or the Assistants API), and Claude's own Messages
+  API (never an OpenAI-compatible endpoint or a compatibility layer). No
+  wrapper protocol of this project's own is invented for any of them.
+- **No credential for any provider is written into the source**, committed to
+  this repository — not even as a sample value — or embedded in anything
+  distributed.
+- **No credential is sent to a backend belonging to this project**, because
+  there is none, and none is added to receive one.
+- Each credential is held in the reader's own profile, in extension storage
+  under its own provider's key, and travels only as the value of one
+  authentication header or field to that provider's own origin — never to
+  either of the other two. It reaches no URL, no page, no document of this
+  extension other than the field it is entered in, no message shown to the
+  reader and no log line.
+- The credential field is never prefilled from storage; whether a credential
+  is configured for the selected provider is stated instead.
+- **Each provider's own official documentation is the authority** for its
+  API, its endpoint and its models. Each adapter's request is the documented
+  one for that provider, and its answer is read as documented.
+- **No unnecessary fixed dependence on a particular model, for any
+  provider.** Each provider's model is a setting with a documented default,
+  each default name appears in exactly one place, no prompt is tuned to a
+  model and no behaviour branches on which one is configured.
+- What a service owns is not restated here or in the code: no provider's list
+  of available models is fetched, embedded or maintained in this repository.
+- Only what the summary requires is sent, to the one selected provider:
+  the instruction and the shaped content of the page the reader asked about.
+  Nothing retrieved, nothing searched, nothing from an earlier run.
 
 ### 2.8 Settings and State
-- **The three settings are the token, the model, and the Japanese summary
-  preference**, and they live in `chrome.storage.local`. Nothing else is a
-  setting.
-- A boolean preference is saved on its own, independently of the token and the
-  model: changing it neither requires nor performs a token/model save, and
-  saving or deleting the token or the model leaves it untouched. Its absence,
-  or any stored value other than the boolean `true`, resolves to the same
-  behavior as before the preference existed.
+- **The settings are the selected provider, each provider's own credential and
+  model, and the Japanese summary preference**, and they live in
+  `chrome.storage.local`. Nothing else is a setting.
+- Each provider's credential and model are held under their own storage key,
+  independent of the other two providers'. Selecting a different provider, or
+  saving or deleting one provider's credential, never touches another
+  provider's stored credential or model, and never requires re-entering one.
+- A boolean preference is saved on its own, independently of the provider
+  selection and of any provider's credential or model: changing it neither
+  requires nor performs a provider, credential or model save, and saving,
+  deleting or switching any of those leaves it untouched. Its absence, or any
+  stored value other than the boolean `true`, resolves to the same behavior
+  as before the preference existed.
 - The endpoint, the timeout, the size budget, the minimum length and the prompt
   are design constants and resources, not settings: none is something a reader
   has the information to choose, and each one exposed would be a second decision
@@ -613,16 +668,26 @@ that the requirements are incomplete, and that is where it is taken.
     for a global.
   - **Shaping** turns blocks into the material, and judges its size. It is pure:
     no `chrome` API, no storage, no clock, no randomness, no network.
-  - **The engine client** owns every detail of talking to the AI Engine — the
-    endpoint, the header, the body, the timeout, the shape of the answer and the
-    mapping of a failure to an error kind. Nothing else knows any of them.
-  - **The panel** renders the state. It decides nothing, holds no setting and no
-    token, performs no extraction and makes no request to the AI Engine.
-  - **The options page** reads and writes the three settings, and nothing
-    else.
-  - **The common modules** hold the storage keys, the model default and the
-    Japanese summary resolver, the error kinds and their messages, and the
-    message names. They import nothing of their own.
+  - **The provider client** is a dispatcher and one adapter per supported
+    provider. The dispatcher selects exactly one adapter by the provider
+    identifier it is given and calls it, with no fallback to another. Each
+    adapter owns every detail of talking to its one provider — the endpoint,
+    the header, the body, the shape of the answer and the mapping of a
+    failure to an error kind — and nothing else knows any of them. The
+    120-second timeout is implemented once, in a shared transport helper
+    every adapter sends its request through, rather than three times.
+  - **The panel** renders the state. It decides nothing, holds no setting and
+    no credential, performs no extraction and makes no request to any
+    provider, and does not know which provider produced a summary.
+  - **The options page** reads and writes the settings — the provider
+    selection, the selected provider's credential and model, and the
+    Japanese summary preference — and nothing else. Choosing a provider whose
+    host permission is optional requests that permission before the
+    selection is saved.
+  - **The common modules** hold the storage keys, the provider resolver, each
+    provider's default model, the Japanese summary resolver, the optional-
+    permission helper, the error kinds and their messages, and the message
+    names. They import nothing but each other within `common/`.
 - A new responsibility goes to the part that owns it. Where it appears to belong
   to two, the boundary is wrong and is corrected, rather than the code being
   written across it.
@@ -663,10 +728,12 @@ that the requirements are incomplete, and that is where it is taken.
 - The tests are Node's own runner: `node --test tests/*.test.mjs`, with
   `node:test` and `node:assert/strict`, and no test framework, no assertion
   library and no mocking library.
-- **No test performs network access, and none needs a token, a browser profile
-  or a real endpoint.** The engine client takes its `fetch` and its timeout as
-  parameters so that a stub answers without a network and a timeout is provable
-  in milliseconds.
+- **No test performs network access, and none needs a credential, a browser
+  profile or a real endpoint.** Every adapter takes its `fetch` and its
+  timeout as parameters, through the shared transport helper, so that a stub
+  answers without a network and a timeout is provable in milliseconds, for
+  all three providers alike. A permission check or request takes a fake
+  `chrome.permissions` the same way.
 - The error kind is the only thing that crosses a boundary on failure, so a test
   of what happens downstream of one asserts a kind rather than a message
   fragment, a status or an exception. The messages themselves are tested where
@@ -676,8 +743,10 @@ that the requirements are incomplete, and that is where it is taken.
   used, and a defect found on a real page is reproduced with material written
   for the test.
 - A fix for a defect arrives with the test that fails without it.
-- The runner exits `0` only when every test passed. A passing suite says nothing
-  about the endpoint being reachable; only an actual run does.
-- Some tests guard an Invariant rather than a feature — that the token appears
-  in nothing the engine client returns is one of them. A test written to guard
-  an Invariant is not deleted to make a refactor pass.
+- The runner exits `0` only when every test passed. A passing suite says
+  nothing about a provider's endpoint being reachable; only an actual run
+  does.
+- Some tests guard an Invariant rather than a feature — that a credential
+  appears in nothing an adapter returns, and that a run against one provider
+  never calls the fetch stub standing in for another, are examples. A test
+  written to guard an Invariant is not deleted to make a refactor pass.

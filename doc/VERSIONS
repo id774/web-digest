@@ -1,10 +1,30 @@
 web-digest Repository Version History
 =====================================
 
-v1.0.2 (Release Date: TBD)
+v1.1.0 (Release Date: TBD)
 --------------------------
 - Added an opt-in "Summarize in Japanese" setting; off by default, the summary keeps
   using the page's own language as before.
+- Added a choice of AI provider: Sakura AI Engine, OpenAI or Claude, selected in
+  settings; one run uses exactly one selected provider. Sakura AI Engine remains the
+  default, and an existing Sakura user's token, model and Japanese summary preference
+  keep working with no migration and no change on their part.
+- Added independent credential and model storage per provider (openaiApiKey,
+  openaiModel, anthropicApiKey, anthropicModel), alongside the existing apiToken and
+  model keys, which stay Sakura's own. Switching providers never touches another
+  provider's stored credential or model.
+- Added OpenAI support through its native Responses API (store:false, no tools, no
+  streaming) and Claude support through Anthropic's native Messages API (no
+  compatibility layer, no tools, no streaming); Sakura's own Chat Completions request
+  is unchanged.
+- Added optional host permissions for api.openai.com and api.anthropic.com, requested
+  only when the reader selects that provider in settings; Sakura's host permission
+  stays required. A denied or later-revoked permission leaves the previous provider
+  selected and fails a run before the page is read, rather than falling back to
+  another provider.
+- Renamed the error kinds and reader-facing messages to be provider-neutral (for
+  example token-missing to credential-missing, engine-error to provider-error), since
+  a run may now use any of the three providers.
 
 v1.0.1 (2026-08-26)
 -------------------

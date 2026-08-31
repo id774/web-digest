@@ -43,7 +43,10 @@ function render(state) {
   if (phase === "failed") {
     show(elements.summary, "");
     show(elements.status, messageFor(state.errorKind, state.errorDetail));
-    elements.openSettings.hidden = state.errorKind !== ErrorKind.TOKEN_MISSING;
+    elements.openSettings.hidden = ![
+      ErrorKind.CREDENTIAL_MISSING,
+      ErrorKind.PERMISSION_MISSING,
+    ].includes(state.errorKind);
     return;
   }
 
