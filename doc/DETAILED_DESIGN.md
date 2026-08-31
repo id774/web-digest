@@ -1344,22 +1344,26 @@ The kinds are constants in `src/common/errors.js`, which also holds the message
 for each. Nothing else composes a message, and every message names "the
 selected AI provider" rather than assuming which of the three it is.
 
-| Kind | Detected in | Internal handling | The reader is told | Retry from the panel | Needs a setting changed |
-|---|---|---|---|---|---|
-| `credential-missing` | the worker, before extraction (§22 step 5) | the run stops before the tab is touched | "No API credential is configured for the selected AI provider. Open Settings and enter one." | yes, once a credential is saved | yes, that provider's credential |
-| `permission-missing` | the worker, before extraction (§22 step 6) | the run stops before the tab is touched | "Browser permission for the selected AI provider is missing. Open Settings to grant it again." | yes, once the permission is granted again | yes, the provider's permission |
-| `credential-rejected` | the selected provider's adapter, HTTP 401 (§11.6) | the status is logged, not shown | "The selected AI provider refused the credential. Check it in Settings." | yes | yes, that provider's credential |
-| `provider-unreachable` | the selected provider's adapter, `fetch` rejects | the exception is not carried further | "The selected AI provider could not be reached. Check your connection and try again." | yes | no |
-| `timeout` | the selected provider's adapter, the abort at `REQUEST_TIMEOUT_MS` (§11.3) | the elapsed time is logged | "The selected AI provider took too long to answer. Trying again is reasonable." | yes | no |
-| `provider-error` / `rate-limited` | the selected provider's adapter, HTTP 429 | the status is logged | "The selected AI provider reported a rate limit. Try again later." | yes | no |
-| `provider-error` / `refused` | the selected provider's adapter, HTTP 404 for OpenAI or Claude | the status is logged | "The selected AI provider refused the request. Check the model name in Settings." | yes | possibly, the model |
-| `provider-error` / `unavailable` | the selected provider's adapter, HTTP 5xx (529 for Claude) | the status is logged | "The selected AI provider reported an error. Trying again later is reasonable." | yes | no |
-| `provider-error` / `unspecified` | the selected provider's adapter, HTTP 403 for any provider, HTTP 404 for Sakura, or any other non-2xx not mapped elsewhere in this table | the status is logged | "The selected AI provider reported an error." | yes | no |
-| `page-unreadable` | the worker, from the injection failing or returning nothing usable (§7.5) | the rejection is not carried further | "The content of this page could not be obtained." | yes, though the same page may fail again | no |
-| `too-little-text` | `shape.js` (§9.1) | the run stops before a request | "This page has too little text to summarize." | yes | no |
-| `too-much-text` | the staged summarizer safety bound, or an adapter from its provider's refusal (§9.3, §11.6) | the run stops | "This page is too large to process." | yes | no |
-| `no-usable-summary` | the selected provider's adapter (§11.4) | the answer is discarded, not shown | "No summary came back. Trying again is reasonable." | yes | no |
-| `internal-error` | the worker, any unexpected exception, including the prompt resource failing to load or an unrecognized provider reaching the dispatcher | caught at the top of the run and logged | "The extension failed to complete the run. Trying again is reasonable." | yes | no |
+| Kind | Detected in | Internal handling | The reader is told | Needs a setting changed |
+|---|---|---|---|---|
+| `credential-missing` | the worker, before extraction (§22 step 5) | the run stops before the tab is touched | "No API credential is configured for the selected AI provider. Open Settings and enter one." | yes, that provider's credential |
+| `permission-missing` | the worker, before extraction (§22 step 6) | the run stops before the tab is touched | "Browser permission for the selected AI provider is missing. Open Settings to grant it again." | yes, the provider's permission |
+| `credential-rejected` | the selected provider's adapter, HTTP 401 (§11.6) | the status is logged, not shown | "The selected AI provider refused the credential. Check it in Settings." | yes, that provider's credential |
+| `provider-unreachable` | the selected provider's adapter, `fetch` rejects | the exception is not carried further | "The selected AI provider could not be reached. Check your connection and try again." | no |
+| `timeout` | the selected provider's adapter, the abort at `REQUEST_TIMEOUT_MS` (§11.3) | the elapsed time is logged | "The selected AI provider took too long to answer. Trying again is reasonable." | no |
+| `provider-error` / `rate-limited` | the selected provider's adapter, HTTP 429 | the status is logged | "The selected AI provider reported a rate limit. Try again later." | no |
+| `provider-error` / `refused` | the selected provider's adapter, HTTP 404 for OpenAI or Claude | the status is logged | "The selected AI provider refused the request. Check the model name in Settings." | possibly, the model |
+| `provider-error` / `unavailable` | the selected provider's adapter, HTTP 5xx (529 for Claude) | the status is logged | "The selected AI provider reported an error. Trying again later is reasonable." | no |
+| `provider-error` / `unspecified` | the selected provider's adapter, HTTP 403 for any provider, HTTP 404 for Sakura, or any other non-2xx not mapped elsewhere in this table | the status is logged | "The selected AI provider reported an error." | no |
+| `page-unreadable` | the worker, from the injection failing or returning nothing usable (§7.5) | the rejection is not carried further | "The content of this page could not be obtained." | no |
+| `too-little-text` | `shape.js` (§9.1) | the run stops before a request | "This page has too little text to summarize." | no |
+| `too-much-text` | the staged summarizer safety bound, or an adapter from its provider's refusal (§9.3, §11.6) | the run stops | "This page is too large to process." | no |
+| `no-usable-summary` | the selected provider's adapter (§11.4) | the answer is discarded, not shown | "No summary came back. Trying again is reasonable." | no |
+| `internal-error` | the worker, any unexpected exception, including the prompt resource failing to load or an unrecognized provider reaching the dispatcher | caught at the top of the run and logged | "The extension failed to complete the run. Trying again is reasonable." | no |
+
+The table does not define a retry control. A failed run is never retried
+automatically, and the panel has no retry or rerun control. The reader starts
+another run only by clicking the toolbar action again (§6.1, §22).
 
 Three rules hold across the table.
 

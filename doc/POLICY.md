@@ -740,10 +740,11 @@ that the requirements are incomplete, and that is where it is taken.
   answers without a network and a timeout is provable in milliseconds, for
   all three providers alike. A permission check or request takes a fake
   `chrome.permissions` the same way.
-- The error kind is the only thing that crosses a boundary on failure, so a test
-  of what happens downstream of one asserts a kind rather than a message
-  fragment, a status or an exception. The messages themselves are tested where
-  they are defined.
+- The failure classification that crosses a boundary is the error kind and,
+  for `provider-error`, its fixed `detail`, so a test of what happens
+  downstream asserts the kind and, where applicable, that detail rather than
+  a message fragment, a raw status or an exception. The messages themselves
+  are tested where they are defined.
 - A test writes nothing outside a temporary directory.
 - Test material is invented. No real page content and no real credential is
   used, and a defect found on a real page is reproduced with material written
