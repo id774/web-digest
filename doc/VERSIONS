@@ -3,34 +3,14 @@ web-digest Repository Version History
 
 v1.1.0 (Release Date: TBD)
 --------------------------
-- Added an opt-in "Summarize in Japanese" setting; off by default, the summary keeps
-  using the page's own language as before.
-- Added a choice of AI provider: Sakura AI Engine, OpenAI or Claude, selected in
-  settings; one run uses exactly one selected provider. Sakura AI Engine remains the
-  default, and an existing Sakura user's token, model and Japanese summary preference
-  keep working with no migration and no change on their part.
-- Added independent credential and model storage per provider (openaiApiKey,
-  openaiModel, anthropicApiKey, anthropicModel), alongside the existing apiToken and
-  model keys, which stay Sakura's own. Switching providers never touches another
-  provider's stored credential or model.
-- Added OpenAI support through its native Responses API (store:false, no tools, no
-  streaming) and Claude support through Anthropic's native Messages API (no
-  compatibility layer, no tools, no streaming); Sakura's own Chat Completions request
-  is unchanged.
-- Added optional host permissions for api.openai.com and api.anthropic.com, requested
-  only when the reader selects that provider in settings, or, for whichever of the two
-  is currently selected, from a "Grant or restore permission" action there; Sakura's
-  host permission stays required. A denied selection request leaves the previous
-  provider selected; a permission later revoked in Chrome fails the next run before the
-  page is read, and can be restored from that action without changing the selected
-  provider. No fallback to another provider in either case.
-- Renamed the error kinds and reader-facing messages to be provider-neutral (for
-  example token-missing to credential-missing, engine-error to provider-error), since
-  a run may now use any of the three providers.
-- Tightened provider failure handling: Sakura responses cut off with
-  finish_reason=length are no longer shown as complete summaries, Claude HTTP 403 no
-  longer implies a bad model name, and the too-large message now reflects the staged
-  long-page flow rather than referring to one request.
+- Added an opt-in "Summarize in Japanese" setting; off by default, summaries
+  continue to use the page's own language.
+- Added OpenAI and Claude alongside Sakura AI Engine as selectable AI providers,
+  with independent credentials and models per provider. Sakura remains the default
+  and existing Sakura settings continue to work without migration.
+- Raised the per-request material budget from 40,000 to 200,000 characters,
+  so substantially larger pages can use the one-request path before staged
+  summarization is needed.
 
 v1.0.1 (2026-08-26)
 -------------------
