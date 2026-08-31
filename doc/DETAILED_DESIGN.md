@@ -979,8 +979,8 @@ own provider's status codes and error body:
 | the abort fired | `timeout` | — |
 | HTTP 401 | `credential-rejected` | — |
 | HTTP 400, 413 or 422 whose error names the context length or a maximum input | `too-much-text` | — |
-| HTTP 403 for Sakura or OpenAI | `provider-error` | `refused` |
-| HTTP 403 for Claude | `provider-error` | `unspecified` |
+| HTTP 403 for Sakura | `provider-error` | `refused` |
+| HTTP 403 for OpenAI or Claude | `provider-error` | `unspecified` |
 | HTTP 404 | `provider-error` | `refused` |
 | HTTP 429 | `provider-error` | `rate-limited` |
 | HTTP 5xx (and, for Claude, 529 "overloaded") | `provider-error` | `unavailable` |
@@ -998,6 +998,11 @@ about a status code's meaning.
 Claude's HTTP 403 is Anthropic's documented permission error rather than an
 unknown model, so it is not mapped to `refused`, whose message sends the
 reader to the model setting, but to the generic `unspecified` provider error.
+OpenAI's HTTP 403 is the same kind of case: it can be raised for permission
+reasons that have nothing to do with the model name, so it is not specific
+enough to justify `refused`'s model-name guidance either, and is mapped to
+`unspecified` for the same reason. Sakura's HTTP 403 is not changed by
+either of these: its own semantics still justify `refused`.
 
 The status code and the wording are read here and go no further. They reach the
 log (§19) and never the reader (§18).
@@ -1341,9 +1346,9 @@ selected AI provider" rather than assuming which of the three it is.
 | `provider-unreachable` | the selected provider's adapter, `fetch` rejects | the exception is not carried further | "The selected AI provider could not be reached. Check your connection and try again." | yes | no |
 | `timeout` | the selected provider's adapter, the abort at `REQUEST_TIMEOUT_MS` (§11.3) | the elapsed time is logged | "The selected AI provider took too long to answer. Trying again is reasonable." | yes | no |
 | `provider-error` / `rate-limited` | the selected provider's adapter, HTTP 429 | the status is logged | "The selected AI provider reported a rate limit. Try again later." | yes | no |
-| `provider-error` / `refused` | the selected provider's adapter, HTTP 403 or 404 | the status is logged | "The selected AI provider refused the request. Check the model name in Settings." | yes | possibly, the model |
+| `provider-error` / `refused` | the selected provider's adapter, HTTP 403 for Sakura or HTTP 404 for any provider | the status is logged | "The selected AI provider refused the request. Check the model name in Settings." | yes | possibly, the model |
 | `provider-error` / `unavailable` | the selected provider's adapter, HTTP 5xx (529 for Claude) | the status is logged | "The selected AI provider reported an error. Trying again later is reasonable." | yes | no |
-| `provider-error` / `unspecified` | the selected provider's adapter, any other non-2xx | the status is logged | "The selected AI provider reported an error." | yes | no |
+| `provider-error` / `unspecified` | the selected provider's adapter, HTTP 403 for OpenAI or Claude, or any other non-2xx not mapped elsewhere in this table | the status is logged | "The selected AI provider reported an error." | yes | no |
 | `page-unreadable` | the worker, from the injection failing or returning nothing usable (§7.5) | the rejection is not carried further | "The content of this page could not be obtained." | yes, though the same page may fail again | no |
 | `too-little-text` | `shape.js` (§9.1) | the run stops before a request | "This page has too little text to summarize." | yes | no |
 | `too-much-text` | the staged summarizer safety bound, or an adapter from its provider's refusal (§9.3, §11.6) | the run stops | "This page is too large to process." | yes | no |
@@ -1360,15 +1365,18 @@ Three rules hold across the table.
   never merged; "no credential" and "permission missing" are two separate
   kinds because one names Settings' credential field and the other its
   permission prompt.
-- **The message is chosen by kind alone.** Nothing interpolates a value from
-  the page, the answer or the settings into a message, so no message can carry
-  something it was not written to carry — including which provider was
-  selected, since the wording is the same whichever one it was.
+- **An ordinary kind chooses its message alone; `provider-error` is refined
+  by its fixed `detail`.** Nothing interpolates a value from the page, the
+  answer or the settings into a message, so no message can carry something it
+  was not written to carry — including which provider was selected, or its
+  raw status, response body or exception text, since the wording is the same
+  whichever provider it was.
 
-`internal-error` is the one kind beyond basic design §17's table. It exists so
-that "no failure is silent" survives an exception nobody predicted, and it is
-deliberately the least informative kind: reaching it means this repository has
-a fault, and the log is where that is diagnosed.
+`internal-error` corresponds to basic design §17's "an unexpected internal
+failure" row. It exists so that "no failure is silent" survives an exception
+nobody predicted, and it is deliberately the least informative kind: reaching
+it means this repository has a fault, and the log is where that is
+diagnosed.
 
 ## 19. Logging
 
@@ -1384,9 +1392,11 @@ web-digest run: phase=failed kind=provider-error detail=rate-limited status=429 
 ```
 
 `status` appears only on a failure that had one. It is worth recording even
-though the panel never shows it: 401 is a credential to replace, 403 a model
-the plan does not cover, 429 a rate limit, and only the log can say which
-happened. `elapsed` is recorded on success too, because an answer that
+though the panel never shows it: 401 is a credential to replace, 429 a rate
+limit, and 403 is mapped per provider (§11.6) rather than assumed to always
+mean the model, since it carries different permission and refusal semantics
+across Sakura, OpenAI and Claude — only the log, with the raw status, can say
+which happened. `elapsed` is recorded on success too, because an answer that
 arrived in almost the whole of `REQUEST_TIMEOUT_MS` is next run's timeout,
 seen one run early. **Which provider was used is deliberately not logged**:
 the log's purpose is diagnosing a run, and the reader who reads their own
@@ -1469,9 +1479,12 @@ What one run does with data, end to end.
 | the page's URL | nowhere — it is never read, never returned by extraction, never stored and never sent |  |  |
 
 - **Only the page a summary was asked for is read**, at the moment it was asked
-  for. There is no declared content script, nothing listens for a navigation in
-  order to act on one, and no code path reads a tab that was not the subject of
-  a click.
+  for. There is no declared content script, and no listener reads a page or
+  starts a summary run on navigation. A navigation housekeeping listener does
+  exist: it invalidates the run in progress, if any, and discards the tab's
+  stored session state — it reads no page, holds no URL and starts no run.
+  Every summary target is the tab the toolbar action was clicked on, and no
+  code path reads a tab that was not the subject of that click.
 - **No browsing history is collected.** There is no `history` and no `tabs`
   permission, nothing records a URL, and the only trace of a run is a state
   keyed by tab id that the browser discards when it closes.
@@ -1576,7 +1589,7 @@ specification would be written against.
 |---|---|---|---|
 | extraction (§7) | a `Document`, passed as a parameter rather than read from a global, so a fixture parsed from an HTML string can stand in for a page | `ExtractResult` (§15.1) | none of its own: it returns what it found, and an empty `blocks` is a valid result that §9.1 judges |
 | shaping (§8) | `ExtractResult` | `{ ok: true, material }` (§15.2) | `too-little-text` |
-| the size verdicts (§9) | a `charCount` | one of three verdicts | the two above, at their exact boundaries |
+| the size verdicts (§9.1) | a `charCount` | one of `judgeSize`'s two verdicts, `too-little-text` or `ok` | the `MIN_MATERIAL_CHARS` boundary, exactly; the per-request budget's boundary is a case for staged summarization / chunking, not for `judgeSize` |
 | logical request composition (§10.3) | the instruction text, a `Material` and a task label | `{ instruction, content }` | none; an empty title changes the content and is a case, not an error |
 | provider resolution (§13) | a stored value | one of the three providers, or Sakura for anything else | none: every input has a defined resolution |
 | the dispatcher (§11.1) | `{ provider, model, credential, instruction, content }` | whatever the selected adapter returns, unchanged | `internal-error` for an unrecognized provider |
@@ -1598,8 +1611,11 @@ implementation rather than an observation about it:
   shared `sendRequest` in `transport.js`, defaulting to the global and to
   `REQUEST_TIMEOUT_MS`, so a stub answers without a network and a timeout is
   provable in milliseconds, identically for all three.
-- **The error kind is the only thing that crosses a boundary on failure.** A
-  test asserts a kind, never a message fragment, a status or an exception.
+- **The classification that crosses a boundary on failure is the kind, and,
+  for `provider-error`, its fixed `detail`.** A test asserts a kind and, where
+  it applies, a detail; it never asserts a message fragment, a raw response
+  body, a raw status or an exception's own text. An adapter's failure-mapping
+  test (§11.6) may assert both the kind and the detail it produces.
 
 What is observable from the outside, for a later acceptance run: the state
 each run leaves, the message the panel shows, the single line the log
@@ -1643,25 +1659,3 @@ the selected provider's own origin — never to either of the other two.
 | §17 errors | §18 |
 | §18 security design | §20 |
 | §19 what is not built | nothing in this document prepares for any of it |
-
-## 25. Referred back to the basic design
-
-Two places where the basic design was read against itself while this document
-was written. **Neither is settled here**; each is recorded with what this
-document does in the meantime, so that the answer is given in the document that
-owns the question.
-
-- **The title before a run.** Basic design §7.3 has the panel show the page's
-  title in the `idle` phase, and §6 grants no `tabs` permission and no host
-  permission — without which Chrome does not give an extension a tab's title.
-  §6 is the design of requirement §16, so this document keeps it: the `idle`
-  panel shows a neutral line, and a title appears from the
-  moment a run starts, taken from the tab the action click granted and then
-  from extraction.
-- **Discarding a state on navigation.** Basic design §2 rules out a listener on
-  navigation, and §7.2 requires the panel to return to "not run yet" when the
-  tab navigates. This document satisfies both by keeping the purpose of §2 —
-  nothing runs, nothing is read and nothing is recorded until the reader asks —
-  while letting a listener discard the stored state for a tab that has started
-  loading a different document (§17). It reads no page, holds no URL and starts
-  no work.

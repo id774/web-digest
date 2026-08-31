@@ -1,9 +1,11 @@
-// The error kinds, and the one message the reader is shown for each.
+// The error kinds and the reader-facing messages they carry.
 //
-// Nothing else in the extension composes a message. A message names the cause
-// and what would address it; it carries no status line, no response body, no
-// exception, no stack and no credential, and nothing is interpolated into it
-// from the page, the answer or the settings.
+// Nothing else in the extension composes a message. An ordinary kind has its
+// message chosen by the kind alone; `provider-error` is the one exception,
+// refined by its fixed `detail` into one of four messages. A message names
+// the cause and what would address it; it carries no raw status, no response
+// body, no exception, no stack and no credential, and nothing is
+// interpolated into it from the page, the answer or the settings.
 //
 // The kinds are provider-neutral: a run may use the Sakura AI Engine, OpenAI
 // or Claude, and the reader is told about "the selected AI provider" rather
@@ -63,7 +65,8 @@ const PROVIDER_ERROR_MESSAGES = {
     "The selected AI provider reported an error.",
 };
 
-// The message for a kind, chosen by the kind alone. A kind with no message is
+// The message for a kind. An ordinary kind is chosen by the kind alone;
+// `provider-error` is refined by its fixed detail. A kind with no message is
 // a fault of this repository, and the internal-error message stands in for it
 // rather than leaving the panel blank.
 export function messageFor(kind, detail) {
