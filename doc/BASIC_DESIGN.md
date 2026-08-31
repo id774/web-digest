@@ -41,8 +41,10 @@ Seven decisions shape everything below.
 - **Four concerns, four modules, one direction of dependency.** Extraction,
   shaping, the prompt and the AI provider client are separate, and each knows
   only the shape of what it is handed. Adding or changing a provider touches
-  the provider client and the settings; improving the prompt touches a file
-  that no module reads the contents of.
+  the provider client and the settings; the prompt's wording lives in
+  `prompts/summarize.md`, a packaged resource the service worker reads at run
+  time rather than a string embedded in a module, so improving the summaries
+  is editing that one file.
 - **One provider client, one dispatcher, one adapter per provider.** The
   reader selects exactly one of the three supported providers, and one run
   uses exactly that one. The provider client is a dispatcher that selects one
@@ -101,22 +103,30 @@ calls exactly one adapter per run; the other two adapters are never invoked.
 
 ```text
 .
-├── manifest.json               MV3: permissions, the action, the panel, options
-├── src/
-│   ├── background/             the service worker: one run, start to finish
-│   ├── extract/                injected into the tab, once, per request
-│   ├── shape/                  blocks in, prompt material out
-│   ├── engine/                 the dispatcher, and one adapter per AI provider
-│   ├── panel/                  the side panel document: state and result
-│   ├── options/                the settings document: provider, credential, model
-│   └── common/                 the settings accessor, the permission helper, the
-│                                error kinds
+├── manifest.json
+├── package.json
+├── icons/
 ├── prompts/
-│   └── summarize.md            the summarization instruction, as data
+│   └── summarize.md
+├── src/
+│   ├── background/
+│   ├── extract/
+│   ├── shape/
+│   ├── engine/
+│   ├── panel/
+│   ├── options/
+│   └── common/
+├── tests/
 ├── README.md
 └── doc/
     ├── REQUIREMENTS.md
-    └── BASIC_DESIGN.md
+    ├── BASIC_DESIGN.md
+    ├── DETAILED_DESIGN.md
+    ├── POLICY.md
+    ├── VERSIONS
+    ├── LICENSE.md
+    ├── COPYING
+    └── COPYING.LESSER
 ```
 
 Three absences are deliberate. **There is no build step**, so the directory that
@@ -386,7 +396,11 @@ blocks, in order.
   stray character or punctuation mark.
 - **Removes repetition that is an artifact of the page**, not of the argument:
   a block repeated identically elsewhere in the document, which is how headers,
-  captions and site furniture usually survive extraction.
+  captions and site furniture usually survive extraction. This exact-repetition
+  removal applies to non-table blocks. A table cell is exempt from it: the
+  same short text recurring in different rows or different cells of a table
+  usually carries meaning — a repeated status, unit or category value — so
+  identical cell text is never dropped on the strength of repetition alone.
 - **Keeps the heading hierarchy**, marked by level, because the structure of a
   document is evidence about what its author considered subordinate — and
   subordination is exactly what semantic compression must be able to see.
@@ -399,24 +413,38 @@ content.
 
 ### 9.2 Too little content
 
-Below a minimum amount of body text, the material is not worth a request. The
-run stops before anything is sent and reports the "not enough text" case of §17.
+`MIN_MATERIAL_CHARS` is a minimum amount of **rendered body text** — the title
+is not counted toward it. Below that minimum, the material is not worth a
+request. The run stops before anything is sent and reports the "not enough
+text" case of §17. A long title cannot make a too-short body pass this check;
+only body substance can.
 
 **The threshold is a design constant, not a setting** (§13), because a reader
 has no way to choose a good value and no reason to want one.
 
 ### 9.3 Long content
 
-The material is bounded by a conservative per-request size budget. Material
+The material is bounded by a conservative per-request size budget —
+`MAX_REQUEST_MATERIAL_CHARS` — that covers the title together with the
+section context and rendered body actually included in that request. Material
 within it follows the one-request path. Material over it is divided by major
 heading, lower heading and block boundaries, in that order; only a block that
 cannot fit alone is split internally.
 
-Every chunk is semantically compressed with the page title and heading context.
-The chunk summaries are then integrated by the model into one whole-page
-summary. If that integration material is itself over budget, the same staged
-compression is repeated. Nothing is sampled, ranked away, retrieved, indexed
-or embedded, and this is not RAG.
+**Every chunk this design emits is at or under the budget.** The title, the
+active heading context and the block text are never truncated, sampled or
+ranked away to force a chunk under the limit. When no partition exists that
+keeps every chunk within budget — the title's own length leaves no room for
+body text, or the heading context carried into a chunk pushes it over — the
+whole page is declined as the "too large to process" case of §17 rather than
+being sent as a partial or oversized chunk; no partial staged summary is ever
+shown.
+
+Every chunk that is sent is semantically compressed with the page title and
+heading context. The chunk summaries are then integrated by the model into
+one whole-page summary. If that integration material is itself over budget,
+the same staged compression is repeated. Nothing is sampled, ranked away,
+retrieved, indexed or embedded, and this is not RAG.
 
 ## 10. The summarization prompt
 
@@ -468,15 +496,24 @@ have to get wrong.
 Two parts, and the boundary between them is explicit:
 
 ```text
-  instruction   the prompt resource, plus the one-line output-language
-                control fixed for the run (§13), unchanged for every
-                request the run makes
-  material      the title and the shaped body, clearly delimited
-                and labelled as the text to be summarized
+  instruction   prompt resource
+                + run-level LANGUAGE MODE
+                + worker-selected per-request TASK
+
+  material      title and shaped body / chunk / integration material
 ```
 
-The material is never concatenated into the instruction as if it were part of
-it. **The delimitation is what makes "this text is data" a structural statement
+`LANGUAGE MODE` is a run-level control: it is decided once when the run starts
+and carried unchanged in the instruction for every request the run makes.
+`TASK` — `page`, `chunk` or `integrate` — is a request-level control: the
+service worker chooses it for each individual request and adds it to the
+trusted instruction when that request is composed. Both are worker-controlled
+and both live in the instruction; the page material can change neither. The
+material is never concatenated into the instruction as if it were part of it.
+Each provider adapter maps the trusted instruction and the untrusted content
+to its own native API's separate field or message — a system message and a
+user message, `instructions` and `input`, or `system` and a user message.
+**The delimitation is what makes "this text is data" a structural statement
 rather than a hopeful sentence in a prompt.**
 
 ## 11. The provider client: dispatcher and adapters
@@ -536,13 +573,15 @@ dispatcher ever parses a provider's own response format.
   file search, no conversation state, and no `previous_response_id` is used by
   any adapter.
 - **The Claude request carries `max_tokens: 32768` and sends no `thinking`
-  configuration.** The token value is a hard protocol ceiling, not a target
-  length and not a setting. The selected Claude model follows whichever
-  thinking default Anthropic has defined for it; where that model uses
-  thinking, thinking and the summary text can share this one ceiling. This
-  adapter never branches its behaviour on the model name. The prompt's own
-  "no target length" instruction (§10.1), not this ceiling, governs how long a
-  summary actually is.
+  configuration.** 32768 is this extension's own fixed request-level output
+  limit — not a target summary length and not a reader-facing setting. It is
+  not the Messages API's own hard output ceiling, and it is not the maximum
+  output capability of the selected Claude model; that capability is
+  Anthropic's own, provider-side property of the model, distinct from what
+  this constant fixes for every request this adapter sends. This adapter
+  never branches its behaviour on the model name. The prompt's own "no target
+  length" instruction (§10.1), not this limit, governs how long a summary
+  actually is.
 
 ### 11.3 The answer
 

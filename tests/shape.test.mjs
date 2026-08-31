@@ -138,6 +138,30 @@ test("a page with no blocks and one with too little text are one verdict", () =>
   });
 });
 
+test("a long title does not offset a too-short body", () => {
+  const title = "Title ".repeat(100).trim();
+  const body = "x".repeat(MIN_MATERIAL_CHARS - 1);
+  assert.ok(title.length > MIN_MATERIAL_CHARS);
+  const result = shape({ title, blocks: [paragraph(body)] });
+  assert.deepEqual(result, { ok: false, kind: "too-little-text" });
+});
+
+test("table cells are exempt from global repetition removal", () => {
+  const cellText = "Recurring configuration value used in every row";
+  assert.ok(cellText.length >= DEDUPE_MIN_CHARS);
+  const result = shape({
+    title: "T",
+    blocks: [
+      { kind: "table-cell", row: 1, text: cellText },
+      { kind: "table-cell", row: 2, text: cellText },
+      filler("body."),
+    ],
+  });
+  assert.equal(result.ok, true);
+  const occurrences = result.material.text.split(cellText).length - 1;
+  assert.equal(occurrences, 2);
+});
+
 test("an oversized page is retained for long-page summarization", () => {
   const result = shape({
     title: "T",
@@ -192,6 +216,26 @@ test("chunking reserves room for a long title", () => {
       .join(" "),
     text,
   );
+});
+
+test("title overhead with no room for body forces chunkMaterial to fail closed", () => {
+  const limit = 120;
+  const title = "t".repeat(120);
+  const blocks = [paragraph("body ".repeat(60))];
+  const chunks = chunkMaterial({ title, blocks }, limit);
+  assert.deepEqual(chunks, []);
+});
+
+test("heading-context overhead on a later chunk fails closed rather than returning a partial result", () => {
+  const limit = 200;
+  const headingText = "h".repeat(120);
+  const paragraphText = "p".repeat(150);
+  const blocks = [
+    { kind: "heading", level: 2, text: headingText },
+    paragraph(paragraphText),
+  ];
+  const chunks = chunkMaterial({ title: "", blocks }, limit);
+  assert.deepEqual(chunks, []);
 });
 
 test("shaping does not reorder or rewrite what it keeps", () => {

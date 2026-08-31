@@ -17,12 +17,14 @@ import { sendRequest, REQUEST_TIMEOUT_MS } from "./transport.js";
 export const ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1";
 export const ANTHROPIC_VERSION = "2023-06-01";
 
-// The Messages API requires `max_tokens`. 32768 is a hard protocol ceiling on
-// the length of one answer, not a summary target length and not a setting: no
-// reader has the information to choose it. If the selected model uses
-// thinking, thinking and the response text can share this ceiling. The
-// prompt's own "no target length" instruction is what actually governs how
-// long a summary is.
+// The Messages API requires `max_tokens`, so this extension sends 32768 on
+// every request. This is this extension's own fixed request-level output
+// limit — not a reader-facing setting, not a summary target length, not the
+// Messages API's own hard output ceiling, and not the selected Claude
+// model's maximum output capability (that capability is Anthropic's own,
+// provider-side, and is not what this constant describes). The prompt's own
+// "no target length" instruction is what actually governs how long a
+// summary is.
 export const MAX_OUTPUT_TOKENS = 32768;
 
 // Matched, not parsed. An endpoint that words its refusal differently falls
@@ -34,6 +36,7 @@ const LENGTH_MARKERS = [
   "prompt is too long",
   "too long",
   "too large",
+  "request_too_large",
 ];
 
 // The trusted instruction becomes the top-level `system`; the material — the

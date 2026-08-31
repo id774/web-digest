@@ -626,11 +626,14 @@ that the requirements are incomplete, and that is where it is taken.
   keeps, what it drops, how long it is or how it reads belongs there, not in a
   branch in JavaScript, unless the rule is mechanical and cannot be expressed as
   an instruction.
-- The prompt is substituted into nothing and formats nothing. What the request
-  carries as the instruction is the prompt text plus one short, fixed
-  run-level control line naming the output-language mode; the prompt's own
-  wording reaches the request unchanged, and that control line is the only
-  thing composed with it.
+- The prompt is substituted into nothing and formats nothing. The
+  worker-controlled trusted instruction composes the prompt text with a
+  run-level `LANGUAGE MODE` line, decided once when the run starts, and a
+  request-level `TASK` line, chosen by the worker for each individual
+  request; the prompt's own wording reaches the request unchanged. The
+  page's title, body, chunk text and integration material are never composed
+  into the trusted instruction — they stay on the untrusted content side of
+  the boundary every adapter maps to its own provider's protocol.
 - A prompt resource that cannot be read ends the run as a failure. No built-in
   text stands in for it, because a summary written by a fallback prompt would be
   indistinguishable from one written by the intended prompt.
@@ -723,8 +726,10 @@ that the requirements are incomplete, and that is where it is taken.
   listener, a state removal for a tab that has gone.
 - Every outbound request is made under an explicit bounded wait, which covers
   reading the body as well as the response. There is no request without one.
-- A failure crossing a module boundary is one of the design's error kinds. A
-  status, an exception or a message fragment does not cross it.
+- A failure crossing a module boundary is one of the design's error kinds
+  and, for `provider-error`, carries its fixed `detail`. A status, an
+  exception, a raw response or a message fragment does not cross that
+  boundary.
 - **A failed run is never retried automatically.** Retrying is the reader
   clicking again.
 - An exception nobody predicted still ends the run as a failure the reader is

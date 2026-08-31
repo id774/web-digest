@@ -41,6 +41,8 @@ the summary is shown in the side panel, beside the page
 - Requirements: [doc/REQUIREMENTS.md](doc/REQUIREMENTS.md)
 - Basic design: [doc/BASIC_DESIGN.md](doc/BASIC_DESIGN.md)
 - Detailed design: [doc/DETAILED_DESIGN.md](doc/DETAILED_DESIGN.md)
+- Implementation policy: [doc/POLICY.md](doc/POLICY.md)
+- Version history: [doc/VERSIONS](doc/VERSIONS)
 
 ## Features
 
@@ -280,7 +282,7 @@ For the most common problems:
 ## Limitations
 
 - **Extracting the main content of every page is not promised.** An unusual DOM, content generated after load, a shadow tree, a page behind an authentication state, and a page built in a way the generic strategy does not recognize may all yield too little text. The run says so rather than summarizing whatever furniture happened to be extractable.
-- **Some pages cannot be read at all**: `chrome://` pages, the Chrome Web Store, the PDF viewer and `file://` URLs are refused by Chrome, not by this extension.
+- **Some pages cannot be read at all**: `chrome://` pages, the Chrome Web Store and the Chrome PDF viewer are restricted by Chrome itself, and script injection into them is refused. `file://` URLs are not refused across the board — if you have turned on **Allow access to file URLs** for this extension in Chrome's extension details, a `file://` page can be read the same as any other page; if that permission is off, injection is refused and the run reports that this page's content could not be obtained.
 - **The summary is produced by a language model.** It is not a guarantee that the meaning of the original survived, and it is no substitute for the page where a judgement actually matters — read the original before deciding anything on it.
 - **It reports what the page says.** Whether the page is correct, whether it is worth reading, and whether it was written by a machine are not questions this extension answers.
 - **A very long page is summarized in stages.** Material within the 200,000-character request budget uses one request. Longer material is split at heading and block boundaries, each chunk is semantically compressed, and the chunk summaries are integrated into one whole-page summary. Integration is repeated in stages when necessary; content is not sampled or ranked away. Every stage of a long page's summary uses the same one provider a run started with.
@@ -300,28 +302,44 @@ None of these is a gap to be filled later. Should one become necessary, the requ
 
 ```text
 .
-├── manifest.json               MV3: the permissions, the action, the panel, the options page
+├── manifest.json
+├── package.json
+├── icons/
 ├── prompts/
-│   └── summarize.md            the summarization instruction, held as data outside the code
+│   └── summarize.md
 ├── src/
-│   ├── background/             the service worker: one run, start to finish
-│   ├── extract/                injected into the tab, once, per request
-│   ├── shape/                  blocks in, the material to summarize out
-│   ├── engine/                 the dispatcher and the one adapter per AI provider
-│   ├── panel/                  the side panel document: the state and the result
-│   ├── options/                the settings document: the provider, its credential and
-│   │                           model, and the Japanese summary preference
-│   └── common/                 the settings accessor, the permission helper, the error
-│                               kinds, the message names
-└── doc/                        the requirements and the designs
+│   ├── background/
+│   ├── extract/
+│   ├── shape/
+│   ├── engine/
+│   ├── panel/
+│   ├── options/
+│   └── common/
+├── tests/
+├── README.md
+└── doc/
+    ├── REQUIREMENTS.md
+    ├── BASIC_DESIGN.md
+    ├── DETAILED_DESIGN.md
+    ├── POLICY.md
+    ├── VERSIONS
+    ├── LICENSE.md
+    ├── COPYING
+    └── COPYING.LESSER
 ```
 
-There is no build step, which is what makes "load unpacked from a clone" the whole of the installation. Four concerns are kept apart — obtaining the content of the page, communicating with the selected AI provider, the summarization prompt, and displaying the result — so that adding or changing a provider touches `src/engine/` and the settings, and improving the prompt touches one text file that no module reads the contents of.
+There is no build step, which is what makes "load unpacked from a clone" the whole of the installation. Four concerns are kept apart — obtaining the content of the page, communicating with the selected AI provider, the summarization prompt, and displaying the result — so that adding or changing a provider touches `src/engine/` and the settings.
+
+Prompt wording is not embedded in a JavaScript module. `prompts/summarize.md` is a packaged text resource that the service worker `fetch()`es at the start of a run; improving the summaries is editing that one file, and no module holds a copy of its wording.
 
 ## Documents
 
 - Requirements: [doc/REQUIREMENTS.md](doc/REQUIREMENTS.md)
 - Basic design: [doc/BASIC_DESIGN.md](doc/BASIC_DESIGN.md)
 - Detailed design: [doc/DETAILED_DESIGN.md](doc/DETAILED_DESIGN.md)
+- Implementation policy: [doc/POLICY.md](doc/POLICY.md)
+- Version history: [doc/VERSIONS](doc/VERSIONS)
+
+REQUIREMENTS states what the extension must satisfy. BASIC_DESIGN states the architecture and the responsibility of each component. DETAILED_DESIGN states the concrete behavior and interfaces. POLICY states the implementation and maintenance policy. VERSIONS is the release history.
 
 Each of them stands on its own. What this repository needs is written in this repository, and no document here is completed by one kept somewhere else. Where a document and this README disagree, the documents are right and this README is the one to correct.
