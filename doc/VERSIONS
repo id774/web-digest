@@ -31,6 +31,8 @@ v1.1.0 (Release Date: TBD)
   finish_reason=length are no longer shown as complete summaries, Claude HTTP 403 no
   longer implies a bad model name, and the too-large message now reflects the staged
   long-page flow rather than referring to one request.
+- Raised the per-request material budget from 40,000 to 200,000 characters, so staged
+  long-page summarization begins only for substantially larger material.
 
 v1.0.1 (2026-08-26)
 -------------------
