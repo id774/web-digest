@@ -220,7 +220,7 @@ What the panel shows:
 | nothing run yet | that no summary has been run for this tab | **Settings** |
 | in progress | that a summary is being produced, and that it may take a while | **Settings** |
 | succeeded | the title and the summary | **Settings** |
-| failed | what went wrong, and what would address it | **Open settings** when no credential is configured, or a permission is missing |
+| failed | what went wrong, and what would address it | **Settings**; additionally **Open settings** when no credential is configured, or a permission is missing |
 
 Navigating to another page never starts a run: the panel returns to "nothing run yet" for the new page and waits for the toolbar action. A failed run is never retried automatically. One toolbar click starts one complete run, with one provider fixed for its whole duration; a long page may require several requests to that same provider within that run.
 
