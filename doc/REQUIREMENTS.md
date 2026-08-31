@@ -8,10 +8,12 @@ them, and deliberately holds no module name, no function name and no extraction
 algorithm.
 
 How those requirements are met — the composition of the extension, what runs in
-which context, the shape of a request to the summarization endpoint, the wording
-of the prompt — belongs to a basic design document, which does not exist yet.
-Section 21 records what the documents of this repository are meant to be and
-what of that is still outstanding.
+which context and the responsibilities between its parts — belongs to
+[`BASIC_DESIGN.md`](BASIC_DESIGN.md). The concrete behavior and interfaces of
+those parts belong to [`DETAILED_DESIGN.md`](DETAILED_DESIGN.md), while
+[`POLICY.md`](POLICY.md) states how this repository is implemented and
+maintained. Section 21 records the responsibilities of these documents and of
+the README and release history.
 
 It stands on its own. Nothing in it is completed by a document in another
 repository.
@@ -415,24 +417,35 @@ rather than judged on its own merits.
 
 ## 21. The documents
 
-The intended layout of the repository's documents:
+The documents that define the product and its maintenance have distinct
+responsibilities:
 
 ```text
 README.md
 
 doc/
-└── REQUIREMENTS.md
+├── REQUIREMENTS.md
+├── BASIC_DESIGN.md
+├── DETAILED_DESIGN.md
+├── POLICY.md
+└── VERSIONS
 ```
 
-`README.md` is the entrance, and `doc/` holds the detail. Everything named below
-as outstanding is future work, and is not created by the change that adds this
-document.
+`README.md` is the reader's entrance. `REQUIREMENTS.md` states what is required
+and why. `BASIC_DESIGN.md` states how those requirements are met at the level of
+the extension's composition and responsibilities. `DETAILED_DESIGN.md` states
+the concrete behavior and interfaces of those parts. `POLICY.md` states how the
+repository is implemented and maintained. `VERSIONS` is the release history.
+
+These are the product and maintenance documents relevant to this section; the
+listing is not intended to enumerate licensing files or every file under
+`doc/`.
 
 ### 21.1 The README
 
 Because the extension is installed from this repository rather than from a
-store, the README is the only instruction a reader gets. It has to make at least
-these clear:
+store, the README is the instruction a reader gets. It makes at least these
+clear:
 
 - what the project is,
 - its main features,
@@ -442,20 +455,22 @@ these clear:
 - how it is used,
 - the main limitations.
 
-**The README does not yet carry these, and bringing it up to that is outstanding
-work.** It is recorded here so that it is not lost, and it is deliberately not
-done by the change that adds this document.
+The README is kept consistent with these requirements and the designs whenever
+a change affects what a reader must know to install, configure or use the
+extension.
 
-### 21.2 The basic design
+### 21.2 The designs and policy
 
-There is no basic design document yet. The composition of the extension, the
-extraction approach, the request to the endpoint, the handling of settings and
-the wording of the prompt belong there, and writing it is outstanding work.
+`BASIC_DESIGN.md` owns the composition of the extension, the extraction
+approach, the provider boundary, settings, state and the division of
+responsibility between parts. `DETAILED_DESIGN.md` owns the concrete behavior,
+interfaces, request and response shapes and other implementation-level design
+needed to implement that composition. `POLICY.md` owns the repository's coding,
+security, testing, documentation, versioning and maintenance rules.
 
 Where a subject is missing from this document, it is a gap to be filled here,
 not something to be looked up in another repository. Where a subject belongs to
-the design, this document leaves it open on purpose rather than settling it
-early.
+the design or policy, this document leaves it there rather than duplicating it.
 
 ## 22. Independence
 
