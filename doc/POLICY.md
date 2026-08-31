@@ -716,6 +716,10 @@ that the requirements are incomplete, and that is where it is taken.
   it in Node registers nothing.
 - A function that can be pure is written pure, and the ones the design names as
   pure stay that way.
+- A timer that supports the lifetime of one run-local long-running operation is
+  held in a local of the call that opened it. A global heartbeat or a
+  module-level mutable interval handle is a fact two runs can see, and is not
+  introduced. No timer outlives the operation it was opened for.
 
 ### 3.4 Asynchrony and Failures
 - **No rejection is left unhandled and no error is swallowed.** Every `await` of
@@ -734,6 +738,15 @@ that the requirements are incomplete, and that is where it is taken.
   clicking again.
 - An exception nobody predicted still ends the run as a failure the reader is
   told about.
+- While a Manifest V3 service worker waits on an exceptionally long-running
+  operation such as provider summarization, Chrome's own documented pattern is
+  used to reset the worker's lifetime timer: a trivial extension API call every
+  25 seconds, for the duration of that operation only. The scope is bounded, the
+  cleanup is a `finally`, and a continuous indefinite heartbeat, `chrome.alarms`
+  or any other background scheduling is not what this is. The keepalive changes
+  no provider timeout, causes no retry and changes no failure classification;
+  its own pulse is never left as an unhandled rejection and never classified as
+  a provider failure.
 
 ### 3.5 Tests
 - The tests are Node's own runner: `node --test tests/*.test.mjs`, with

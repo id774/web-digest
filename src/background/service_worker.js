@@ -22,6 +22,12 @@ const PANEL_PATH = "src/panel/panel.html";
 const PROMPT_PATH = "prompts/summarize.md";
 const EXTRACT_FILE = "src/extract/extract.js";
 
+// Chrome ends an idle service worker after about 30 seconds without an
+// extension API call, and a provider request can be slower than that on its
+// own. A pulse shorter than that window resets the lifetime timer while the
+// summarization operation runs.
+export const SERVICE_WORKER_KEEPALIVE_INTERVAL_MS = 25000;
+
 const KNOWN_KINDS = new Set(BLOCK_KINDS);
 const activeRuns = new Map();
 const pendingDiscards = new Map();
@@ -193,6 +199,31 @@ export async function summarizeMaterial(
   );
 }
 
+// The interval belongs to the one operation it covers: it is created before
+// the operation starts, it is cleared however the operation ends, and no
+// module-level handle outlives it.
+export async function keepServiceWorkerAlive(
+  operation,
+  {
+    runtimeApi = chrome.runtime,
+    setIntervalImpl = setInterval,
+    clearIntervalImpl = clearInterval,
+  } = {},
+) {
+  const keepAlive = setIntervalImpl(() => {
+    runtimeApi.getPlatformInfo().catch(() => {
+      // The pulse has no application result to surface; the run's own
+      // provider result, timeout, or failure remains authoritative.
+    });
+  }, SERVICE_WORKER_KEEPALIVE_INTERVAL_MS);
+
+  try {
+    return await operation();
+  } finally {
+    clearIntervalImpl(keepAlive);
+  }
+}
+
 async function readState(tabId) {
   const stored = await chrome.storage.session.get(stateKey(tabId));
   return stored[stateKey(tabId)] || idleState();
@@ -336,19 +367,21 @@ async function runSummary(tabId, titleFromTab) {
       return;
     }
 
-    const answer = await summarizeMaterial(
-      shaped.material,
-      instruction,
-      (logicalRequest) =>
-        callProvider({
-          provider: settings.provider,
-          model: settings.model,
-          credential: settings.credential,
-          instruction: logicalRequest.instruction,
-          content: logicalRequest.content,
-        }),
-      0,
-      () => isCurrentRun(tabId, run),
+    const answer = await keepServiceWorkerAlive(() =>
+      summarizeMaterial(
+        shaped.material,
+        instruction,
+        (logicalRequest) =>
+          callProvider({
+            provider: settings.provider,
+            model: settings.model,
+            credential: settings.credential,
+            instruction: logicalRequest.instruction,
+            content: logicalRequest.content,
+          }),
+        0,
+        () => isCurrentRun(tabId, run),
+      ),
     );
 
     if (!answer) return;

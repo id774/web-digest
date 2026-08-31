@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 
 import {
   LanguageMode,
+  SERVICE_WORKER_KEEPALIVE_INTERVAL_MS,
   claimRun,
   composeInstruction,
   composeRequest,
@@ -13,6 +14,7 @@ import {
   invalidateRun,
   isCurrentRun,
   isValidExtractResult,
+  keepServiceWorkerAlive,
   openPanelAndRun,
   runningState,
   releaseRun,
@@ -343,6 +345,86 @@ test("a run does not start when its side panel cannot open", async () => {
     /panel unavailable/,
   );
   assert.equal(started, false);
+});
+
+test("service worker keepalive uses the documented 25 second interval", () => {
+  assert.equal(SERVICE_WORKER_KEEPALIVE_INTERVAL_MS, 25000);
+});
+
+test("keepalive starts before a long operation, pulses the runtime API, and clears on success", async () => {
+  const intervals = [];
+  const cleared = [];
+  let pulses = 0;
+  let registeredBeforeOperation = false;
+
+  const result = await keepServiceWorkerAlive(
+    async () => {
+      registeredBeforeOperation = intervals.length === 1;
+      return "summarized";
+    },
+    {
+      runtimeApi: {
+        async getPlatformInfo() {
+          pulses += 1;
+          return { os: "linux" };
+        },
+      },
+      setIntervalImpl(callback, period) {
+        intervals.push({ callback, period });
+        return "interval-1";
+      },
+      clearIntervalImpl(id) {
+        cleared.push(id);
+      },
+    },
+  );
+
+  assert.equal(registeredBeforeOperation, true);
+  assert.equal(intervals.length, 1);
+  assert.equal(intervals[0].period, SERVICE_WORKER_KEEPALIVE_INTERVAL_MS);
+
+  intervals[0].callback();
+  assert.equal(pulses, 1);
+
+  assert.equal(result, "summarized");
+  assert.deepEqual(cleared, ["interval-1"]);
+});
+
+test("keepalive clears its interval and propagates a long operation failure", async () => {
+  const cleared = [];
+
+  await assert.rejects(
+    keepServiceWorkerAlive(
+      async () => {
+        throw new Error("failed");
+      },
+      {
+        runtimeApi: { async getPlatformInfo() {} },
+        setIntervalImpl: () => "interval-1",
+        clearIntervalImpl(id) {
+          cleared.push(id);
+        },
+      },
+    ),
+    /failed/,
+  );
+
+  assert.deepEqual(cleared, ["interval-1"]);
+});
+
+test("run summary scopes service worker keepalive around provider summarization", async () => {
+  const worker = await readFile(
+    new URL("../src/background/service_worker.js", import.meta.url),
+    "utf8",
+  );
+  // One definition plus the one call site inside runSummary.
+  assert.equal(worker.match(/keepServiceWorkerAlive\(/g)?.length, 2);
+  assert.match(
+    worker,
+    /const answer = await keepServiceWorkerAlive\(\s*\(\)\s*=>\s*summarizeMaterial\(/,
+  );
+  const listeners = worker.slice(worker.indexOf("function registerListeners"));
+  assert.doesNotMatch(listeners, /keepServiceWorkerAlive/);
 });
 
 test("a normal page uses one page request", async () => {
