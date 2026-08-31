@@ -50,7 +50,7 @@ test("the instruction becomes the top-level system and the material a user messa
   assert.deepEqual(body.messages, [{ role: "user", content: CALL.content }]);
 });
 
-test("max_tokens is the fixed 32768 protocol ceiling", () => {
+test("max_tokens is this extension's fixed request-level output limit of 32768", () => {
   const body = JSON.parse(buildRequest(CALL).body);
   assert.equal(MAX_OUTPUT_TOKENS, 32768);
   assert.equal(body.max_tokens, 32768);
@@ -139,6 +139,10 @@ test("the failure mapping table", () => {
   assert.equal(mapHttpFailure(529, null).detail, "unavailable");
   assert.equal(
     mapHttpFailure(400, { error: { message: "prompt is too long" } }).kind,
+    "too-much-text",
+  );
+  assert.equal(
+    mapHttpFailure(413, { error: { type: "request_too_large" } }).kind,
     "too-much-text",
   );
 });

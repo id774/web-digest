@@ -164,6 +164,12 @@ function headingContextBefore(blocks, end) {
 
 // Split at major headings first, then lower headings, then ordinary block
 // boundaries. Only a block that cannot fit alone is split within its text.
+// Every chunk this returns satisfies chunk.charCount <= limit. Title,
+// heading context and block text are never truncated, dropped or sampled to
+// reach that bound: when no safe partition exists — the title alone leaves
+// no room for body text, or heading-context overhead pushes some chunk past
+// the limit — the whole call fails closed with [] rather than returning a
+// partial result.
 export function chunkMaterial(material, limit = MAX_REQUEST_MATERIAL_CHARS) {
   const source = material.blocks || [{ kind: "paragraph", text: material.text }];
   const reserve = Math.min(500, Math.floor(limit / 4));
@@ -173,19 +179,20 @@ export function chunkMaterial(material, limit = MAX_REQUEST_MATERIAL_CHARS) {
   let start = 0;
 
   while (start < expanded.length) {
+    const headings = headingContextBefore(expanded, start);
     let end = start;
+    let candidate = makeChunk(material.title, expanded.slice(start, end + 1), headings);
+    if (candidate.charCount > limit) return [];
+    end += 1;
+
     while (end < expanded.length) {
-      const candidate = makeChunk(
-        material.title,
-        expanded.slice(start, end + 1),
-        headingContextBefore(expanded, start),
-      );
-      if (candidate.charCount > limit && end > start) break;
+      const next = makeChunk(material.title, expanded.slice(start, end + 1), headings);
+      if (next.charCount > limit) break;
+      candidate = next;
       end += 1;
-      if (candidate.charCount > limit) break;
     }
 
-    let boundary = Math.max(start + 1, end);
+    let boundary = end;
     if (boundary < expanded.length) {
       for (const maxLevel of [2, 6]) {
         for (let i = boundary - 1; i > start; i -= 1) {
@@ -198,13 +205,9 @@ export function chunkMaterial(material, limit = MAX_REQUEST_MATERIAL_CHARS) {
       }
     }
 
-    chunks.push(
-      makeChunk(
-        material.title,
-        expanded.slice(start, boundary),
-        headingContextBefore(expanded, start),
-      ),
-    );
+    const chunk = makeChunk(material.title, expanded.slice(start, boundary), headings);
+    if (chunk.charCount > limit) return [];
+    chunks.push(chunk);
     start = boundary;
   }
   return chunks;
@@ -227,7 +230,7 @@ export function shape(extracted) {
         : normalizeText(block.text);
     if (carriesNothing(text)) continue;
 
-    if (text.length >= DEDUPE_MIN_CHARS) {
+    if (block.kind !== "table-cell" && text.length >= DEDUPE_MIN_CHARS) {
       const fingerprint = `${block.kind} ${text}`;
       if (seen.has(fingerprint)) continue;
       seen.add(fingerprint);
@@ -241,7 +244,7 @@ export function shape(extracted) {
 
   const text = render(kept);
   const charCount = title.length + text.length;
-  const verdict = judgeSize(charCount);
+  const verdict = judgeSize(text.length);
   if (verdict !== "ok") return { ok: false, kind: verdict };
 
   return {

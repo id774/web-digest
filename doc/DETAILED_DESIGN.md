@@ -157,9 +157,11 @@ it declares one function, calls it, and the value of that call is what
 bundler, no transpiler and no dependency: the files a browser is given are the
 files in the repository.
 
-**No icon files.** Chrome supplies a default action icon, an unpacked extension
-needs none, and adding binary assets to a repository whose whole installation
-is "clone and load" buys nothing this version is judged on.
+**Packaged icon files exist in the repository, under `icons/`.** They are
+referenced by the manifest's top-level `icons` and by `action.default_icon`
+(§4), and nothing else in the design touches them. They are static packaged
+assets like every other file here: no build step produces them, and none is
+needed to use them.
 
 ## 4. `manifest.json`
 
@@ -515,7 +517,9 @@ is to never carry the URL at all.
 
 | Situation | The worker sees | Error kind |
 |---|---|---|
-| a restricted page — `chrome://`, the Web Store, a PDF viewer, a `file://` URL | `executeScript` rejects | `page-unreadable` |
+| a Chrome-restricted target — `chrome://`, the Chrome Web Store, the Chrome PDF viewer | `executeScript` rejects | `page-unreadable` |
+| a `file://` page, and **Allow access to file URLs** is not granted to this extension | `executeScript` rejects | `page-unreadable` |
+| a `file://` page, and **Allow access to file URLs** is granted | injection succeeds; the page proceeds through the ordinary extraction path (§7.1–§7.4) | — |
 | the `activeTab` grant has lapsed (§5.3) | `executeScript` rejects | `page-unreadable` |
 | the injected function throws | no result, or a rejected promise | `page-unreadable` |
 | it returns no result, or one that is not the shape above | a value that fails the check in §22 step 6 | `page-unreadable` |
@@ -559,13 +563,22 @@ characters, or consists only of punctuation, symbols and spaces.
 
 ### 8.3 Remove repetition that is the page's
 
-A block is dropped when a block of the same kind and the same text has already
-been kept, and the text is at least `DEDUPE_MIN_CHARS` characters long. The
-first occurrence stays.
+A non-table block is dropped when a block of the same kind and the same text
+has already been kept, and the text is at least `DEDUPE_MIN_CHARS` characters
+long. The first occurrence stays.
 
 The length floor is there so that two list items reading "Yes" are both kept
 while a site's repeated one-line footer is not. Comparison is exact, on the
 normalized text.
+
+**`table-cell` blocks are exempt from this pass entirely**, regardless of
+length, row, or how many times the same text recurs. A table's cells commonly
+repeat meaningfully — the same status word, unit or category value in several
+rows, or the same value in several cells of one row — and this design would
+rather keep an intentional repetition than discard one the page meant to
+carry. No row-level or column-level comparison is added to decide which
+repeats are meaningful; every `table-cell` block that survives §8.1 and §8.2
+is kept.
 
 ### 8.4 Render
 
@@ -598,24 +611,29 @@ measure the material and decide the two verdicts of §9.
 }
 ```
 
-`charCount` is `title.length + text.length`. `blockCount` is the number of
-blocks kept. Both exist to be measured, logged (§19) and tested; neither is
-shown to the reader.
+`charCount` is `title.length + text.length` — the measure the per-request
+budget of §9.2 is taken against. `blockCount` is the number of blocks kept.
+Both exist to be measured, logged (§19) and tested; neither is shown to the
+reader. The too-little-text verdict of §9.1 is judged on `text.length` alone,
+not on `charCount`: a long title never offsets a body that is itself too
+short.
 
 **Shaping does not rewrite, translate, reorder, summarize or truncate.** Every
 judgement about what matters is the model's.
 
 ## 9. Size
 
-Both verdicts are shaping's, taken on `charCount` after §8.4, before any
-request is built (basic design §9.2, §9.3).
+Both verdicts are shaping's, taken after §8.4, before any request is built
+(basic design §9.2, §9.3).
 
 ### 9.1 Too little
 
-`charCount < MIN_MATERIAL_CHARS` ends the run with `too-little-text`. A page
-that produced no blocks at all reaches the same verdict by the same test, so
-"there was no body" and "the body was too short" are one situation with one
-message, as basic design §17 has them.
+`text.length < MIN_MATERIAL_CHARS` ends the run with `too-little-text` — the
+rendered body alone, never `charCount`, so the title's own length cannot make
+a too-short body pass this check. A page that produced no blocks at all
+reaches the same verdict by the same test, so "there was no body" and "the
+body was too short" are one situation with one message, as basic design §17
+has them.
 
 ### 9.2 Long material
 
@@ -631,11 +649,24 @@ boundaries. Only a block too large to fit alone is divided within its text, at
 a line, sentence or whitespace boundary where possible. Each chunk carries the
 page title and the heading context active at its start.
 
-Each chunk is semantically compressed. Their summaries are combined and sent
-through an integration task which reconstructs one page-level summary and
-unifies repetition. If the combined summaries exceed the same budget, they are
-compressed and integrated in further stages. No original chunk is omitted and
-no partial result is displayed after an API failure.
+**Every chunk `chunkMaterial` returns satisfies `charCount <= limit`.** The
+title, the active heading context and the block text are never truncated,
+sampled or ranked away to force a chunk under budget. Two situations can make
+a safe partition impossible: the title's own length can leave no room for any
+body text in the same material, or the heading-context line carried into a
+later chunk (§10.3) can push that chunk over the limit even though the block
+starting it would fit alone. In either case `chunkMaterial` returns an empty
+array rather than a partial or an oversized one, and the worker's staged
+summarizer reads that as `too-much-text` — the same "chunks.length < 2" path a
+page just under two chunks already takes. No oversized chunk is ever sent to
+a provider, and no partial staged summary is ever shown for such a page.
+
+Each chunk that is sent is semantically compressed. Their summaries are
+combined and sent through an integration task which reconstructs one
+page-level summary and unifies repetition. If the combined summaries exceed
+the same budget, they are compressed and integrated in further stages. No
+original chunk is omitted and no partial result is displayed after an API
+failure.
 
 ### 9.3 The provider's own refusal
 
@@ -666,7 +697,17 @@ file, and no code path branches on what it says.
 ```markdown
 # Summarize a web page
 
-You are given the text of one web page. Produce a summary of it.
+You are given either the text of one web page, one structural chunk of a long
+page, or summaries produced from chunks. The `TASK` line identifies which.
+
+- For `page`, produce the final summary of the page.
+- For `chunk`, semantically compress that part while preserving its main
+  claims, important grounds, causal relations, conditions, reservations, and
+  facts needed to understand the whole page. Use its title and section context.
+- For `integrate`, reconstruct one summary of the whole page from all parts.
+  Unify repeated points and recover the central claim, relations between the
+  main points, conclusion, conditions, and reservations. Do not return a
+  chapter-by-chapter collection.
 
 ## The task
 
@@ -759,34 +800,40 @@ classifier would have to get wrong.
 ### 10.3 How the two parts are composed
 
 The worker composes a provider-neutral logical request — not any one
-provider's wire format — from the instruction and the material:
+provider's wire format — from the base instruction and the material:
 
 ```js
 // composeRequest(instruction, material, task)
 {
-  instruction,   // unchanged, the trusted part
-  content: `TASK: ${task}\n\n${material.title
+  instruction: `${instruction}\n\nTASK: ${task}`,   // the trusted part
+  content: material.title
     ? `TITLE: ${material.title}\n\nBODY:\n${material.text}`
-    : `BODY:\n${material.text}`}`,
+    : `BODY:\n${material.text}`,
 }
 ```
 
-`task` is `"page"` for a normal page, `"chunk"` for one chunk of a long page,
-and `"integrate"` for the integration step (§9.2); it is chosen by the worker,
-never by the page. When the title is empty the `TITLE:` line is omitted and
-the body begins with `BODY:`.
+The `instruction` passed in is the base instruction: the fetched prompt text
+with the run-level `LANGUAGE MODE` line already appended (§10.4). `task` —
+`"page"` for a normal page, `"chunk"` for one chunk of a long page, or
+`"integrate"` for the integration step (§9.2) — is chosen by the worker for
+each individual request and appended to that base instruction as its own
+`TASK:` line, so the returned `instruction` carries both worker-selected
+controls. `content` carries the title and body only; the worker-added `TASK:`
+line never appears in it. When the title is empty the `TITLE:` line is
+omitted and the body begins with `BODY:`.
 
 **The boundary between the instruction and the content is a field boundary in
 this logical request**, not a delimiter inside one string. Each adapter (§11)
 maps `instruction` and `content` onto its own provider's trusted and untrusted
 parts — Sakura's `system` and `user` messages, OpenAI's `instructions` and
 `input`, Claude's top-level `system` and its one user message — never onto one
-string a marker could be found inside. A marker inside `content` is text the
-page could contain; the field boundary, and the message or field boundary
-each adapter builds from it, are structure the page cannot reach. That is
-what makes "this text is data" a statement about the request rather than a
-hope in a prompt, and it is why nothing in this design searches the material
-for a marker or strips one out of it.
+string a marker could be found inside. A `TASK:` or `LANGUAGE MODE:` line
+appearing inside `content` is text the page happened to contain — it is data,
+and it cannot change which task or language mode the worker chose, because
+those live only in `instruction`, on the trusted side of the field boundary
+each adapter builds. That is what makes "this text is data" a statement about
+the request rather than a hope in a prompt, and it is why nothing in this
+design searches the material for such a line or strips one out of it.
 
 ### 10.4 How the output language is composed
 
@@ -797,13 +844,17 @@ const instruction = `${promptText}\n\nLANGUAGE MODE: ${mode}`;
 
 `japaneseSummary` comes from settings (§13.1), read once at the start of the
 run, independent of and identical for whichever provider is selected. The
-line it produces is appended to the fetched prompt text before the logical
-request is built (§10.3), so it is part of the instruction and never part of
-the material: the page cannot supply, see, or override it. The same composed
-instruction is then reused, unchanged, for every request the run makes — the
-one page request, or every chunk and integrate request of a long page (§9.2)
-— so a run never mixes output languages partway through, and a later change
-to the setting is picked up only by the next run.
+line it produces is appended to the fetched prompt text once, before any
+request is built, giving the run's one **base instruction** — this is the
+`instruction` §10.3's `composeRequest` receives. That base instruction does
+not change again for the rest of the run: it is part of the instruction and
+never part of the material, so the page cannot supply, see, or override it.
+What changes per request is only the `TASK:` line `composeRequest` appends to
+that same base instruction (§10.3) — `page`, `chunk` or `integrate` — so the
+one page request, or every chunk and integrate request of a long page (§9.2),
+all start from the identical base instruction and therefore the identical
+`LANGUAGE MODE`. A run never mixes output languages partway through, and a
+later change to the setting is picked up only by the next run.
 
 ## 11. The provider client: dispatcher and adapters
 
@@ -896,14 +947,18 @@ Content-Type: application/json
 ```
 
 `max_tokens` is `MAX_OUTPUT_TOKENS`, fixed at 32768 in this adapter (§14). It
-is a hard protocol ceiling, never a reader-facing setting or a target summary
-length. This request sends no `thinking` field: the selected model follows
-whichever thinking default Anthropic has documented for it, and where that
-model uses thinking, thinking and the response text can share this one
-ceiling. This adapter never branches its behaviour on the model name. The
-prompt's own "no target length" instruction, not the ceiling, governs how long
-a summary actually is. No `tools`, no web search or fetch, no prompt caching,
-no service tier selection, no sampling parameter, and no `stream` is sent.
+is this extension's own fixed request-level output limit, sent because the
+Messages API requires the field on every request — not a reader-facing
+setting, not a target summary length, not the Messages API's own hard output
+ceiling, and not the selected Claude model's own maximum output capability
+(that capability is Anthropic's own, provider-side, and is a separate thing
+from what this constant fixes here). This request sends no `thinking` field:
+the selected model follows whichever thinking default Anthropic has
+documented for it. This adapter never branches its behaviour on the model
+name. The prompt's own "no target length" instruction, not this limit,
+governs how long a summary actually is. No `tools`, no web search or fetch,
+no prompt caching, no service tier selection, no sampling parameter, and no
+`stream` is sent.
 
 No other header beyond what each table above lists is sent by any adapter. No
 `User-Agent` of this project's own, no request id, no telemetry.
@@ -988,8 +1043,13 @@ own provider's status codes and error body:
 | a 2xx answer with no usable content, by the rule of §11.4 | `no-usable-summary` | — |
 
 The length test looks for `context_length`, `context length`, `maximum
-context`, `too long` and `too large` (plus, for Claude, `prompt is too long`)
-in the error fields of the answer, case-insensitively. **Those strings are
+context`, `too long` and `too large` (plus, for Claude, `prompt is too long`
+and `request_too_large`) in the error fields of the answer,
+case-insensitively. `request_too_large` is Anthropic's own documented
+`error.type` for its HTTP 413, and is recognized directly rather than falling
+through to the generic `too large` substring match, so a 413 whose body is
+`{"error":{"type":"request_too_large"}}` reaches `too-much-text` through the
+same 400/413/422 path as every other length refusal. **Those strings are
 matched, not parsed**: an endpoint that words it differently falls through to
 `provider-error`, which is a worse message but never a wrong one, and the
 mapping is a table to extend once a log has shown the wording — never a guess
@@ -1159,14 +1219,14 @@ choose, and each one exposed would be a second decision on a path requirement
 | `MIN_ROOT_CHARS` | 200 | `extract.js` | when a rung of the extraction ladder has found enough text to stop at (§7.1) |
 | `LINK_DENSITY_MAX` | 0.7 | `extract.js` | when a block is a list of links rather than prose (§7.2) |
 | `DEDUPE_MIN_CHARS` | 8 | `shape.js` | the shortest block that repetition removal applies to (§8.3) |
-| `MIN_MATERIAL_CHARS` | 200 | `shape.js` | below which a page has too little text (§9.1) |
+| `MIN_MATERIAL_CHARS` | 200 | `shape.js` | below this many characters of rendered body text (never the title) a page has too little text (§9.1) |
 | `MAX_REQUEST_MATERIAL_CHARS` | 200000 | `shape.js` | the material budget for one request (§9.2) |
 | `REQUEST_TIMEOUT_MS` | 120000 | `transport.js` | one bounded wait for the whole request, shared by every adapter (§11.3) |
 | `SAKURA_BASE_URL` | `https://api.ai.sakura.ad.jp/v1` | `sakura.js` | the Sakura AI Engine origin (§11.2) |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | `openai.js` | the OpenAI origin (§11.2) |
 | `ANTHROPIC_BASE_URL` | `https://api.anthropic.com/v1` | `claude.js` | the Claude (Anthropic) origin (§11.2) |
 | `ANTHROPIC_VERSION` | `2023-06-01` | `claude.js` | the `anthropic-version` header every Claude request sends (§11.2) |
-| `MAX_OUTPUT_TOKENS` | 32768 | `claude.js` | the Messages API's hard output ceiling, not a target summary length; no model-specific thinking configuration is sent, so where the selected model uses thinking, thinking and the response text can share this budget (§11.2) |
+| `MAX_OUTPUT_TOKENS` | 32768 | `claude.js` | this extension's own fixed request-level output limit for `max_tokens`, sent because the Messages API requires the field — not a reader-facing setting, not a target summary length, not the Messages API's own hard output ceiling, and not the selected Claude model's own maximum output capability (§11.2) |
 | `DEFAULT_MODEL` | a name from Sakura's list | `settings.js` | what a reader who set only a Sakura credential runs with (§13) |
 | `OPENAI_DEFAULT_MODEL` | a name from OpenAI's list | `settings.js` | what a reader who set only an OpenAI credential runs with (§13) |
 | `ANTHROPIC_DEFAULT_MODEL` | a name from Anthropic's list | `settings.js` | what a reader who set only a Claude credential runs with (§13) |
@@ -1179,9 +1239,10 @@ because a non-streaming semantic-compression request is slow by nature, and a
 shorter limit could turn a succeeding summary into an error — the same reason
 holds for every provider, which is why the three adapters share the one
 constant rather than each choosing its own. `MAX_OUTPUT_TOKENS` is generous
-rather than tight, because it exists to satisfy a required field, not to cap
-a summary's length in practice; the prompt's own "no target length"
-instruction is what actually governs that.
+rather than tight, because it exists to satisfy a required field of the
+Messages API, not to cap a summary's length in practice, and it is not the
+API's own ceiling or the selected model's own maximum; the prompt's own "no
+target length" instruction is what actually governs that.
 
 ## 15. Interfaces
 
@@ -1305,10 +1366,10 @@ The four states of basic design §14, one per tab.
 
 | Phase | Entered when | Panel shows | Allowed | Held |
 |---|---|---|---|---|
-| `idle` | there is no stored state for the tab | §6.1 | run | nothing |
-| `running` | a run starts, before anything else | §6.1 | nothing; the control is disabled | `title`, when the click supplied one |
-| `succeeded` | a summary is read from the answer (§11.3) | §6.1 | click the action again | `title`, `summary` |
-| `failed` | any step ends the run (§18) | §6.1 | click the action again; and for `credential-missing` or `permission-missing`, the settings | `title` when known, `errorKind`, `errorDetail` |
+| `idle` | there is no stored state for the tab | §6.1 | the toolbar action starts a run; the panel itself has no run control | nothing |
+| `running` | a run starts, before anything else | §6.1 | the panel itself has no run control; a duplicate toolbar click while this tab's work is live in the current worker is ignored | `title`, when the click supplied one |
+| `succeeded` | a summary is read from the answer (§11.3) | §6.1 | click the toolbar action again to rerun | `title`, `summary` |
+| `failed` | any step ends the run (§18) | §6.1 | click the toolbar action again; and for `credential-missing` or `permission-missing`, the settings control | `title` when known, `errorKind`, `errorDetail` |
 
 - **The worker sets it; the panel reads it and renders it.** No other file
   writes a state.
@@ -1326,7 +1387,7 @@ The four states of basic design §14, one per tab.
   loading a different document — so the panel returns to `idle` for a page that
   has not been summarized, which basic design §7.2 requires. The listener that
   does this **starts nothing, reads no page, records nothing and holds no
-  URL**; discarding is all it does. See §25.
+  URL**; discarding is all it does.
 - **No summary and no page text is written to disk by this design**, which is
   what requirement §16 asks of it.
 
@@ -1601,7 +1662,7 @@ specification would be written against.
 |---|---|---|---|
 | extraction (§7) | a `Document`, passed as a parameter rather than read from a global, so a fixture parsed from an HTML string can stand in for a page | `ExtractResult` (§15.1) | none of its own: it returns what it found, and an empty `blocks` is a valid result that §9.1 judges |
 | shaping (§8) | `ExtractResult` | `{ ok: true, material }` (§15.2) | `too-little-text` |
-| the size verdicts (§9.1) | a `charCount` | one of `judgeSize`'s two verdicts, `too-little-text` or `ok` | the `MIN_MATERIAL_CHARS` boundary, exactly; the per-request budget's boundary is a case for staged summarization / chunking, not for `judgeSize` |
+| the size verdicts (§9.1) | a character count — the rendered body's `text.length`, never `charCount` | one of `judgeSize`'s two verdicts, `too-little-text` or `ok` | the `MIN_MATERIAL_CHARS` boundary, exactly; the per-request budget's boundary is a case for staged summarization / chunking, not for `judgeSize` |
 | logical request composition (§10.3) | the instruction text, a `Material` and a task label | `{ instruction, content }` | none; an empty title changes the content and is a case, not an error |
 | provider resolution (§13) | a stored value | one of the three providers, or Sakura for anything else | none: every input has a defined resolution |
 | the dispatcher (§11.1) | `{ provider, model, credential, instruction, content }` | whatever the selected adapter returns, unchanged | `internal-error` for an unrecognized provider |

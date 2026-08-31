@@ -138,7 +138,10 @@ export function composeRequest(instruction, material, task = "page") {
   const body = material.title
     ? `TITLE: ${material.title}\n\nBODY:\n${material.text}`
     : `BODY:\n${material.text}`;
-  return { instruction, content: `TASK: ${task}\n\n${body}` };
+  return {
+    instruction: `${instruction}\n\nTASK: ${task}`,
+    content: body,
+  };
 }
 
 function summaryMaterial(title, summaries) {
