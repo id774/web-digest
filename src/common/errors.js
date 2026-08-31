@@ -43,8 +43,7 @@ const MESSAGES = {
   [ErrorKind.PAGE_UNREADABLE]:
     "The content of this page could not be obtained.",
   [ErrorKind.TOO_LITTLE_TEXT]: "This page has too little text to summarize.",
-  [ErrorKind.TOO_MUCH_TEXT]:
-    "This page is larger than can be summarized in one request.",
+  [ErrorKind.TOO_MUCH_TEXT]: "This page is too large to process.",
   [ErrorKind.NO_USABLE_SUMMARY]:
     "No summary came back. Trying again is reasonable.",
   [ErrorKind.INTERNAL_ERROR]:

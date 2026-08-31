@@ -27,6 +27,10 @@ v1.1.0 (Release Date: TBD)
 - Renamed the error kinds and reader-facing messages to be provider-neutral (for
   example token-missing to credential-missing, engine-error to provider-error), since
   a run may now use any of the three providers.
+- Tightened provider failure handling: Sakura responses cut off with
+  finish_reason=length are no longer shown as complete summaries, Claude HTTP 403 no
+  longer implies a bad model name, and the too-large message now reflects the staged
+  long-page flow rather than referring to one request.
 
 v1.0.1 (2026-08-26)
 -------------------

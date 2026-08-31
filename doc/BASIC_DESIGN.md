@@ -196,8 +196,8 @@ Least privilege, and each entry earns its place:
 | Host permission | Required or optional | Why it is needed |
 |---|---|---|
 | the Sakura AI Engine API origin | required | the default provider, and the one an existing reader already depends on |
-| the OpenAI API origin | optional | requested only when the reader selects OpenAI in settings |
-| the Claude (Anthropic) API origin | optional | requested only when the reader selects Claude in settings |
+| the OpenAI API origin | optional | requested from the reader's action in settings when OpenAI is selected, or restored there if later revoked |
+| the Claude (Anthropic) API origin | optional | requested from the reader's action in settings when Claude is selected, or restored there if later revoked |
 
 An optional host permission is requested only from the reader's own action in
 the options page, never when a run starts: either by selecting OpenAI or
@@ -758,7 +758,9 @@ taxonomy beyond this table, and no failure is silent.
 | an optional-permission provider's permission is missing | the service worker, before extraction | that a browser permission is missing, with the way to settings to grant it again |
 | the page could not be read | the service worker, from the injection failing | that the content of this page could not be obtained |
 | not enough text | shaping (§9.2) | that this page has too little text to summarize |
+| the content is too large to process | the staged summarizer safety bound, or an adapter from a provider context-length refusal | that this page is too large to process |
 | no usable summary in the answer | the adapter (§11.3) | that no summary came back, and that trying again is reasonable |
+| an unexpected internal failure | the service worker's top-level failure boundary | that the extension failed to complete the run, and that trying again is reasonable |
 
 Two rules hold across the table.
 
