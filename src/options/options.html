@@ -10,19 +10,31 @@
       <h1 class="name">web-digest settings</h1>
 
       <section class="field">
-        <label class="label" for="token">Sakura AI Engine API token</label>
+        <label class="label" for="provider">AI provider</label>
+        <select id="provider" class="input">
+          <option value="sakura">Sakura AI Engine</option>
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Claude</option>
+        </select>
+        <p id="provider-status" class="note"></p>
+      </section>
+
+      <section class="field">
+        <label class="label" for="credential" id="credential-label"
+          >Sakura AI Engine API token</label
+        >
         <input
-          id="token"
+          id="credential"
           class="input"
           type="password"
           autocomplete="off"
           spellcheck="false"
         />
-        <p id="token-status" class="note"></p>
+        <p id="credential-status" class="note"></p>
       </section>
 
       <section class="field">
-        <label class="label" for="model">Model</label>
+        <label class="label" for="model" id="model-label">Model</label>
         <input
           id="model"
           class="input"
@@ -30,16 +42,16 @@
           autocomplete="off"
           spellcheck="false"
         />
-        <p class="note">
-          Leave it empty to use the default. Model names come from the Sakura AI
-          Engine's own published list.
+        <p id="model-note" class="note">
+          Leave it empty to use the default. Model names come from the
+          selected provider's own published list.
         </p>
       </section>
 
       <div class="controls">
         <button id="save" class="primary" type="button">Save</button>
         <button id="delete" class="secondary" type="button">
-          Delete token
+          Delete credential
         </button>
       </div>
 
@@ -53,17 +65,26 @@
         <p class="note">
           Disabled: the summary is written in the page's own language.
           Enabled: the summary is written in Japanese, regardless of the
-          page's language. Saved on its own, without re-entering the token.
+          page's language. This applies to every provider, and is saved on
+          its own, without re-entering a credential.
         </p>
         <p id="japanese-summary-status" class="status"></p>
       </section>
 
       <p class="note">
-        The token is kept in this browser profile's extension storage, and is
-        sent as the authorization of one request to the Sakura AI Engine and to
-        nowhere else. There is no server belonging to this project. Whoever
-        controls this Chrome profile can read extension storage, and an unpacked
-        extension cannot change that.
+        The credential for each provider is kept in this browser profile's
+        extension storage, and is sent only to that provider's own endpoint —
+        Sakura, OpenAI or Claude, whichever one is selected. One run uses one
+        selected provider; nothing is sent to the other two. There is no
+        server belonging to this project. Whoever controls this Chrome
+        profile can read extension storage, and an unpacked extension cannot
+        change that.
+      </p>
+
+      <p id="permission-note" class="note">
+        OpenAI and Claude each need a browser permission for their own API
+        origin before they can be used. Selecting either one asks for that
+        permission if it has not already been granted.
       </p>
     </main>
 

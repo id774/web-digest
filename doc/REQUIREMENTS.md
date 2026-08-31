@@ -38,7 +38,7 @@ required to deliver:
 - several examples and repeated explanations of one claim, compressed into it,
 - the information that matters for the kind of page it is, kept,
 - the whole of that run from the browser, on the page being read,
-- through the reader's own Sakura AI Engine environment.
+- through the reader's own environment for the AI provider they selected.
 
 **The primary requirement is semantic compression, not shortening.** A summary
 that is short and has lost the condition the claim depends on has failed, and a
@@ -140,8 +140,8 @@ One run is this sequence:
 1. the reader opens a web page,
 2. the reader asks for a summary from the extension,
 3. the extension extracts the main content of the page,
-4. the content is sent to the Sakura AI Engine,
-5. the AI Engine produces a summary that keeps the substance,
+4. the content is sent to the one AI provider the reader selected,
+5. that provider produces a summary that keeps the substance,
 6. the reader reads the result in Chrome.
 
 **What the reader has to know how to do is one thing: summarize this page.**
@@ -239,37 +239,82 @@ Several display modes, a comparison view, an analysis screen, an export format
 and a stored list of past summaries are not required, and none of them is to be
 added in order to make the result look more substantial than it is.
 
-## 14. The Sakura AI Engine
+### 13.1 Output language
 
-The summarization is performed by the Sakura AI Engine (さくらの AI Engine). The
-extension prepares the material, asks for the summary and displays what comes
-back; the inference happens at the endpoint.
+The reader can turn on an opt-in preference that writes every summary in
+Japanese, regardless of the language the page is written in, instead of the
+default of writing the summary in the page's own language. This is not a
+standalone translator: choosing the language the summary is written in is a
+property of the one summarization task, not a second job performed on its
+result. The preference applies identically whichever AI provider is
+selected, is independent of the provider choice and of any provider's
+credential or model, and does not require either to be re-entered when it is
+changed.
 
-- **The reader's own API token is used — bring your own key.** This project holds
-  no token of its own and supplies none to anybody.
-- **A shared token operated on the readers' behalf is not a fallback and not a
-  future convenience.** There is no arrangement in this design under which a
-  reader summarizes a page without a token of their own.
-- **The model is a setting, not a fixture.** No requirement in this document
-  depends on a particular model, and changing which model is used must not
-  require the requirements to be rewritten.
+## 14. The AI provider
 
-## 15. The API token
+The summarization is performed by one AI provider the reader has selected:
+the Sakura AI Engine (さくらの AI Engine), OpenAI, or Claude. The extension
+prepares the material, asks for the summary and displays what comes back; the
+inference happens at the endpoint of whichever provider was selected.
 
-The reader can configure their own Sakura AI Engine API token, and that is the
-only way a token reaches the extension.
+- **The reader's own API credential is used — bring your own key.** This
+  project holds no credential of its own for any provider and supplies none
+  to anybody.
+- **A shared credential operated on the readers' behalf is not a fallback and
+  not a future convenience**, for any provider. There is no arrangement in
+  this design under which a reader summarizes a page without a credential of
+  their own.
+- **The model is a setting, not a fixture**, for whichever provider is
+  selected. No requirement in this document depends on a particular provider
+  or a particular model, and changing which one is used must not require the
+  requirements to be rewritten.
+- **Exactly one provider is selected at a time, and one run uses exactly that
+  one.** Nothing in this design tries more than one provider for the same
+  run, compares their answers, or falls back from one to another
+  automatically. Selecting a provider is the reader's own explicit choice; it
+  is never inferred from a credential or from the content of a page.
+- **An unset or unrecognized provider selection resolves to the Sakura AI
+  Engine.** This is what lets a reader who configured the extension before it
+  supported more than one provider keep using it exactly as before, with
+  nothing to change and nothing migrated.
 
-These lines are not crossed:
+### 14.1 Supported providers
 
-- **No API token is written into the source code.**
-- **No API token is committed to this repository**, including as a sample value.
-- **No API token is embedded in anything distributed.**
-- **A reader's token is held within their own browser environment**, and is the
-  concern of that environment alone.
-- **No token is sent to, or stored on, a server belonging to this project.**
+The initial multi-provider version supports exactly three: the Sakura AI
+Engine, OpenAI, and Claude. A custom or reader-editable endpoint, a fourth
+provider, and an OpenAI-compatible, Azure OpenAI, Amazon Bedrock or Google
+Vertex AI provider are out of scope — see section 23.
 
-A token is not displayed where it does not have to be, and does not appear in a
-message shown to the reader.
+## 15. The API credential
+
+The reader can configure their own API credential for each provider they use,
+and that is the only way a credential reaches the extension.
+
+These lines are not crossed, for every provider alike:
+
+- **No API credential is written into the source code.**
+- **No API credential is committed to this repository**, including as a
+  sample value.
+- **No API credential is embedded in anything distributed.**
+- **A reader's credential is held within their own browser environment**, and
+  is the concern of that environment alone.
+- **No credential is sent to, or stored on, a server belonging to this
+  project.**
+- **A credential is sent only to the origin of the provider it was entered
+  for**, and to no other origin, regardless of which provider is currently
+  selected or how many providers the reader has configured a credential for.
+
+A credential is not displayed where it does not have to be, and does not
+appear in a message shown to the reader.
+
+### 15.1 Independent per-provider settings
+
+Each provider's credential and model are held independently of the others.
+Selecting a different provider, or changing one provider's credential or
+model, never deletes, overwrites or moves another provider's stored
+credential or model, and never requires a credential to be re-entered for the
+provider that was not changed.
 
 ## 16. Privacy
 
@@ -277,15 +322,23 @@ message shown to the reader.
 that page.** No other reading of a page is performed, and no page is read
 because it happened to be open.
 
-What is extracted is sent to the Sakura AI Engine, to the extent the summary
-requires, and to nowhere else.
+What is extracted is sent to the one AI provider the reader selected, to the
+extent the summary requires, and to nowhere else — not to the other two
+supported providers, whether or not the reader has configured a credential or
+granted a permission for them.
 
 A server belonging to this project collects and stores none of the following:
 
 - browsing history,
 - the text of a page,
 - a summary,
-- an API token.
+- an API credential, for any provider.
+
+What a selected provider itself does with what it receives — how long it is
+kept, whether it is logged, whether it is used to train anything — is that
+provider's own concern, stated in its own documentation. This document does
+not claim more about it than what this project itself sends and stores,
+which is nothing.
 
 **The initial version has no backend of its own at all**, so there is no place
 in this design where any of that could accumulate. That is the reason the list
@@ -306,20 +359,26 @@ defect, however the interface is built.
 
 The reader is told when any of these happens, in terms they can act on:
 
-- no API token has been configured,
-- the API rejected the credential,
-- the API could not be reached,
+- no API credential has been configured for the selected provider,
+- the selected provider rejected the credential,
+- the selected provider could not be reached,
+- the request to the selected provider timed out,
+- the selected provider returned an error, or refused the request,
+- a browser permission the selected provider needs is missing,
 - the content of the page could not be obtained,
 - there is not enough text on the page to summarize,
-- the AI Engine returned an error,
-- the content is larger than can be processed.
+- the content is larger than can be processed,
+- no usable summary came back.
 
 **These are distinguished from each other**, because what the reader does next
-differs: configure a token, replace a token, retry later, accept that this page
-cannot be extracted, or summarize a smaller page. One message covering all of
-them leaves them guessing.
+differs: configure a credential, replace a credential, grant a permission,
+retry later, accept that this page cannot be extracted, or summarize a
+smaller page. One message covering all of them leaves them guessing. The
+messages name the selected provider generically — "the selected AI
+provider" — rather than assuming which of the three it is, since a run may
+use any of them.
 
-An error message carries no API token and no internal detail that the reader has
+An error message carries no API credential and no internal detail that the reader has
 no use for.
 
 ## 19. Maintainability
@@ -375,8 +434,8 @@ these clear:
 - what the project is,
 - its main features,
 - how it is installed,
-- what is needed in order to use the Sakura AI Engine,
-- how the API token is configured,
+- what is needed in order to use each of the three supported AI providers,
+- how a provider is selected and its API credential is configured,
 - how it is used,
 - the main limitations.
 
@@ -426,7 +485,13 @@ comes from another project, and no document here is completed by one.
 - judging whether a page is machine-generated slop,
 - a standalone translator, as distinct from the summary's own output language,
 - a choice of several summarization modes,
-- a large body of site-specific implementations.
+- a large body of site-specific implementations,
+- a fourth AI provider, or an OpenAI-compatible, Azure OpenAI, Amazon Bedrock or
+  Google Vertex AI provider, beyond the three named in section 14,
+- a custom or reader-editable endpoint for any provider,
+- automatic fallback, a race, or a comparison between providers for one run,
+- fetching or maintaining a list of a provider's available models,
+- live credential validation performed by the settings page.
 
 None of these is to be added to the requirements on anybody's own judgement.
 
@@ -436,20 +501,26 @@ The initial version has met its purpose when all of the following hold:
 
 1. The extension can be loaded into Chrome from this repository as an unpacked
    extension.
-2. A reader can configure their own Sakura AI Engine API token.
-3. A summary can be run on an ordinary web page, from the page itself.
-4. A summary runs only when the reader asks for one, and no page is read or
+2. A reader can configure their own API credential for at least one of the
+   three supported providers, and can select which provider a run uses.
+3. A reader who configured only a Sakura AI Engine token before this
+   repository supported more than one provider keeps summarizing exactly as
+   before, with nothing to reconfigure.
+4. A summary can be run on an ordinary web page, from the page itself.
+5. A summary runs only when the reader asks for one, and no page is read or
    summarized in the background.
-5. The main text of the page is obtained, with the obvious interface furniture
+6. The main text of the page is obtained, with the obvious interface furniture
    left out as far as it can be recognized.
-6. What was obtained is sent to the Sakura AI Engine.
-7. What comes back is a concise summary that keeps the substance of the page
+7. What was obtained is sent to the one AI provider selected for that run, and
+   to no other.
+8. What comes back is a concise summary that keeps the substance of the page
    rather than one cut to a length.
-8. The result can be read in Chrome.
-9. A run in progress, a run that succeeded and a run that failed are told apart.
-10. Each of the errors in section 18 is reported to the reader, distinguishably.
-11. No API token is present anywhere in this repository or in anything
-    distributed from it.
-12. Nothing in the design requires a backend server belonging to this project.
-13. What a reader needs in order to obtain, install, configure and use the
-    extension from GitHub is written down in this repository.
+9. The result can be read in Chrome.
+10. A run in progress, a run that succeeded and a run that failed are told apart.
+11. Each of the errors in section 18 is reported to the reader, distinguishably.
+12. No API credential, for any provider, is present anywhere in this repository
+    or in anything distributed from it.
+13. Nothing in the design requires a backend server belonging to this project.
+14. What a reader needs in order to obtain, install, configure and use the
+    extension from GitHub, for any of the three supported providers, is written
+    down in this repository.

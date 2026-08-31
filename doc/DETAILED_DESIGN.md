@@ -5,8 +5,8 @@
 This document takes [`BASIC_DESIGN.md`](BASIC_DESIGN.md) down to the level the
 extension is written at: which files exist, what the manifest declares, what
 each processing step is handed and what it returns, what the prompt says, what
-the request to the AI Engine looks like, which errors exist and how a run moves
-between its states.
+the request to each of the three supported AI providers looks like, which
+errors exist and how a run moves between its states.
 
 Three documents, in this order of authority:
 
@@ -38,7 +38,9 @@ The words used below, fixed so that one concept has one name.
 | error kind | one of the values in §18, the only way a failure is identified |
 | the panel | the side panel document |
 | the worker | the service worker |
-| the engine | the Sakura AI Engine; "the AI Engine" in text shown to the reader |
+| provider | one of the three supported AI providers: `sakura`, `openai`, `anthropic` (§13) |
+| the dispatcher | `src/engine/dispatcher.js`, which selects one adapter by provider (§11) |
+| adapter | the one module per provider that speaks that provider's protocol (§11); "the selected AI provider" in text shown to the reader |
 
 The reader is the person using the extension; requirements §6 has only one.
 
@@ -65,7 +67,11 @@ the source tree and the extension (basic design §4).
     ├── shape/
     │   └── shape.js
     ├── engine/
-    │   └── engine.js
+    │   ├── dispatcher.js
+    │   ├── transport.js
+    │   ├── sakura.js
+    │   ├── openai.js
+    │   └── claude.js
     ├── panel/
     │   ├── panel.html
     │   ├── panel.js
@@ -76,55 +82,67 @@ the source tree and the extension (basic design §4).
     │   └── options.css
     └── common/
         ├── settings.js
+        ├── permissions.js
         ├── errors.js
         └── messages.js
 ```
 
-Fourteen files. **The count is deliberate**: the four concerns requirement §19
-asks to keep apart get one file each, the two documents get the three files a
-document needs, and nothing else is split because it could be.
+Eighteen files. **The count is deliberate**: the four concerns requirement
+§19 asks to keep apart get their own file or files — the engine concern now
+being one dispatcher, one shared transport helper and one adapter per
+supported provider rather than one file, since three protocols cannot
+honestly be one module — the two documents get the three files a document
+needs, and nothing else is split because it could be.
 
 ### 3.1 What each file is
 
 | File | What it is | Responsible for | Depends on |
 |---|---|---|---|
-| `manifest.json` | the MV3 declaration | permissions, the action, the panel, the options page, the CSP (§4) | names the four entry points |
-| `src/background/service_worker.js` | the worker, an ES module | one run start to finish: the action click, settings, injection, shaping, the prompt, the request, the state, telling the panel (§22) | `shape.js`, `engine.js`, `settings.js`, `errors.js`, `messages.js`, `prompts/summarize.md` |
+| `manifest.json` | the MV3 declaration | permissions, the action, the panel, the options page, the CSP (§4) | names the entry points |
+| `src/background/service_worker.js` | the worker, an ES module | one run start to finish: the action click, settings, the permission check, injection, shaping, the prompt, the request, the state, telling the panel (§22) | `shape.js`, `dispatcher.js`, `settings.js`, `permissions.js`, `errors.js`, `messages.js`, `prompts/summarize.md` |
 | `src/extract/extract.js` | the injected pass | reading one document into blocks (§7) | nothing |
 | `src/shape/shape.js` | a pure module | blocks in, material out; the two size verdicts (§8, §9) | nothing |
-| `src/engine/engine.js` | a pure module but for `fetch` | the request to the engine, the timeout, reading the answer, mapping a failure to an error kind (§11) | `errors.js` |
+| `src/engine/dispatcher.js` | a pure module of its own logic | selecting one adapter by provider and calling it; no fallback path (§11.1) | `sakura.js`, `openai.js`, `claude.js`, `transport.js`, `settings.js`, `errors.js` |
+| `src/engine/transport.js` | a pure module but for `fetch` | the one bounded-wait request every adapter sends through, shared rather than reimplemented three times (§11.5) | nothing |
+| `src/engine/sakura.js` | a pure module but for `fetch` (via `transport.js`) | the Sakura AI Engine request, reading the answer, mapping a failure to an error kind (§11.2, §11.3) | `errors.js`, `transport.js` |
+| `src/engine/openai.js` | a pure module but for `fetch` (via `transport.js`) | the OpenAI Responses request, reading the answer, mapping a failure to an error kind (§11.2, §11.3) | `errors.js`, `transport.js` |
+| `src/engine/claude.js` | a pure module but for `fetch` (via `transport.js`) | the Claude Messages request, reading the answer, mapping a failure to an error kind (§11.2, §11.3) | `errors.js`, `transport.js` |
 | `src/panel/panel.html` | the panel document | the four state regions and the way to the options page | `panel.js`, `panel.css` |
 | `src/panel/panel.js` | the panel's script | asking for the state and rendering it (§16, §17) | `errors.js`, `messages.js` |
 | `src/panel/panel.css` | the panel's stylesheet | legibility of the result beside the page | nothing |
-| `src/options/options.html` | the settings document | the token field, the model field, the Japanese summary checkbox, save, delete, status | `options.js`, `options.css` |
-| `src/options/options.js` | the settings script | validation, reading and writing the three settings (§6.2, §12, §13, §13.1) | `settings.js` |
+| `src/options/options.html` | the settings document | the provider selector, the credential field, the model field, the Japanese summary checkbox, save, delete, status | `options.js`, `options.css` |
+| `src/options/options.js` | the settings script | validation, the provider-change/permission flow, reading and writing the settings (§6.2, §12, §13, §13.1) | `settings.js`, `permissions.js` |
 | `src/options/options.css` | the settings stylesheet | legibility of the settings fields | nothing |
-| `src/common/settings.js` | the settings accessor | the storage keys, reading, writing, deleting, the unset tests, the model default, the Japanese summary resolver (§12, §13, §13.1) | nothing |
+| `src/common/settings.js` | the settings accessor | the storage keys, reading, writing, deleting, the unset tests, the provider resolver, the per-provider model default, the Japanese summary resolver (§12, §13, §13.1) | nothing |
+| `src/common/permissions.js` | the permission helper | which providers need an optional host permission, checking it, requesting it (§6, §11.1 of the basic design) | `settings.js` |
 | `src/common/errors.js` | the error kinds | the kind constants and the reader-facing message for each (§18) | nothing |
 | `src/common/messages.js` | the message names | the three message type constants and the shape of each (§16) | nothing |
 | `prompts/summarize.md` | the instruction | what a summary keeps and what it drops (§10) | nothing |
 
-`settings.js`, `errors.js` and `messages.js` are the basic design's
-`src/common/` — the settings accessor, the error kinds, and the names of the
-messages the panel and the worker already exchange there (§5.1, §5.3).
+`settings.js`, `permissions.js`, `errors.js` and `messages.js` are the basic
+design's `src/common/` — the settings accessor, the permission helper, the
+error kinds, and the names of the messages the panel and the worker already
+exchange there (§5.1, §5.3).
 
 ### 3.2 The direction of dependency
 
 ```text
    panel.js ─┐                    ┌─ shape.js
              ├─> common/*  <──────┤
-  options.js ┘                    └─ engine.js
-                                        ^
-                        service_worker.js┘
+  options.js ┘                    └─ dispatcher.js ─┬─ sakura.js  ─┐
+                                                     ├─ openai.js  ├─> transport.js
+                        service_worker.js ──────────┴─ claude.js  ┘
 
   extract.js  — depends on nothing, and nothing imports it
 ```
 
-**No arrow points back.** `common/` imports nothing of its own; `shape.js` and
-`engine.js` know only the shapes in §15; the worker is the only file that knows
-all of them. Changing the model touches `engine.js` and the settings; improving
-the prompt touches `prompts/summarize.md` and nothing else — which is what
-requirement §19 asks for.
+**No arrow points back.** `common/` imports nothing but `settings.js` from
+`permissions.js`; `shape.js` and the three adapters know only the shapes in
+§15; the dispatcher knows only which adapter a provider identifier selects;
+the worker is the only file that knows all of them. Adding or changing a
+provider touches its own adapter file and the settings; improving the prompt
+touches `prompts/summarize.md` and nothing else — which is what requirement
+§19 asks for.
 
 `extract.js` is injected by file into a tab, where ES module imports are not
 available to it, so it is **self-contained by necessity as well as by design**:
@@ -148,17 +166,31 @@ is "clone and load" buys nothing this version is judged on.
 {
   "manifest_version": 3,
   "name": "web-digest",
-  "version": "1.0.0",
-  "description": "Summarize the page you are reading, with your own Sakura AI Engine token.",
+  "version": "1.1.0",
+  "description": "Summarize the page you are reading, with your own Sakura AI Engine, OpenAI or Claude credential.",
   "minimum_chrome_version": "116",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
   "permissions": ["activeTab", "scripting", "storage", "sidePanel"],
   "host_permissions": ["https://api.ai.sakura.ad.jp/*"],
+  "optional_host_permissions": [
+    "https://api.openai.com/*",
+    "https://api.anthropic.com/*"
+  ],
   "background": {
     "service_worker": "src/background/service_worker.js",
     "type": "module"
   },
   "action": {
-    "default_title": "Summarize this page"
+    "default_title": "Summarize this page",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    }
   },
   "side_panel": {
     "default_path": "src/panel/panel.html"
@@ -179,11 +211,13 @@ is "clone and load" buys nothing this version is judged on.
 |---|---|
 | `manifest_version` | 3. Requirement §7 and basic design §5 |
 | `name` | the repository name; the extension is not published, so no store title is needed |
-| `version` | the extension's own version string. This document settles no release scheme and no tag convention |
-| `description` | one line, naming what it does and whose token it uses, because the reader installs it from a clone and this line is what Chrome shows them |
+| `version` | the extension's own version string, tracked in `doc/VERSIONS`. This document settles no release scheme and no tag convention |
+| `description` | one line naming what it does and which providers it can use a credential for, because the reader installs it from a clone and this line is what Chrome shows them |
 | `minimum_chrome_version` | `116`. `chrome.sidePanel` arrived in 114, but `sidePanel.open()`, which §5.1 uses, requires 116. Stated so that an older browser refuses the extension instead of failing at the first click |
+| `icons` | the packaged action and extension-list icons |
 | `permissions` | the four of basic design §6, and no fifth |
-| `host_permissions` | one origin, the engine's. §11.1 |
+| `host_permissions` | one required origin, Sakura's, so that an existing reader needs to grant nothing new. §11.2 |
+| `optional_host_permissions` | OpenAI's and Claude's origins, requested only from the options page when the reader selects that provider (§6.2 of the basic design, §12.2 below) |
 | `background` | one worker, as a module so it can import §3.2 |
 | `action` | a title and no `default_popup`. **Omitting the popup is what makes `chrome.action.onClicked` fire**, which is the single operation of basic design §7.2 |
 | `side_panel` | the panel document. The worker still calls `setOptions` per tab (§5.1) |
@@ -228,17 +262,19 @@ the settings.
 
 | # | The reader does | What happens |
 |---|---|---|
-| 1 | installs the unpacked extension | nothing runs |
-| 2 | opens the options page and saves a token | the token is in `storage.local` (§12) |
-| 3 | opens a page and clicks the action | the panel opens and one run starts (§22) |
+| 1 | installs the unpacked extension | nothing runs; the provider resolves to Sakura AI Engine, unset (§13, §14) |
+| 2 | opens the options page, optionally chooses a different provider, and saves its credential | the provider selection and that provider's credential are in `storage.local` (§12, §13); choosing OpenAI or Claude first asks Chrome's own permission prompt for that provider's origin |
+| 3 | opens a page and clicks the action | the panel opens and one run starts, using the provider selected in step 2 (§22) |
 | 4 | waits | the panel shows the run is in progress |
 | 5 | reads the summary beside the page | the panel shows it as text |
-| 6 | clicks the action again | a second run; one request for a normal page |
+| 6 | clicks the action again | a second run, against the same selected provider; one request for a normal page |
 
-Step 2 can be skipped: clicking the action with no token configured is a run
-that ends immediately in the `token-missing` error, whose message names the
-settings and whose panel offers the way to them. **That is the only prompting a
-reader gets to configure a token** — no first-run wizard, no modal, no badge.
+Step 2 can be skipped for a reader content with the default: clicking the
+action with no credential configured for the selected provider is a run that
+ends immediately in the `credential-missing` error, whose message names the
+settings and whose panel offers the way to them. **That is the only prompting
+a reader gets to configure a credential** — no first-run wizard, no modal, no
+badge.
 
 ### 5.3 Re-running
 
@@ -276,7 +312,7 @@ One document, four regions, one visible at a time, chosen by the phase in §17.
 | `idle` | "No summary has been run for this tab yet." | **Settings** |
 | `running` | the title, when the state carries one, and "Summarizing… this can take a while." | **Settings** |
 | `succeeded` | the title and the summary | **Settings** |
-| `failed` | the title, when the state carries one, and the message for the error kind (§18) | for `token-missing`, **Open settings** |
+| `failed` | the title, when the state carries one, and the message for the error kind (§18) | for `credential-missing` or `permission-missing`, **Open settings** |
 
 `Settings` in the header calls `chrome.runtime.openOptionsPage()` and is
 available in every phase.
@@ -294,44 +330,60 @@ available in every phase.
   it receives for its own tab and ignores the others.
 
 **The panel decides nothing.** It renders what it is given, and it holds no
-copy of a setting and no token.
+copy of a setting, no credential and no knowledge of which provider produced
+the summary.
 
 ### 6.2 The options page
 
 | Element | Kind | Notes |
 |---|---|---|
-| API token | `<input type="password">` | **never prefilled**, whatever is stored |
-| token status | text | "A token is configured." or "No token is configured." |
-| Model | `<input type="text">` | prefilled with the stored value; the placeholder is the default of §13 |
-| Save | button | validates, then writes the token and the model |
-| Delete token | button | removes the token; the model is left alone |
-| status line | text | the result of the last action, or the reason it was refused |
-| Japanese summary | `<input type="checkbox">` | reflects the stored preference (§13.1); saved on change |
+| AI provider | `<select>` | one of `sakura`, `openai`, `anthropic`; changing it may request an optional host permission (§12.2) before the selection is saved |
+| provider status | text | the result of the last provider change, or why it was not made |
+| API credential | `<input type="password">` | for the selected provider; **never prefilled**, whatever is stored |
+| credential status | text | "A credential is configured." or "No credential is configured.", for the selected provider |
+| Model | `<input type="text">` | for the selected provider; the placeholder is that provider's default of §13 |
+| Save | button | validates, then writes the credential and the model for the selected provider only |
+| Delete credential | button | removes the selected provider's credential; its model, every other provider's settings, the provider selection and the Japanese summary preference are left alone |
+| status line | text | the result of the last Save or Delete action, or the reason it was refused |
+| Japanese summary | `<input type="checkbox">` | reflects the stored preference (§13.1), shared by every provider; saved on change |
 | Japanese summary status | text | the result of the last change to that preference |
 
-Validation, all of it local — **nothing is checked by contacting the engine**
+Validation, all of it local — **nothing is checked by contacting a provider**
 (basic design §7.4):
 
 | Field | Rule | Message when refused |
 |---|---|---|
-| token | non-empty after trimming | "Enter a token." |
-| token | no whitespace, no line break inside | "A token contains no spaces or line breaks." |
-| model | may be empty; empty means the default | — |
+| credential | non-empty after trimming | "Enter a credential." |
+| credential | no whitespace, no line break inside | "A credential contains no spaces or line breaks." |
+| model | may be empty; empty means that provider's default | — |
 | model | no whitespace inside when given | "A model name contains no spaces." |
 
-Saving with an empty token field is refused rather than treated as a deletion,
-so that an accidental save cannot silently clear a working token; deleting is
-its own button. The token field is not prefilled because requirement §15 asks
-that a token is not displayed where it does not have to be, and a field the
-reader is about to overwrite does not have to be.
+Saving with an empty credential field is refused rather than treated as a
+deletion, so that an accidental save cannot silently clear a working
+credential; deleting is its own button. The credential field is not prefilled
+because requirement §15 asks that a credential is not displayed where it does
+not have to be, and a field the reader is about to overwrite does not have to
+be.
 
-The Japanese summary checkbox is outside Save and Delete token entirely: it is
-read on load and written the moment it changes (§13.1), so turning it on or
-off never requires the token to be re-entered and never touches the token or
-the model.
+Choosing a provider whose host permission is optional (§4.1) requests that
+permission through `chrome.permissions.request`, called from this page as
+part of the reader's own change of the `<select>`. Sakura needs no such
+request, since its permission is required and always present. If the request
+is denied, the `<select>` reverts to the previously selected provider, the
+provider status line says so, and no credential or model of any provider is
+touched. If it is granted — or was already granted, in which case
+`chrome.permissions.request` resolves without prompting again — the new
+provider selection is written to `storage.local` only afterward, never
+before.
 
-The page also states, as fixed text, where the token is kept and what it is
-used for — the substance of §12.3, in one short paragraph, because the reader
+The Japanese summary checkbox is outside Save, Delete credential and the
+provider selector entirely: it is read on load and written the moment it
+changes (§13.1), so turning it on or off never requires a credential to be
+re-entered and never touches a credential or a model, for the selected
+provider or any other.
+
+The page also states, as fixed text, where a credential is kept and what it is
+used for — the substance of §12, in one short paragraph, because the reader
 typing a credential into a form is the person entitled to know it.
 
 ## 7. Extraction
@@ -348,7 +400,7 @@ chrome.scripting.executeScript({
 and runs once, in the isolated world, in the top frame only. It **reads** the
 document and returns; it adds no node, sets no attribute, registers no
 listener, calls no function of the page, makes no request and holds no setting
-and no token.
+and no credential.
 
 ### 7.1 Choosing a root
 
@@ -568,11 +620,12 @@ unifies repetition. If the combined summaries exceed the same budget, they are
 compressed and integrated in further stages. No original chunk is omitted and
 no partial result is displayed after an API failure.
 
-### 9.3 The engine's own refusal
+### 9.3 The provider's own refusal
 
-The model is configurable and its capacity is its own. A refusal for context
-length remains `too-much-text` as a safety result for input the conservative
-local budget could not protect. It is not the normal path for a long page.
+The model is configurable and its capacity is its own, whichever of the three
+providers is selected. A refusal for context length, from any adapter,
+remains `too-much-text` as a safety result for input the conservative local
+budget could not protect. It is not the normal path for a long page.
 
 ## 10. The prompt
 
@@ -688,22 +741,35 @@ classifier would have to get wrong.
 
 ### 10.3 How the two parts are composed
 
+The worker composes a provider-neutral logical request — not any one
+provider's wire format — from the instruction and the material:
+
 ```js
-[
-  { role: "system", content: instruction },
-  { role: "user",   content: `TITLE: ${material.title}\n\nBODY:\n${material.text}` }
-]
+// composeRequest(instruction, material, task)
+{
+  instruction,   // unchanged, the trusted part
+  content: `TASK: ${task}\n\n${material.title
+    ? `TITLE: ${material.title}\n\nBODY:\n${material.text}`
+    : `BODY:\n${material.text}`}`,
+}
 ```
 
-When the title is empty the `TITLE:` line is omitted and the user message
-begins with `BODY:`.
+`task` is `"page"` for a normal page, `"chunk"` for one chunk of a long page,
+and `"integrate"` for the integration step (§9.2); it is chosen by the worker,
+never by the page. When the title is empty the `TITLE:` line is omitted and
+the body begins with `BODY:`.
 
-**The boundary between instruction and material is the message boundary**, not
-a delimiter inside one string. A marker inside a string is text the page could
-contain; a separate message is structure the page cannot reach. That is what
-makes "this text is data" a statement about the request rather than a hope in
-a prompt, and it is why nothing in this design searches the material for a
-marker or strips one out of it.
+**The boundary between the instruction and the content is a field boundary in
+this logical request**, not a delimiter inside one string. Each adapter (§11)
+maps `instruction` and `content` onto its own provider's trusted and untrusted
+parts — Sakura's `system` and `user` messages, OpenAI's `instructions` and
+`input`, Claude's top-level `system` and its one user message — never onto one
+string a marker could be found inside. A marker inside `content` is text the
+page could contain; the field boundary, and the message or field boundary
+each adapter builds from it, are structure the page cannot reach. That is
+what makes "this text is data" a statement about the request rather than a
+hope in a prompt, and it is why nothing in this design searches the material
+for a marker or strips one out of it.
 
 ### 10.4 How the output language is composed
 
@@ -713,193 +779,330 @@ const instruction = `${promptText}\n\nLANGUAGE MODE: ${mode}`;
 ```
 
 `japaneseSummary` comes from settings (§13.1), read once at the start of the
-run. The line it produces is appended to the fetched prompt text before the
-system message is built (§10.3), so it is part of the instruction and never
-part of the material: the page cannot supply, see, or override it. The same
-composed instruction is then reused, unchanged, for every request the run
-makes — the one page request, or every chunk and integrate request of a long
-page (§9.2) — so a run never mixes output languages partway through, and a
-later change to the setting is picked up only by the next run.
+run, independent of and identical for whichever provider is selected. The
+line it produces is appended to the fetched prompt text before the logical
+request is built (§10.3), so it is part of the instruction and never part of
+the material: the page cannot supply, see, or override it. The same composed
+instruction is then reused, unchanged, for every request the run makes — the
+one page request, or every chunk and integrate request of a long page (§9.2)
+— so a run never mixes output languages partway through, and a later change
+to the setting is picked up only by the next run.
 
-## 11. The engine client
+## 11. The provider client: dispatcher and adapters
 
-`engine.js` is the only file that knows the endpoint, the header, the body or
-the shape of the answer.
+`src/engine/` is where every detail of talking to a provider lives. No other
+part of the design knows an endpoint, a header, a body or the shape of an
+answer.
 
-### 11.1 The request
+### 11.1 The dispatcher
+
+```js
+// src/engine/dispatcher.js
+callProvider({ provider, model, credential, instruction, content }, options)
+```
+
+`callProvider` looks up `provider` — one of `"sakura"`, `"openai"`,
+`"anthropic"` — in a fixed table of one adapter function per provider, and
+calls exactly that one adapter with the same arguments. **There is no other
+path through this function.** A `provider` outside the three known values is
+this repository's own fault, not a reader-facing case, and returns
+`internal-error` rather than guessing an adapter. Whatever the chosen adapter
+returns is returned unchanged; the dispatcher never calls a second adapter,
+never races two, and never falls back from one to another.
+
+### 11.2 The three requests
+
+Each adapter owns one `buildRequest`, which turns
+`{ model, instruction, content, credential }` into a `{ url, method, headers,
+body }`, and reads its answer independently. The endpoint, the header naming
+the credential, and the mapping of instruction and content into that
+provider's own shape are each fixed in that adapter's own file, and the host
+permissions in §4 name exactly these three origins and no other.
+
+**Sakura** (`src/engine/sakura.js`), OpenAI-compatible, unchanged from
+before this project supported more than one provider:
 
 ```text
 POST https://api.ai.sakura.ad.jp/v1/chat/completions
-Authorization: Bearer <the reader's token>
+Authorization: Bearer <the reader's credential>
 Content-Type: application/json
 Accept: application/json
 
-{ "model": "<the configured model>", "messages": [ ... ] }
+{
+  "model": "<the configured model>",
+  "messages": [
+    { "role": "system", "content": "<instruction>" },
+    { "role": "user",   "content": "<content>" }
+  ]
+}
 ```
 
-- The base `https://api.ai.sakura.ad.jp/v1` is one constant in this file, and
-  the host permission in §4 names that origin and no other. **The official
-  Sakura AI Engine documentation is the authority for it**; the constant is the
-  one place an implementation records what that documentation says.
-- The path is the OpenAI-compatible chat completions resource the service
-  publishes. No wrapper protocol of this project's own is invented.
-- `model` and `messages` are the only members sent. **`max_tokens` and
-  `temperature` are not sent**: requirement §12 says a character count is not
-  the constraint, and neither is a setting (basic design §13), so there is no
-  value for either that this design could honestly supply.
-- `stream` is not sent. One request per run, and the answer arrives whole
-  (basic design §11.1).
-- No other header. No `User-Agent` of this project's own, no request id, no
-  telemetry.
+`model` and `messages` are the only members sent. `max_tokens` and
+`temperature` are not: requirement §12 says a character count is not the
+constraint, and neither is a setting (basic design §13), so there is no value
+for either this design could honestly supply. `stream` is not sent.
 
-### 11.2 The timeout
-
-One `AbortController`, aborted by a timer at `REQUEST_TIMEOUT_MS`, covering the
-whole request including reading the body. An abort ends the run as
-`engine-timeout`.
-
-**A failed run is never retried automatically.** One action click is one run. Staged long-page requests are parts of that run, not retries.
-Retrying is the reader clicking again, which keeps what their token is spent on
-visible to them.
-
-### 11.3 Reading the answer
+**OpenAI** (`src/engine/openai.js`), the native Responses API — never Chat
+Completions, never the Assistants API:
 
 ```text
-  data.choices[0].message.content
+POST https://api.openai.com/v1/responses
+Authorization: Bearer <the reader's credential>
+Content-Type: application/json
+
+{
+  "model": "<the configured model>",
+  "instructions": "<instruction>",
+  "input": "<content>",
+  "store": false
+}
 ```
 
-trimmed, is the summary. It is accepted when it is a string and is not empty
-after trimming; otherwise the run ends as `no-usable-summary`.
+`store` is always `false`. No `tools`, no `conversation`,
+`previous_response_id`, background mode, or `stream` is sent.
 
-**Everything else in the answer is ignored rather than interpreted** (basic
-design §11.2) — including `finish_reason`, `usage` and `id`. A truncated
-summary is shown as the summary it is; nothing in this design asked for a
-length, so nothing here second-guesses the one that came back.
+**Claude** (`src/engine/claude.js`), Anthropic's native Messages API — never
+an OpenAI-compatible endpoint:
 
-A body that is not JSON, or JSON without that path, is also
-`no-usable-summary`. A blank panel and a fragment of protocol are both worse
-than being told the run failed.
+```text
+POST https://api.anthropic.com/v1/messages
+x-api-key: <the reader's credential>
+anthropic-version: 2023-06-01
+Content-Type: application/json
 
-### 11.4 What the client returns
+{
+  "model": "<the configured model>",
+  "system": "<instruction>",
+  "max_tokens": 8192,
+  "messages": [ { "role": "user", "content": "<content>" } ]
+}
+```
+
+`max_tokens` is `MAX_OUTPUT_TOKENS`, a design constant in this adapter (§14):
+the Messages API requires the field, but it is a protocol ceiling on an
+answer's length, never a reader-facing setting — the prompt's own "no target
+length" instruction, not this ceiling, governs how long a summary actually
+is. No `tools`, no web search or fetch, no prompt caching, no service tier
+selection, no sampling parameter, no explicit thinking configuration, and no
+`stream` is sent.
+
+No other header beyond what each table above lists is sent by any adapter. No
+`User-Agent` of this project's own, no request id, no telemetry.
+
+### 11.3 The timeout
+
+One `AbortController` per request, aborted by a timer at
+`REQUEST_TIMEOUT_MS`, covering the whole request including reading the body.
+This is implemented once, in `src/engine/transport.js`, and every adapter
+sends its request through it — so the 120-second bound and the "no retry"
+rule below are identical across the three adapters by construction, not by
+three separate implementations happening to agree. An abort ends the run as
+`timeout`.
+
+**A failed run is never retried automatically.** One action click is one run,
+against the one provider it started with. Staged long-page requests are parts
+of that run, not retries. Retrying is the reader clicking again, which keeps
+what their credential is spent on visible to them. Nothing here retries
+against a different provider either (§11.1).
+
+### 11.4 Reading the answer
+
+Each adapter reduces its provider's own documented answer shape to the one
+normalized result of §11.5.
+
+- **Sakura**: `data.choices[0].message.content`, trimmed, is the summary. It
+  is accepted when it is a string and is not empty after trimming; otherwise
+  the run ends as `no-usable-summary`. Everything else in the answer —
+  `finish_reason`, `usage`, `id` — is ignored rather than interpreted. A
+  truncated summary is shown as the summary it is; nothing in this design
+  asked for a length, so nothing here second-guesses the one that came back.
+- **OpenAI**: when the top-level `status` field is present and is not
+  `"completed"` (`"incomplete"`, `"failed"`, `"cancelled"`, `"queued"`), the
+  answer is not shown as a summary, whatever text it happens to carry. The
+  summary is otherwise the concatenation of every `output_text` content block
+  of every `message` item in `data.output`, or the convenience `data
+  .output_text` field when the answer carries one, trimmed. No usable text is
+  `no-usable-summary`.
+- **Claude**: when `data.stop_reason` is `"max_tokens"`, the answer ended at
+  the protocol output ceiling rather than completing normally, and is not
+  shown as a summary — a cut-off fragment is worse than being told the run
+  failed. The summary is otherwise the concatenation of every `text` block's
+  `text` in `data.content`, trimmed. No text block, or only empty ones, is
+  `no-usable-summary`.
+
+A body that is not JSON, or JSON without the path an adapter reads, is also
+`no-usable-summary` for that adapter. A blank panel and a fragment of
+protocol are both worse than being told the run failed.
+
+### 11.5 What an adapter returns
 
 ```js
 { ok: true,  summary: "..." }
-{ ok: false, kind: "engine-error", detail: "rate-limited" }
+{ ok: false, kind: "provider-error", detail: "rate-limited" }
 ```
 
-`detail` is present only for `engine-error` and is one of four fixed values. No
-status line, no response body and no exception text crosses this boundary
-(§18).
+The same shape for every adapter. `detail` is present only for
+`provider-error` and is one of four fixed values. No status line, no response
+body and no exception text crosses this boundary (§18), and nothing in it
+names which provider produced it — the caller already knows, from the
+`provider` it passed to the dispatcher.
 
-### 11.5 Mapping a failure
+### 11.6 Mapping a failure
+
+The same table, applied independently by each of the three adapters to its
+own provider's status codes and error body:
 
 | What happened | Kind | `detail` |
 |---|---|---|
-| `fetch` rejects, and not by the abort | `engine-unreachable` | — |
-| the abort fired | `engine-timeout` | — |
-| HTTP 401 | `token-rejected` | — |
-| HTTP 400, 413 or 422 whose error `code` or `message` names the context length or a maximum input | `too-much-text` | — |
-| HTTP 403 or 404 | `engine-error` | `refused` |
-| HTTP 429 | `engine-error` | `rate-limited` |
-| HTTP 5xx | `engine-error` | `unavailable` |
-| any other non-2xx | `engine-error` | `unspecified` |
-| 2xx whose body is not JSON, or carries no usable content | `no-usable-summary` | — |
+| `fetch` rejects, and not by the abort | `provider-unreachable` | — |
+| the abort fired | `timeout` | — |
+| HTTP 401 | `credential-rejected` | — |
+| HTTP 400, 413 or 422 whose error names the context length or a maximum input | `too-much-text` | — |
+| HTTP 403 or 404 | `provider-error` | `refused` |
+| HTTP 429 | `provider-error` | `rate-limited` |
+| HTTP 5xx (and, for Claude, 529 "overloaded") | `provider-error` | `unavailable` |
+| any other non-2xx | `provider-error` | `unspecified` |
+| a 2xx answer with no usable content, by the rule of §11.4 | `no-usable-summary` | — |
 
 The length test looks for `context_length`, `context length`, `maximum
-context`, `too long` and `too large` in the error `code` and `message` of the
-answer, case-insensitively. **Those strings are matched, not parsed**: a
-compatible endpoint that words it differently falls through to `engine-error`,
-which is a worse message but never a wrong one, and the mapping is a table to
-extend once a log has shown the wording — never a guess about a status code's
-meaning.
+context`, `too long` and `too large` (plus, for Claude, `prompt is too long`)
+in the error fields of the answer, case-insensitively. **Those strings are
+matched, not parsed**: an endpoint that words it differently falls through to
+`provider-error`, which is a worse message but never a wrong one, and the
+mapping is a table to extend once a log has shown the wording — never a guess
+about a status code's meaning.
 
 The status code and the wording are read here and go no further. They reach the
 log (§19) and never the reader (§18).
 
-## 12. The token
+## 12. The credential
 
-BYOK, as requirement §15 requires.
+BYOK, as requirement §15 requires, for each of the three providers
+independently.
 
 | Question | Answer |
 |---|---|
 | where | `chrome.storage.local`, in the reader's own profile |
-| key | `apiToken` |
-| written by | the options page, on Save |
-| deleted by | the options page, on Delete token, with `storage.local.remove` |
-| read by | the worker, at the start of every run |
+| key | `apiToken` (Sakura), `openaiApiKey` (OpenAI), `anthropicApiKey` (Claude) |
+| written by | the options page, on Save, for the selected provider only |
+| deleted by | the options page, on Delete credential, with `storage.local.remove`, for the selected provider's own key only |
+| read by | the worker, at the start of every run, for the selected provider only |
 | unset when | the key is absent, or its value is not a string, or it is empty after trimming |
-| used as | the value of one `Authorization: Bearer` header, to one origin |
+| used as | the value of one authentication header or field, to that provider's one origin |
 
 `chrome.storage.sync` is not used: it would replicate a credential through the
 reader's Google account to every browser they are signed into, which is not
-this project's decision to make. `chrome.storage.session` is not used for the
-token: it is cleared with the browser, and a reader would re-enter it daily.
+this project's decision to make. `chrome.storage.session` is not used for a
+credential: it is cleared with the browser, and a reader would re-enter it
+daily. Each key is independent of the other two: writing or deleting one
+provider's credential never touches another's, and the provider selection
+(§13) decides only which one key is read for a run, never which keys exist.
 
 ### 12.1 Where it never goes
 
 Not into the source, not into the repository, not into a distributed artifact,
 not into the injected extraction pass, not into a message to the panel, not
 into the panel's document, not into a URL, not into the log, not into an error
-message, not into the summary, and not to any server but the engine's — because
-there is no other server in this design at all.
+message, not into the summary, and not to any server but that credential's own
+provider's — because there is no other server in this design at all, and a
+provider's credential is never sent to either of the other two providers'
+origins.
 
-The options page is the only document with a field for it, and it is an
-extension document that no web page can read.
+The options page is the only document with a field for a credential, and it
+is an extension document that no web page can read.
 
-### 12.2 What this does not promise
+### 12.2 The optional-permission providers
 
-**A token held by a browser extension is not a secret kept from the person at
-the keyboard.** Whoever controls the Chrome profile can read extension storage,
-and no arrangement inside an unpacked extension changes that. There is no
-encryption of the stored value, because the key would have to live in the same
-profile, and ceremony that adds no guarantee is not added.
+OpenAI's and Claude's host permissions are declared in `optional_host
+_permissions` (§4), not `host_permissions`, and Sakura's stays required. The
+permission helper `src/common/permissions.js` is the one place either fact is
+recorded:
+
+```js
+// src/common/permissions.js
+PROVIDER_HOST_PERMISSION = {
+  openai: "https://api.openai.com/*",
+  anthropic: "https://api.anthropic.com/*",
+};
+needsOptionalPermission(provider)       // false for sakura, true for the other two
+hasProviderPermission(provider)         // chrome.permissions.contains; always true for sakura
+requestProviderPermission(provider)     // chrome.permissions.request; always true for sakura
+```
+
+`requestProviderPermission` is called only from the options page, as part of
+the reader's own change of the provider `<select>` (§6.2), and never from a
+run. `hasProviderPermission` is called from the worker at the start of a run
+(§22) to check, never to request, an optional-permission provider's
+permission: if it has since been revoked in Chrome's own settings, the run
+ends as `permission-missing` before the page is read (§18), rather than
+prompting mid-run or falling back to another provider.
+
+### 12.3 What this does not promise
+
+**A credential held by a browser extension is not a secret kept from the
+person at the keyboard.** Whoever controls the Chrome profile can read
+extension storage, and no arrangement inside an unpacked extension changes
+that. There is no encryption of a stored value, because the key would have to
+live in the same profile, and ceremony that adds no guarantee is not added.
 
 What requirement §15 actually demands is achievable and is what this design
-delivers: the token is the reader's, it is not in the repository, and it is
-never sent anywhere but the engine.
+delivers: each credential is the reader's, none is in the repository, and none
+is ever sent anywhere but the one provider it belongs to.
 
-## 13. The model
+## 13. The provider and the model
 
 | Question | Answer |
 |---|---|
-| where | `chrome.storage.local`, the same store as the token |
-| key | `model` |
-| set by | the options page's model field |
-| unset when | the key is absent, or its value is empty after trimming |
-| when unset | `DEFAULT_MODEL`, a constant in `src/common/settings.js` |
-| used by | `engine.js`, as the `model` member of the request body, and nowhere else |
+| where | `chrome.storage.local`, key `provider` |
+| set by | the options page's provider `<select>`, after any optional permission it needs is granted (§12.2) |
+| unset when | the key is absent, its value is not a string, or it is not one of `"sakura"`, `"openai"`, `"anthropic"` |
+| when unset | `"sakura"` — never inferred from a credential or from a page |
+| read by | the worker, at the start of every run, fixing the provider (and its credential and model) for the whole of that run |
 
-**No list of available models is held in this repository and none is
-fetched.** The service publishes its own list, and the reader takes a name from
-there — fetching it would be a second call, a second error path and a second
-failure mode for a field set once (basic design §11.4).
+**This is what lets a profile that never wrote this key — every profile from
+before this project supported more than one provider — keep summarizing with
+Sakura AI Engine exactly as before, with no migration.**
 
-`DEFAULT_MODEL` is one line in one file. Its value is the name of a model from
-the service's published list, confirmed against that list when the constant is
-written; **this document deliberately does not freeze a model name**, because a
-name written into a document is wrong as soon as the service renames or
-withdraws it. A model name the service does not recognize is refused by the
-endpoint and reaches the reader as an `engine-error`, whose `refused` message
-names the model setting.
+| Question | Answer |
+|---|---|
+| where | `chrome.storage.local`, key `model` (Sakura), `openaiModel` (OpenAI), `anthropicModel` (Claude) |
+| set by | the options page's model field, for the selected provider only |
+| unset when | the key is absent, its value is not a string, or it is empty after trimming |
+| when unset | that provider's own default: `DEFAULT_MODEL`, `OPENAI_DEFAULT_MODEL` or `ANTHROPIC_DEFAULT_MODEL`, each one constant in `src/common/settings.js` |
+| used by | that provider's own adapter (§11.2), as the `model` field of its request, and nowhere else |
+
+**No list of available models, for any provider, is held in this repository
+and none is fetched.** Each service publishes its own list, and the reader
+takes a name from there — fetching it would be a second call, a second error
+path and a second failure mode for a field set once (basic design §11.6).
+
+Each default model constant is one line in one file. Its value is the name of
+a model from that provider's own published list, confirmed against that list
+when the constant is written; **this document deliberately does not freeze a
+model name**, because a name written into a document is wrong as soon as the
+service renames or withdraws it. A model name a provider does not recognize
+is refused by that provider's endpoint and reaches the reader as a
+`provider-error`, whose `refused` message names the model setting.
 
 Nothing else in the design refers to a model. No prompt is tuned to one and no
-behaviour branches on which one is configured, so changing it is changing a
-setting — requirement §14.
+behaviour branches on which one is configured, for any provider, so changing
+it is changing a setting — requirement §14.
 
 ### 13.1 The Japanese summary preference
 
 | Question | Answer |
 |---|---|
-| where | `chrome.storage.local`, the same store as the token and the model |
+| where | `chrome.storage.local`, the same store as every provider's credential and model |
 | key | `japaneseSummary` |
 | set by | the options page's Japanese summary checkbox, on change |
 | unset when | the key is absent, or its value is not the boolean `true` |
 | when unset | off — the summary stays in the page's own language |
-| read by | the worker, at the start of every run, alongside the token and the model |
-| used as | the `LANGUAGE MODE` given to the composed instruction (§10.4) |
+| read by | the worker, at the start of every run, alongside the provider, credential and model |
+| used as | the `LANGUAGE MODE` given to the composed instruction (§10.4), identically whichever provider is selected |
 
-Off by default and independent of the token and the model: reading it does
-not change what Save or Delete token do, and neither of those writes or
+Off by default and independent of the provider selection and of any
+provider's credential and model: reading it does not change what Save,
+Delete credential, or a provider change do, and none of those writes or
 removes it. A profile upgraded from an earlier version has no stored value
 under this key, resolves to off by the same rule as any other unexpected
 value, and keeps the behavior it already had — no migration is needed.
@@ -918,16 +1121,27 @@ choose, and each one exposed would be a second decision on a path requirement
 | `DEDUPE_MIN_CHARS` | 8 | `shape.js` | the shortest block that repetition removal applies to (§8.3) |
 | `MIN_MATERIAL_CHARS` | 200 | `shape.js` | below which a page has too little text (§9.1) |
 | `MAX_REQUEST_MATERIAL_CHARS` | 40000 | `shape.js` | the conservative material budget for one request (§9.2) |
-| `REQUEST_TIMEOUT_MS` | 120000 | `engine.js` | one bounded wait for the whole request (§11.2) |
-| `ENGINE_BASE_URL` | `https://api.ai.sakura.ad.jp/v1` | `engine.js` | the one origin anything is sent to (§11.1) |
-| `DEFAULT_MODEL` | a name from the service's list | `settings.js` | what a reader who set only a token runs with (§13) |
+| `REQUEST_TIMEOUT_MS` | 120000 | `transport.js` | one bounded wait for the whole request, shared by every adapter (§11.3) |
+| `SAKURA_BASE_URL` | `https://api.ai.sakura.ad.jp/v1` | `sakura.js` | the Sakura AI Engine origin (§11.2) |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | `openai.js` | the OpenAI origin (§11.2) |
+| `ANTHROPIC_BASE_URL` | `https://api.anthropic.com/v1` | `claude.js` | the Claude (Anthropic) origin (§11.2) |
+| `ANTHROPIC_VERSION` | `2023-06-01` | `claude.js` | the `anthropic-version` header every Claude request sends (§11.2) |
+| `MAX_OUTPUT_TOKENS` | 8192 | `claude.js` | the Messages API's required `max_tokens` protocol ceiling, not a target length (§11.2) |
+| `DEFAULT_MODEL` | a name from Sakura's list | `settings.js` | what a reader who set only a Sakura credential runs with (§13) |
+| `OPENAI_DEFAULT_MODEL` | a name from OpenAI's list | `settings.js` | what a reader who set only an OpenAI credential runs with (§13) |
+| `ANTHROPIC_DEFAULT_MODEL` | a name from Anthropic's list | `settings.js` | what a reader who set only a Claude credential runs with (§13) |
 
-Two values are worth their reasons. `MAX_REQUEST_MATERIAL_CHARS` is counted
+Three values are worth their reasons. `MAX_REQUEST_MATERIAL_CHARS` is counted
 in characters because shaping has no model-specific tokenizer. Its 40,000
 characters conservatively leave room for the prompt and response without
 assuming that a character equals a token. `REQUEST_TIMEOUT_MS` is two minutes
 because a non-streaming semantic-compression request is slow by nature, and a
-shorter limit could turn a succeeding summary into an error.
+shorter limit could turn a succeeding summary into an error — the same reason
+holds for every provider, which is why the three adapters share the one
+constant rather than each choosing its own. `MAX_OUTPUT_TOKENS` is generous
+rather than tight, because it exists to satisfy a required field, not to cap
+a summary's length in practice; the prompt's own "no target length"
+instruction is what actually governs that.
 
 ## 15. Interfaces
 
@@ -975,19 +1189,30 @@ class, no id, no URL and no offset in the document.
 { ok: false, kind: "too-little-text" }
 ```
 
-### 15.4 The engine call
+### 15.4 The logical request and the provider call
 
 ```js
-// the worker → engine.js
-callEngine({ model: "…", messages: [ /* §10.3 */ ], token: "…" })
+// the worker → dispatcher.js, built by composeRequest (§10.3)
+{ instruction: "…", content: "…" }
 
-// engine.js → the worker
+// the worker → dispatcher.js
+callProvider({
+  provider: "sakura",       // "sakura" | "openai" | "anthropic"
+  model: "…",
+  credential: "…",
+  instruction: "…",
+  content: "…",
+})
+
+// dispatcher.js → the worker, from whichever adapter was selected
 { ok: true,  summary: "The summary, as text." }
-{ ok: false, kind: "engine-error", detail: "rate-limited" }
+{ ok: false, kind: "provider-error", detail: "rate-limited" }
 ```
 
-`token` is a parameter and is never stored by this module, never logged by it
-and never returned from it.
+`credential` is a parameter and is never stored by the dispatcher or an
+adapter, never logged by either, and never returned from either. `provider`
+decides which one adapter is called (§11.1); it never reaches an adapter's
+request as a field of its own.
 
 ### 15.5 `RunState`
 
@@ -1002,9 +1227,10 @@ and never returned from it.
 ```
 
 One `RunState` per tab. `summary` is empty except in `succeeded`; `errorKind`
-is empty except in `failed`; `errorDetail` is empty except for `engine-error`.
-**There is no URL, no timestamp, no token, no material and no request or
-response in it** — it holds what the panel renders and nothing else.
+is empty except in `failed`; `errorDetail` is empty except for
+`provider-error`. **There is no URL, no timestamp, no credential, no material
+and no request or response in it, and no field naming which provider produced
+it** — it holds what the panel renders and nothing else.
 
 ## 16. Messages
 
@@ -1042,7 +1268,7 @@ The four states of basic design §14, one per tab.
 | `idle` | there is no stored state for the tab | §6.1 | run | nothing |
 | `running` | a run starts, before anything else | §6.1 | nothing; the control is disabled | `title`, when the click supplied one |
 | `succeeded` | a summary is read from the answer (§11.3) | §6.1 | click the action again | `title`, `summary` |
-| `failed` | any step ends the run (§18) | §6.1 | click the action again; and for `token-missing`, the settings | `title` when known, `errorKind`, `errorDetail` |
+| `failed` | any step ends the run (§18) | §6.1 | click the action again; and for `credential-missing` or `permission-missing`, the settings | `title` when known, `errorKind`, `errorDetail` |
 
 - **The worker sets it; the panel reads it and renders it.** No other file
   writes a state.
@@ -1072,37 +1298,43 @@ for the state when it opens and is told when it changes.
 Every failure ends the run, writes the `failed` state and shows one message
 that names the cause and what would address it. **No failure is silent, and no
 message carries a status line, a response body, an exception, a stack or a
-token.**
+credential.**
 
 The kinds are constants in `src/common/errors.js`, which also holds the message
-for each. Nothing else composes a message.
+for each. Nothing else composes a message, and every message names "the
+selected AI provider" rather than assuming which of the three it is.
 
 | Kind | Detected in | Internal handling | The reader is told | Retry from the panel | Needs a setting changed |
 |---|---|---|---|---|---|
-| `token-missing` | the worker, before extraction (§22 step 3) | the run stops before the tab is touched | "No API token is configured. Open Settings and enter your Sakura AI Engine token." | yes, once a token is saved | yes, the token |
-| `token-rejected` | `engine.js`, HTTP 401 (§11.5) | the status is logged, not shown | "The AI Engine refused the token. Check it in Settings." | yes | yes, the token |
-| `engine-unreachable` | `engine.js`, `fetch` rejects | the exception is not carried further | "The AI Engine could not be reached. Check your connection and try again." | yes | no |
-| `engine-timeout` | `engine.js`, the abort at `REQUEST_TIMEOUT_MS` | the elapsed time is logged | "The AI Engine took too long to answer. Trying again is reasonable." | yes | no |
-| `engine-error` / `rate-limited` | `engine.js`, HTTP 429 | the status is logged | "The AI Engine reported a rate limit. Try again later." | yes | no |
-| `engine-error` / `refused` | `engine.js`, HTTP 403 or 404 | the status is logged | "The AI Engine refused the request. Check the model name in Settings." | yes | possibly, the model |
-| `engine-error` / `unavailable` | `engine.js`, HTTP 5xx | the status is logged | "The AI Engine reported an error. Trying again later is reasonable." | yes | no |
-| `engine-error` / `unspecified` | `engine.js`, any other non-2xx | the status is logged | "The AI Engine reported an error." | yes | no |
+| `credential-missing` | the worker, before extraction (§22 step 5) | the run stops before the tab is touched | "No API credential is configured for the selected AI provider. Open Settings and enter one." | yes, once a credential is saved | yes, that provider's credential |
+| `permission-missing` | the worker, before extraction (§22 step 6) | the run stops before the tab is touched | "Browser permission for the selected AI provider is missing. Open Settings to grant it again." | yes, once the permission is granted again | yes, the provider's permission |
+| `credential-rejected` | the selected provider's adapter, HTTP 401 (§11.6) | the status is logged, not shown | "The selected AI provider refused the credential. Check it in Settings." | yes | yes, that provider's credential |
+| `provider-unreachable` | the selected provider's adapter, `fetch` rejects | the exception is not carried further | "The selected AI provider could not be reached. Check your connection and try again." | yes | no |
+| `timeout` | the selected provider's adapter, the abort at `REQUEST_TIMEOUT_MS` (§11.3) | the elapsed time is logged | "The selected AI provider took too long to answer. Trying again is reasonable." | yes | no |
+| `provider-error` / `rate-limited` | the selected provider's adapter, HTTP 429 | the status is logged | "The selected AI provider reported a rate limit. Try again later." | yes | no |
+| `provider-error` / `refused` | the selected provider's adapter, HTTP 403 or 404 | the status is logged | "The selected AI provider refused the request. Check the model name in Settings." | yes | possibly, the model |
+| `provider-error` / `unavailable` | the selected provider's adapter, HTTP 5xx (529 for Claude) | the status is logged | "The selected AI provider reported an error. Trying again later is reasonable." | yes | no |
+| `provider-error` / `unspecified` | the selected provider's adapter, any other non-2xx | the status is logged | "The selected AI provider reported an error." | yes | no |
 | `page-unreadable` | the worker, from the injection failing or returning nothing usable (§7.5) | the rejection is not carried further | "The content of this page could not be obtained." | yes, though the same page may fail again | no |
 | `too-little-text` | `shape.js` (§9.1) | the run stops before a request | "This page has too little text to summarize." | yes | no |
-| `too-much-text` | the staged summarizer safety bound, or `engine.js` from the endpoint's refusal (§9.3, §11.5) | the run stops | "This page is larger than can be summarized in one request." | yes | no |
-| `no-usable-summary` | `engine.js` (§11.3) | the answer is discarded, not shown | "No summary came back. Trying again is reasonable." | yes | no |
-| `internal-error` | the worker, any unexpected exception, including the prompt resource failing to load | caught at the top of the run and logged | "The extension failed to complete the run. Trying again is reasonable." | yes | no |
+| `too-much-text` | the staged summarizer safety bound, or an adapter from its provider's refusal (§9.3, §11.6) | the run stops | "This page is larger than can be summarized in one request." | yes | no |
+| `no-usable-summary` | the selected provider's adapter (§11.4) | the answer is discarded, not shown | "No summary came back. Trying again is reasonable." | yes | no |
+| `internal-error` | the worker, any unexpected exception, including the prompt resource failing to load or an unrecognized provider reaching the dispatcher | caught at the top of the run and logged | "The extension failed to complete the run. Trying again is reasonable." | yes | no |
 
 Three rules hold across the table.
 
 - **A message names the cause, not the internals.** The reader is told what to
   do next; the status code, the wording of the endpoint's error and the
   exception stay in the log (§19).
-- **Distinguishable causes stay distinguishable** (requirement §18). "No token"
-  and "token refused" lead to different actions and are never merged.
+- **Distinguishable causes stay distinguishable** (requirement §18). "No
+  credential" and "credential rejected" lead to different actions and are
+  never merged; "no credential" and "permission missing" are two separate
+  kinds because one names Settings' credential field and the other its
+  permission prompt.
 - **The message is chosen by kind alone.** Nothing interpolates a value from
   the page, the answer or the settings into a message, so no message can carry
-  something it was not written to carry.
+  something it was not written to carry — including which provider was
+  selected, since the wording is the same whichever one it was.
 
 `internal-error` is the one kind beyond basic design §17's table. It exists so
 that "no failure is silent" survives an exception nobody predicted, and it is
@@ -1119,18 +1351,21 @@ One line at the end of every run:
 
 ```text
 web-digest run: phase=succeeded blocks=42 chars=1234 elapsed=3.1s
-web-digest run: phase=failed kind=engine-error detail=rate-limited status=429 elapsed=0.4s
+web-digest run: phase=failed kind=provider-error detail=rate-limited status=429 elapsed=0.4s
 ```
 
 `status` appears only on a failure that had one. It is worth recording even
-though the panel never shows it: 401 is a token to replace, 403 a model the
-plan does not cover, 429 a rate limit, and only the log can say which happened.
-`elapsed` is recorded on success too, because an answer that arrived in almost
-the whole of `REQUEST_TIMEOUT_MS` is next run's timeout, seen one run early.
+though the panel never shows it: 401 is a credential to replace, 403 a model
+the plan does not cover, 429 a rate limit, and only the log can say which
+happened. `elapsed` is recorded on success too, because an answer that
+arrived in almost the whole of `REQUEST_TIMEOUT_MS` is next run's timeout,
+seen one run early. **Which provider was used is deliberately not logged**:
+the log's purpose is diagnosing a run, and the reader who reads their own
+DevTools console already knows which provider they selected.
 
 Never logged, at any level and in any build:
 
-- the API token, and the `Authorization` header,
+- any provider's API credential, and the header or field it travels in,
 - the text of the page, whole or in part — no block, no material, no excerpt,
 - the page's title and the page's URL,
 - the prompt, the request body and the response body,
@@ -1147,18 +1382,25 @@ was refused.
 ## 20. Security
 
 - **Least privilege, structurally.** §4. The extension can reach the tab an
-  action click granted and one API origin. No setting widens either, and no
-  code path asks for a permission at run time.
-- **One outbound origin.** `https://api.ai.sakura.ad.jp` is the only host
-  permission, so a request anywhere else is refused by Chrome rather than by
-  this design being obeyed. `engine.js` is the only file that calls `fetch`
-  against a network origin; the only other `fetch` in the extension is
+  action click granted and, per run, one of the three declared API origins —
+  the one belonging to the selected provider. No setting widens any of that,
+  and no code path asks for a permission at run time (§22 step 5 only checks
+  one already granted or not).
+- **A fixed, named set of outbound origins, one used per run.** The required
+  and optional host permissions together name exactly
+  `https://api.ai.sakura.ad.jp`, `https://api.openai.com` and
+  `https://api.anthropic.com`, so a request anywhere else is refused by
+  Chrome rather than by this design being obeyed. `sakura.js`, `openai.js`
+  and `claude.js` are the only files that call `fetch` against a network
+  origin, one origin each; the dispatcher (§11.1) calls exactly one of them
+  per run. The only other `fetch` in the extension is
   `chrome.runtime.getURL("prompts/summarize.md")`, which is a packaged file.
-- **The page's text is untrusted input.** It is quoted into a separate message
-  as the thing being summarized (§10.3), it is never parsed as HTML, never used
-  to build a selector, a URL or a storage key, and never evaluated. A sentence
-  in a page that addresses a model is text being summarized, and the prompt
-  says so.
+- **The page's text is untrusted input.** It is quoted into the content field
+  of the logical request as the thing being summarized (§10.3), mapped by
+  every adapter into its own provider's untrusted field, never parsed as
+  HTML, never used to build a selector, a URL or a storage key, and never
+  evaluated. A sentence in a page that addresses a model is text being
+  summarized, and the prompt says so.
 - **Nothing becomes markup.** The panel and the options page write text with
   `textContent` only. `innerHTML`, `outerHTML`, `insertAdjacentHTML`,
   `document.write` and `DOMParser` appear nowhere. The initial version
@@ -1167,18 +1409,21 @@ was refused.
 - **No remote code and no dynamic code.** `eval`, `new Function`, `setTimeout`
   with a string and dynamic `import()` of a remote URL are not used, and the
   declared CSP forbids them. Every script, stylesheet and font is packaged: no
-  CDN, no Google Fonts, no analytics, no source map served from elsewhere.
-  Nothing fetched from the engine is ever executed.
+  CDN, no Google Fonts, no analytics, no source map served from elsewhere, and
+  no provider SDK — every adapter speaks its provider's HTTP API directly
+  with the browser's own `fetch`. Nothing fetched from any provider is ever
+  executed.
 - **The injected pass reads only.** It writes no node and no attribute, adds no
   listener, and calls no function belonging to the page. It runs in the
   isolated world, so the page cannot replace what it calls, and it holds no
-  token and no setting to leak.
-- **The token is handled as §12 says**, and the one origin it may be sent to is
-  fixed in the manifest rather than in a setting, so no configuration can point
-  it at another host.
+  credential and no setting to leak.
+- **Each credential is handled as §12 says**, and the one origin it may be
+  sent to is fixed in its own adapter rather than in a setting, so no
+  configuration can point it at another host — including the other two
+  supported providers'.
 
 The measures are sized to what this is: a personal extension, loaded unpacked,
-holding one credential its own reader owns.
+holding up to three credentials, each owned by its own reader.
 
 ## 21. Privacy
 
@@ -1186,11 +1431,12 @@ What one run does with data, end to end.
 
 | Data | Where it comes from | Where it goes | How long it lives |
 |---|---|---|---|
-| the page's text | the tab the reader clicked on, read once | shaped, then sent in one request or structurally chunked staged requests | the run; it is in memory and is not stored |
+| the page's text | the tab the reader clicked on, read once | shaped, then sent in one request or structurally chunked staged requests, to the one selected provider | the run; it is in memory and is not stored |
 | the page's title | the same | the request, and the state the panel renders | until the browser closes, or the tab navigates or closes |
-| the summary | the engine's answer | the state, and the panel | the same |
-| the API token | the reader, on the options page | `storage.local`, and one `Authorization` header | until the reader deletes it |
-| the model name | the reader, on the options page | `storage.local`, and the request body | the same |
+| the summary | the selected provider's answer | the state, and the panel | the same |
+| the selected provider's credential | the reader, on the options page | `storage.local`, and that provider's one authentication header or field | until the reader deletes it |
+| the other two providers' credentials, if configured | the reader, on the options page | `storage.local` only — never sent, because that run never selects them | until the reader deletes each one |
+| the model name | the reader, on the options page | `storage.local`, and the request body, for the selected provider only | the same |
 | the page's URL | nowhere — it is never read, never returned by extraction, never stored and never sent |  |  |
 
 - **Only the page a summary was asked for is read**, at the moment it was asked
@@ -1200,35 +1446,41 @@ What one run does with data, end to end.
 - **No browsing history is collected.** There is no `history` and no `tabs`
   permission, nothing records a URL, and the only trace of a run is a state
   keyed by tab id that the browser discards when it closes.
-- **The page's text is sent to the Sakura AI Engine**, because that is where
-  the summary is produced. This is the point of the extension, not an
-  incidental transfer, and the README is where a reader deciding whether to
-  install it is told so plainly.
+- **The page's text is sent to the one AI provider selected for that run**,
+  because that is where the summary is produced. This is the point of the
+  extension, not an incidental transfer, and the README is where a reader
+  deciding whether to install it is told so plainly. It is never sent to the
+  other two supported providers, whether or not the reader has configured a
+  credential or granted a permission for them.
 - **There is no backend belonging to this project**, so there is nowhere for a
-  page, a summary, a token or a history to be sent to or accumulate in. That is
-  a property of the design, not a promise not to look.
+  page, a summary, a credential or a history to be sent to or accumulate in.
+  That is a property of the design, not a promise not to look. What a
+  provider itself does with what it receives is that provider's own concern.
 - **No summary is stored in a cloud**, and none is written to disk: the result
   lives in session state and is gone when the browser closes.
-- **The token reaches one origin**, as one header, and no other.
+- **Each credential reaches one origin**, as one header or field, and no
+  other.
 
 ## 22. One run, in order
 
 ```text
-  reader              action        service worker      tab        AI Engine
+  reader              action        service worker      tab      selected provider
     │                   │                 │              │             │
     │ clicks ──────────>│                 │              │             │
     │                   │ ── onClicked ──>│              │             │
     │     panel opens <──────── open() ───┤              │             │
     │                                     │ state: running             │
     │                                     │              │             │
-    │                                     │ read token + model + lang  │
+    │                                     │ read provider, credential, │
+    │                                     │ model, Japanese preference │
+    │                                     │ check optional permission  │
     │                                     │ read prompt, compose it    │
     │                                     │ inject ─────>│             │
     │                                     │<── blocks ───┤             │
     │                                     │ shape                      │
     │                                     │ size verdict               │
-    │                                     │ compose messages           │
-    │                                     │ ── POST /chat/completions ─>
+    │                                     │ compose logical request    │
+    │                                     │ ── dispatch to one adapter ─>
     │                                     │<────────── answer ──────────
     │                                     │ read the summary           │
     │                                     │ state: succeeded           │
@@ -1242,41 +1494,52 @@ The steps, at the granularity they are written at:
    state is set to `running`** for that tab, and `stateChanged` is broadcast.
    The title from the click's tab, when there is one, is put into the state so
    the reader sees which page is being worked on.
-3. **The settings and the prompt resource are read, and the instruction is
-   composed** (§10.4) from the prompt text and the Japanese summary
-   preference. No token, or a blank one, ends the run here with
-   `token-missing`, and a prompt resource that cannot be read ends it with
-   `internal-error` — both before the tab is touched, so a run that cannot
-   finish never reads a page.
-4. **The tab is the one the request named.** No search for an active tab, no
+3. **The tab is the one the request named.** No search for an active tab, no
    fallback to another window: a run has one tab id, from step 1.
-5. **The extraction pass is injected** into that tab and returns blocks (§7).
+4. **The settings are read** (§13): the provider, that provider's own
+   credential and model, and the Japanese summary preference, all fixed for
+   the rest of this run. No credential for the selected provider, or a blank
+   one, ends the run here with `credential-missing`, before the tab is
+   touched.
+5. **An optional-permission provider's permission is checked**, never
+   requested (§12.2). Sakura needs no check. A permission since revoked ends
+   the run here with `permission-missing`, before the tab is touched.
+6. **The prompt resource is read, and the instruction is composed** (§10.4)
+   from the prompt text and the Japanese summary preference. A prompt
+   resource that cannot be read ends the run with `internal-error` — still
+   before the tab is touched, so a run that cannot finish never reads a page.
+7. **The extraction pass is injected** into that tab and returns blocks (§7).
    A rejection ends the run with `page-unreadable`.
-6. **The result is checked**: an object, with `blocks` an array and `title` a
+8. **The result is checked**: an object, with `blocks` an array and `title` a
    string, every block carrying a known `kind` and a string `text`. Anything
    else is `page-unreadable`.
-7. **Shaping produces the material** (§8).
-8. **The size is judged** (§9): `too-little-text` ends the run; material over
-   the per-request budget is structurally chunked.
-9. **The messages are composed** for the page or for each chunk (§10.3).
-10. **Requests go to the engine** with the reader's token and configured model,
-    each under one bounded wait (§11). Long-page chunk summaries are integrated,
-    recursively when necessary.
-11. **Every answer is judged** (§11.3, §11.5). Any failure ends the whole run.
-12. **The final integrated summary is taken** from the answer.
-13. **The state becomes `succeeded`**, carrying the title and the summary, and
+9. **Shaping produces the material** (§8).
+10. **The size is judged** (§9): `too-little-text` ends the run; material over
+    the per-request budget is structurally chunked.
+11. **The logical request is composed** for the page or for each chunk
+    (§10.3), carrying the trusted instruction and the untrusted content.
+12. **Requests go to the one provider selected in step 4**, through the
+    dispatcher and its one adapter, with that provider's own credential and
+    configured model, each under one bounded wait common to every adapter
+    (§11). Long-page chunk summaries are integrated, recursively when
+    necessary, against that same provider throughout.
+13. **Every answer is judged** by its adapter (§11.4, §11.6). Any failure
+    ends the whole run; nothing here calls a second provider.
+14. **The final integrated summary is taken** from the answer.
+15. **The state becomes `succeeded`**, carrying the title and the summary, and
     `stateChanged` is broadcast. The panel renders it as text.
-14. **Any step above may end the run instead.** Every way it can is a row of
+16. **Any step above may end the run instead.** Every way it can is a row of
     §18; the state becomes `failed` with that kind, `stateChanged` is
     broadcast, and the panel shows the message and the control to try again.
 
 The whole of a run is in `service_worker.js`, so the question "what happened"
-has one file to read.
+has one file to read; which provider it used is answered by what was
+selected in settings at step 4, since no later step can change it.
 
 ## 23. Testability
 
 Every unit below is written so that its input can be constructed, its output
-compared and its failure named, without a browser profile, a token or a
+compared and its failure named, without a browser profile, a credential or a
 network. **This document does not write the tests**; it fixes what a test
 specification would be written against.
 
@@ -1285,10 +1548,13 @@ specification would be written against.
 | extraction (§7) | a `Document`, passed as a parameter rather than read from a global, so a fixture parsed from an HTML string can stand in for a page | `ExtractResult` (§15.1) | none of its own: it returns what it found, and an empty `blocks` is a valid result that §9.1 judges |
 | shaping (§8) | `ExtractResult` | `{ ok: true, material }` (§15.2) | `too-little-text` |
 | the size verdicts (§9) | a `charCount` | one of three verdicts | the two above, at their exact boundaries |
-| prompt composition (§10.3) | the instruction text and a `Material` | the two-element `messages` array | none; an empty title changes the user message and is a case, not an error |
-| request construction (§11.1) | model, messages, token | a URL, a header set and a JSON body | none |
-| answer parsing (§11.3) | an HTTP status and a body | `{ ok: true, summary }` | `no-usable-summary` |
-| failure mapping (§11.5) | a status, an error code and message, or an exception | a kind, and a detail for `engine-error` | the whole table is the specification |
+| logical request composition (§10.3) | the instruction text, a `Material` and a task label | `{ instruction, content }` | none; an empty title changes the content and is a case, not an error |
+| provider resolution (§13) | a stored value | one of the three providers, or Sakura for anything else | none: every input has a defined resolution |
+| the dispatcher (§11.1) | `{ provider, model, credential, instruction, content }` | whatever the selected adapter returns, unchanged | `internal-error` for an unrecognized provider |
+| each adapter's request construction (§11.2) | model, instruction, content, credential | a URL, a header set and a JSON body, in that adapter's own shape | none |
+| each adapter's answer parsing (§11.4) | an HTTP status and a body | `{ ok: true, summary }` | `no-usable-summary` |
+| each adapter's failure mapping (§11.6) | a status, an error body, or an exception | a kind, and a detail for `provider-error` | the whole table is the specification, applied per adapter |
+| optional permission checking (§12.2) | a provider identifier and a fake `chrome.permissions` | whether the permission holds, or is granted | Sakura never calls the fake at all |
 | the state machine (§17) | a phase and an event | the next phase and what it carries | an event that is not allowed in a phase leaves it unchanged |
 | error kinds (§18) | a kind, and a detail | one message string | a kind with no message is a fault of this repository |
 
@@ -1299,15 +1565,17 @@ implementation rather than an observation about it:
   no randomness, no storage.
 - **`extract.js` takes its document as an argument.** The injected wrapper
   passes `document`; a test passes a parsed fixture.
-- **`engine.js` takes `fetch` and the timeout as parameters**, defaulting to
-  the global and to `REQUEST_TIMEOUT_MS`, so a stub answers without a network
-  and a timeout is provable in milliseconds.
+- **Every adapter takes `fetch` and the timeout as parameters**, through the
+  shared `sendRequest` in `transport.js`, defaulting to the global and to
+  `REQUEST_TIMEOUT_MS`, so a stub answers without a network and a timeout is
+  provable in milliseconds, identically for all three.
 - **The error kind is the only thing that crosses a boundary on failure.** A
   test asserts a kind, never a message fragment, a status or an exception.
 
-What is observable from the outside, for a later acceptance run: the state each
-run leaves, the message the panel shows, the single line the log writes, and
-the fact that the only outbound request was one POST to the engine's origin.
+What is observable from the outside, for a later acceptance run: the state
+each run leaves, the message the panel shows, the single line the log
+writes, and the fact that the only outbound request of a run was one POST to
+the selected provider's own origin — never to either of the other two.
 
 ## 24. Mapping to the basic design
 
@@ -1332,11 +1600,13 @@ the fact that the only outbound request was one POST to the engine's origin.
 | §10 the prompt as data | §10, §10.1 |
 | §10.2 no classification step | §10.2 |
 | §10.3 instruction and material | §10.3, §10.4 |
-| §11.1 the call | §11.1 |
-| §11.2 the answer | §11.3 |
-| §11.3 timeout, no retries | §11.2 |
-| §11.4 the model | §13 |
-| §12 the token | §12 |
+| §11.1 one dispatcher, three adapters | §11.1 |
+| §11.2 the three calls | §11.2 |
+| §11.3 the answer | §11.4 |
+| §11.4 the normalized result | §11.5 |
+| §11.5 timeout, no retries | §11.3 |
+| §11.6 the model | §13 |
+| §12 the credential | §12 |
 | §13 settings | §12, §13, §13.1, §14 |
 | §14 state | §17 |
 | §15 the flow of one summary | §22 |
