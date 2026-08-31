@@ -34,7 +34,8 @@ export async function hasProviderPermission(
 }
 
 // Calls chrome.permissions.request() directly, from within the caller's own
-// user gesture (the provider selector's change event), for OpenAI and Claude.
+// user gesture in the options page — selecting the provider, or clicking
+// "Grant or restore permission" for the selected one — for OpenAI and Claude.
 // Sakura's permission is required, not optional, so it is never requested.
 // This does not wait on hasProviderPermission() / permissions.contains()
 // first: Chrome itself resolves without a prompt when the permission already

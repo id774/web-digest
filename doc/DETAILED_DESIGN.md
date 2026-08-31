@@ -927,12 +927,13 @@ against a different provider either (§11.1).
 Each adapter reduces its provider's own documented answer shape to the one
 normalized result of §11.5.
 
-- **Sakura**: `data.choices[0].message.content`, trimmed, is the summary. It
-  is accepted when it is a string and is not empty after trimming; otherwise
-  the run ends as `no-usable-summary`. Everything else in the answer —
-  `finish_reason`, `usage`, `id` — is ignored rather than interpreted. A
-  truncated summary is shown as the summary it is; nothing in this design
-  asked for a length, so nothing here second-guesses the one that came back.
+- **Sakura**: when the first choice's `finish_reason` is `"length"`, the text
+  stopped at the output limit and the answer is not shown as a summary,
+  whatever text it happens to carry. The summary is otherwise
+  `data.choices[0].message.content`, trimmed, accepted when it is a string and
+  is not empty after trimming; missing or empty content is
+  `no-usable-summary`. `usage`, `id` and everything else in the answer is
+  ignored rather than interpreted.
 - **OpenAI**: when the top-level `status` field is present and is not
   `"completed"` (`"incomplete"`, `"failed"`, `"cancelled"`, `"queued"`), the
   answer is not shown as a summary, whatever text it happens to carry. The
@@ -976,7 +977,9 @@ own provider's status codes and error body:
 | the abort fired | `timeout` | — |
 | HTTP 401 | `credential-rejected` | — |
 | HTTP 400, 413 or 422 whose error names the context length or a maximum input | `too-much-text` | — |
-| HTTP 403 or 404 | `provider-error` | `refused` |
+| HTTP 403 for Sakura or OpenAI | `provider-error` | `refused` |
+| HTTP 403 for Claude | `provider-error` | `unspecified` |
+| HTTP 404 | `provider-error` | `refused` |
 | HTTP 429 | `provider-error` | `rate-limited` |
 | HTTP 5xx (and, for Claude, 529 "overloaded") | `provider-error` | `unavailable` |
 | any other non-2xx | `provider-error` | `unspecified` |
@@ -989,6 +992,10 @@ matched, not parsed**: an endpoint that words it differently falls through to
 `provider-error`, which is a worse message but never a wrong one, and the
 mapping is a table to extend once a log has shown the wording — never a guess
 about a status code's meaning.
+
+Claude's HTTP 403 is Anthropic's documented permission error rather than an
+unknown model, so it is not mapped to `refused`, whose message sends the
+reader to the model setting, but to the generic `unspecified` provider error.
 
 The status code and the wording are read here and go no further. They reach the
 log (§19) and never the reader (§18).
@@ -1337,7 +1344,7 @@ selected AI provider" rather than assuming which of the three it is.
 | `provider-error` / `unspecified` | the selected provider's adapter, any other non-2xx | the status is logged | "The selected AI provider reported an error." | yes | no |
 | `page-unreadable` | the worker, from the injection failing or returning nothing usable (§7.5) | the rejection is not carried further | "The content of this page could not be obtained." | yes, though the same page may fail again | no |
 | `too-little-text` | `shape.js` (§9.1) | the run stops before a request | "This page has too little text to summarize." | yes | no |
-| `too-much-text` | the staged summarizer safety bound, or an adapter from its provider's refusal (§9.3, §11.6) | the run stops | "This page is larger than can be summarized in one request." | yes | no |
+| `too-much-text` | the staged summarizer safety bound, or an adapter from its provider's refusal (§9.3, §11.6) | the run stops | "This page is too large to process." | yes | no |
 | `no-usable-summary` | the selected provider's adapter (§11.4) | the answer is discarded, not shown | "No summary came back. Trying again is reasonable." | yes | no |
 | `internal-error` | the worker, any unexpected exception, including the prompt resource failing to load or an unrecognized provider reaching the dispatcher | caught at the top of the run and logged | "The extension failed to complete the run. Trying again is reasonable." | yes | no |
 

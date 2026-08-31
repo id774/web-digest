@@ -51,7 +51,14 @@ test("the instruction and material become a system and a user message", () => {
 });
 
 test("the summary is the first choice's content, trimmed", () => {
-  assert.deepEqual(readAnswer(summaryBody("  A summary.  ")), {
+  const body = {
+    id: "x",
+    usage: { total_tokens: 9 },
+    choices: [
+      { finish_reason: "stop", message: { content: "  A summary.  " } },
+    ],
+  };
+  assert.deepEqual(readAnswer(body), {
     ok: true,
     summary: "A summary.",
   });
@@ -74,13 +81,14 @@ test("an answer with no usable content is not shown as a summary", () => {
   }
 });
 
-test("everything else in the answer is ignored rather than interpreted", () => {
+test("a response cut off at the output limit is not shown as a summary", () => {
   const body = {
-    id: "x",
-    usage: { total_tokens: 9 },
     choices: [{ finish_reason: "length", message: { content: "Cut short." } }],
   };
-  assert.deepEqual(readAnswer(body), { ok: true, summary: "Cut short." });
+  assert.deepEqual(readAnswer(body), {
+    ok: false,
+    kind: "no-usable-summary",
+  });
 });
 
 test("the failure mapping table", () => {

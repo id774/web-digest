@@ -130,6 +130,10 @@ test("a response with no text block is no-usable-summary", () => {
 
 test("the failure mapping table", () => {
   assert.equal(mapHttpFailure(401, null).kind, "credential-rejected");
+  assert.equal(mapHttpFailure(403, null).kind, "provider-error");
+  assert.equal(mapHttpFailure(403, null).detail, "unspecified");
+  assert.equal(mapHttpFailure(404, null).kind, "provider-error");
+  assert.equal(mapHttpFailure(404, null).detail, "refused");
   assert.equal(mapHttpFailure(429, null).detail, "rate-limited");
   assert.equal(mapHttpFailure(500, null).detail, "unavailable");
   assert.equal(mapHttpFailure(529, null).detail, "unavailable");

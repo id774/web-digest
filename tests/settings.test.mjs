@@ -200,6 +200,10 @@ test("every error kind has a message the reader can act on", () => {
     assert.equal(typeof message, "string");
     assert.notEqual(message.trim(), "");
   }
+  assert.equal(
+    messageFor(ErrorKind.TOO_MUCH_TEXT),
+    "This page is too large to process.",
+  );
 });
 
 test("each provider-error detail has its own message", () => {

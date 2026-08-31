@@ -100,13 +100,20 @@ export function mapHttpFailure(status, data) {
 }
 
 // The generated text of the first returned choice, trimmed, is the summary.
-// Everything else in the answer is ignored rather than interpreted — including
-// finish_reason, usage and id. A body that is not JSON, or JSON without that
+// One member of the answer is read rather than ignored: a finish_reason of
+// "length" says the text stopped at the output limit, and a fragment presented
+// as a finished summary is worse than being told the run failed. usage, id and
+// every other member are ignored. A body that is not JSON, or JSON without that
 // path, is no-usable-summary: a blank panel and a fragment of protocol are
 // both worse than being told the run failed.
 export function readAnswer(data) {
   const choices = data && Array.isArray(data.choices) ? data.choices : null;
   const first = choices && choices.length ? choices[0] : null;
+
+  if (first && first.finish_reason === "length") {
+    return { ok: false, kind: ErrorKind.NO_USABLE_SUMMARY };
+  }
+
   const content = first && first.message ? first.message.content : null;
   if (typeof content !== "string" || content.trim() === "") {
     return { ok: false, kind: ErrorKind.NO_USABLE_SUMMARY };
