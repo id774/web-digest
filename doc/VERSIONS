@@ -1,6 +1,12 @@
 web-digest Repository Version History
 =====================================
 
+v1.1.1 (Release Date: TBD)
+--------------------------
+- Fixed side-panel opening and per-tab run-state cleanup races so a run stays
+  bound to its target tab and stale state cannot return after navigation or
+  tab closure.
+
 v1.1.0 (2026-08-31)
 -------------------
 - Added an opt-in "Summarize in Japanese" setting; off by default, summaries

@@ -20,8 +20,10 @@ async function readJson(response) {
 }
 
 // One request, under one bounded wait covering the whole of it including
-// reading the body. A failed run is never retried automatically: one click is
-// one request, which keeps what the reader's credential is spent on visible.
+// reading the body. A failed run is never retried automatically: an ordinary
+// page sends this once, a staged long-page run sends it once per chunk and
+// integrate step, and none of those staged sends is a retry — every one is a
+// processing step of the one run, spent on the one provider it started with.
 //
 // Resolves to one of:
 //   { timedOut: true }

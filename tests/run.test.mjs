@@ -347,6 +347,73 @@ test("a run does not start when its side panel cannot open", async () => {
   assert.equal(started, false);
 });
 
+test("a run does not start when its side panel cannot be configured for the tab", async () => {
+  let openCalled = false;
+  let started = false;
+  const sidePanel = {
+    async setOptions() {
+      throw new Error("cannot configure panel");
+    },
+    async open() {
+      openCalled = true;
+    },
+  };
+
+  await assert.rejects(
+    openPanelAndRun({ id: 34, title: "A title" }, sidePanel, () => {
+      started = true;
+    }),
+    /cannot configure panel/,
+  );
+  assert.equal(openCalled, false);
+  assert.equal(started, false);
+});
+
+test("open() is never called before setOptions has settled for that tab, closing the global-panel race", async () => {
+  const events = [];
+  let resolveConfigure;
+  const sidePanel = {
+    setOptions(options) {
+      events.push(["configuring", options]);
+      return new Promise((resolve) => {
+        resolveConfigure = () => {
+          events.push(["configured", options]);
+          resolve();
+        };
+      });
+    },
+    async open(options) {
+      events.push(["opened", options]);
+    },
+  };
+
+  const done = openPanelAndRun(
+    { id: 33, title: "A title" },
+    sidePanel,
+    (id, title) => {
+      events.push(["started", { id, title }]);
+    },
+  );
+
+  // While setOptions is still pending, open() must not have been reached —
+  // otherwise it could resolve the global panel instead of tab 33's own.
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(events, [
+    ["configuring", { tabId: 33, path: "src/panel/panel.html", enabled: true }],
+  ]);
+
+  resolveConfigure();
+  await done;
+
+  assert.deepEqual(events, [
+    ["configuring", { tabId: 33, path: "src/panel/panel.html", enabled: true }],
+    ["configured", { tabId: 33, path: "src/panel/panel.html", enabled: true }],
+    ["opened", { tabId: 33 }],
+    ["started", { id: 33, title: "A title" }],
+  ]);
+});
+
 test("service worker keepalive uses the documented 25 second interval", () => {
   assert.equal(SERVICE_WORKER_KEEPALIVE_INTERVAL_MS, 25000);
 });

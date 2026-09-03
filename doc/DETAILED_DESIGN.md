@@ -248,8 +248,9 @@ needed to use them.
   the reader clicks the toolbar action
           │
           ├── chrome.sidePanel.setOptions({ tabId, path, enabled: true })
+          │   (awaited: this tab's panel path must be settled first)
           ├── chrome.sidePanel.open({ tabId })      ← the click is the gesture
-          └── the run starts for that tabId
+          └── the run starts for that tabId, only once open() has resolved
 ```
 
 `chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false })` is set
@@ -258,8 +259,14 @@ turned on Chrome opens the panel itself and `chrome.action.onClicked` never
 fires, so the one click would open a panel and start nothing.
 
 `sidePanel.open()` requires a user gesture, and the action click is one. The
-worker therefore opens the panel before it awaits anything, and only then reads
-the settings.
+worker awaits `setOptions` before calling `open`, so this tab's panel path is
+always settled first — otherwise `open()` can resolve the global default path
+instead of this tab's, since it opens whatever is currently configured for
+the tabId, not necessarily what this click just asked for. Nothing else is
+awaited before either call, so both stay inside the click's own gesture. The
+run for that tab starts only after `open()` itself resolves; a rejection from
+either call — the tab-specific panel could not be configured, or could not be
+opened — ends there with no run and no fallback to the global panel.
 
 ### 5.2 The whole of the reader's path
 
@@ -1389,6 +1396,15 @@ The four states of basic design §14, one per tab.
   has not been summarized, which basic design §7.2 requires. The listener that
   does this **starts nothing, reads no page, records nothing and holds no
   URL**; discarding is all it does.
+- Every `chrome.storage.session` write or remove for a tab is queued behind
+  whatever is already pending for that same tab, so a write already in flight
+  when navigation or a tab close begins its cleanup is guaranteed to finish
+  before that cleanup's remove — never after it — and the removed state
+  cannot come back. A write still queued when its run stops being current is
+  a no-op rather than a state that outlives the run it belonged to. Cleanups
+  themselves are unconditional and always run in the order they were asked
+  for, so a later run's own first write is never undone by an earlier
+  cleanup that was still queued behind it.
 - **No summary and no page text is written to disk by this design**, which is
   what requirement §16 asks of it.
 
@@ -1703,8 +1719,10 @@ implementation rather than an observation about it:
 
 What is observable from the outside, for a later acceptance run: the state
 each run leaves, the message the panel shows, the single line the log
-writes, and the fact that the only outbound request of a run was one POST to
-the selected provider's own origin — never to either of the other two.
+writes, and the fact that every outbound request of a run was a POST to the
+selected provider's own origin — never to either of the other two. An
+ordinary page makes exactly one such request; a staged long-page run makes
+the several chunk and integrate requests it needs, none of them a retry.
 
 ## 24. Mapping to the basic design
 
