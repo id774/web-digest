@@ -29,15 +29,26 @@ export const MAX_OUTPUT_TOKENS = 32768;
 
 // Matched, not parsed. An endpoint that words its refusal differently falls
 // through to provider-error, which is a worse message but never a wrong one.
+// A bare "too long" / "too large" is deliberately absent: those words also
+// appear in validation errors unrelated to size, so a generic marker would
+// misclassify them as too-much-text. "prompt is too long" and
+// "request_too_large" are Anthropic's own documented wordings and stay as
+// exact phrases; `SIZE_TARGET_TOO_LONG` below covers other free-form size
+// refusals that still name what is too long.
 const LENGTH_MARKERS = [
   "context_length",
   "context length",
   "maximum context",
   "prompt is too long",
-  "too long",
-  "too large",
   "request_too_large",
 ];
+
+// A free-form message counts as a size refusal only when it names a size
+// target — context, input, prompt or request — close to "too long" / "too
+// large". "input too long" matches; "identifier is too long" does not, since
+// "identifier" is not a size target.
+const SIZE_TARGET_TOO_LONG =
+  /\b(context|input|prompt|request)\b[\s\S]{0,20}\b(too long|too large)\b/;
 
 // The trusted instruction becomes the top-level `system`; the material — the
 // page, chunk or integration text — becomes the one user message. Nothing of
@@ -64,7 +75,10 @@ export function buildRequest({ model, instruction, content, credential }) {
 function namesALengthProblem(data) {
   const error = data && data.error ? data.error : {};
   const haystack = `${error.type || ""} ${error.message || ""}`.toLowerCase();
-  return LENGTH_MARKERS.some((marker) => haystack.includes(marker));
+  return (
+    LENGTH_MARKERS.some((marker) => haystack.includes(marker)) ||
+    SIZE_TARGET_TOO_LONG.test(haystack)
+  );
 }
 
 export function mapHttpFailure(status, data) {
@@ -76,6 +90,22 @@ export function mapHttpFailure(status, data) {
     namesALengthProblem(data)
   ) {
     return { ok: false, kind: ErrorKind.TOO_MUCH_TEXT, status };
+  }
+  // Anthropic's own documented meaning for HTTP 402: a billing_error, which
+  // only the provider account's billing/usage settings can resolve.
+  if (status === 402) {
+    return {
+      ok: false,
+      kind: ErrorKind.PROVIDER_ERROR,
+      detail: ProviderErrorDetail.ACCOUNT_LIMIT,
+      status,
+    };
+  }
+  // Anthropic's own documented meaning for HTTP 504: a timeout_error. The
+  // reader's next action is the same as any other timeout, so this is kept
+  // as ErrorKind.TIMEOUT rather than provider-error/unavailable.
+  if (status === 504) {
+    return { ok: false, kind: ErrorKind.TIMEOUT, status };
   }
   if (status === 404) {
     return {

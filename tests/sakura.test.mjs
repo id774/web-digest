@@ -127,6 +127,20 @@ test("a refusal worded otherwise falls through rather than being guessed at", ()
   assert.equal(mapped.detail, "unspecified");
 });
 
+test("an unrelated validation error naming 'too long' or 'too large' is not too-much-text", () => {
+  for (const status of [400, 413, 422]) {
+    for (const error of [
+      { message: "model name is too long" },
+      { message: "header value is too large" },
+      { message: "identifier is too long" },
+      { message: "parameter value is too large" },
+    ]) {
+      const mapped = mapHttpFailure(status, { error });
+      assert.notEqual(mapped.kind, "too-much-text", JSON.stringify(error));
+    }
+  }
+});
+
 test("a successful call returns the summary and no credential", async () => {
   const result = await callSakura(CALL, {
     fetchImpl: answering(200, summaryBody("A summary.")),

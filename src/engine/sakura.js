@@ -20,13 +20,18 @@ export const SAKURA_BASE_URL = "https://api.ai.sakura.ad.jp/v1";
 
 // Matched, not parsed. An endpoint that words its refusal differently falls
 // through to provider-error, which is a worse message but never a wrong one.
-const LENGTH_MARKERS = [
-  "context_length",
-  "context length",
-  "maximum context",
-  "too long",
-  "too large",
-];
+// A bare "too long" / "too large" is deliberately absent: those words also
+// appear in validation errors unrelated to size, so a generic marker would
+// misclassify them as too-much-text. `SIZE_TARGET_TOO_LONG` below covers
+// free-form size refusals that still name what is too long.
+const LENGTH_MARKERS = ["context_length", "context length", "maximum context"];
+
+// A free-form message counts as a size refusal only when it names a size
+// target — context, input, prompt or request — close to "too long" / "too
+// large". "input too long" matches; "parameter value is too large" does not,
+// since "parameter" is not a size target.
+const SIZE_TARGET_TOO_LONG =
+  /\b(context|input|prompt|request)\b[\s\S]{0,20}\b(too long|too large)\b/;
 
 // model and messages are the only members sent. max_tokens and temperature are
 // not: a character count is not the constraint and neither is a setting, so
@@ -52,7 +57,10 @@ export function buildRequest({ model, instruction, content, credential }) {
 function namesALengthProblem(data) {
   const error = data && data.error ? data.error : {};
   const haystack = `${error.code || ""} ${error.message || ""}`.toLowerCase();
-  return LENGTH_MARKERS.some((marker) => haystack.includes(marker));
+  return (
+    LENGTH_MARKERS.some((marker) => haystack.includes(marker)) ||
+    SIZE_TARGET_TOO_LONG.test(haystack)
+  );
 }
 
 // A non-2xx answer, mapped to the kind that describes it. The status and the
