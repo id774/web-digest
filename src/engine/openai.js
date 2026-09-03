@@ -16,13 +16,42 @@ export const OPENAI_BASE_URL = "https://api.openai.com/v1";
 
 // Matched, not parsed. An endpoint that words its refusal differently falls
 // through to provider-error, which is a worse message but never a wrong one.
-const LENGTH_MARKERS = [
-  "context_length",
-  "context length",
-  "maximum context",
-  "too long",
-  "too large",
-];
+// A bare "too long" / "too large" is deliberately absent: OpenAI raises those
+// same words for validation errors that have nothing to do with size (an
+// over-length model name, for one), so a generic marker would misclassify
+// them as too-much-text. `SIZE_TARGET_TOO_LONG` below requires the message to
+// also name what is too long, so only a genuine size refusal matches.
+const LENGTH_MARKERS = ["context_length", "context length", "maximum context"];
+
+// A free-form message counts as a size refusal only when it names a size
+// target — context, input, prompt or request — close to "too long" / "too
+// large". "input too long" matches; "model name is too long" does not, since
+// "model" and "name" are not size targets.
+const SIZE_TARGET_TOO_LONG =
+  /\b(context|input|prompt|request)\b[\s\S]{0,20}\b(too long|too large)\b/;
+
+// OpenAI's documented account-side 429 signals: the request was refused not
+// because of a transient rate limit but because the account itself cannot be
+// billed further right now. These recover only through the provider
+// account's own billing/usage settings, never by retrying, so they are kept
+// distinct from an ordinary rate limit.
+const ACCOUNT_LIMIT_CODES = new Set([
+  "credit_balance_exhausted",
+  "organization_usage_limit_exceeded",
+  "organization_spend_limit_exceeded",
+  "project_spend_limit_exceeded",
+]);
+const ACCOUNT_LIMIT_TYPES = new Set(["insufficient_quota"]);
+
+// Only these documented `error.code` / `error.type` values are recognized.
+// An unrecognized 429 stays the ordinary rate-limit mapping rather than being
+// guessed at, per the same "matched, not parsed" rule as the length markers.
+function isAccountLimit(data) {
+  const error = data && data.error ? data.error : {};
+  return (
+    ACCOUNT_LIMIT_CODES.has(error.code) || ACCOUNT_LIMIT_TYPES.has(error.type)
+  );
+}
 
 // The trusted instruction becomes `instructions`; the material — the page,
 // chunk or integration text — becomes `input`. Nothing of this project's own
@@ -47,7 +76,10 @@ export function buildRequest({ model, instruction, content, credential }) {
 function namesALengthProblem(data) {
   const error = data && data.error ? data.error : {};
   const haystack = `${error.code || ""} ${error.message || ""}`.toLowerCase();
-  return LENGTH_MARKERS.some((marker) => haystack.includes(marker));
+  return (
+    LENGTH_MARKERS.some((marker) => haystack.includes(marker)) ||
+    SIZE_TARGET_TOO_LONG.test(haystack)
+  );
 }
 
 export function mapHttpFailure(status, data) {
@@ -72,7 +104,9 @@ export function mapHttpFailure(status, data) {
     return {
       ok: false,
       kind: ErrorKind.PROVIDER_ERROR,
-      detail: ProviderErrorDetail.RATE_LIMITED,
+      detail: isAccountLimit(data)
+        ? ProviderErrorDetail.ACCOUNT_LIMIT
+        : ProviderErrorDetail.RATE_LIMITED,
       status,
     };
   }

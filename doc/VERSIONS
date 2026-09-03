@@ -12,6 +12,8 @@ v1.1.1 (Release Date: TBD)
   content is preserved, and linked headings and table cells are not discarded.
 - Fixed side-panel state synchronization and session-state failures so the panel
   follows the active tab and cannot regress to an older state snapshot.
+- Fixed provider failure classification so billing and timeout errors are actionable
+  and unrelated validation errors are not reported as oversized pages.
 
 v1.1.0 (2026-08-31)
 -------------------

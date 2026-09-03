@@ -1122,7 +1122,7 @@ protocol are both worse than being told the run failed.
 ```
 
 The same shape for every adapter. `detail` is present only for
-`provider-error` and is one of four fixed values. No status line, no response
+`provider-error` and is one of five fixed values. No status line, no response
 body and no exception text crosses this boundary (§18), and nothing in it
 names which provider produced it — the caller already knows, from the
 `provider` it passed to the dispatcher.
@@ -1138,26 +1138,52 @@ own provider's status codes and error body:
 | the abort fired | `timeout` | — |
 | HTTP 401 | `credential-rejected` | — |
 | HTTP 400, 413 or 422 whose error names the context length or a maximum input | `too-much-text` | — |
+| HTTP 402 for Claude | `provider-error` | `account-limit` |
 | HTTP 403 | `provider-error` | `unspecified` |
 | HTTP 404 for OpenAI or Claude | `provider-error` | `refused` |
 | HTTP 404 for Sakura | `provider-error` | `unspecified` |
-| HTTP 429 | `provider-error` | `rate-limited` |
-| HTTP 5xx (and, for Claude, 529 "overloaded") | `provider-error` | `unavailable` |
+| HTTP 429 for OpenAI whose error names a documented account-side limit | `provider-error` | `account-limit` |
+| HTTP 429, otherwise | `provider-error` | `rate-limited` |
+| HTTP 504 for Claude | `timeout` | — |
+| HTTP 5xx (and, for Claude, 529 "overloaded", but not 504) | `provider-error` | `unavailable` |
 | any other non-2xx | `provider-error` | `unspecified` |
 | a 2xx answer with no usable content, by the rule of §11.4 | `no-usable-summary` | — |
 
-The length test looks for `context_length`, `context length`, `maximum
-context`, `too long` and `too large` (plus, for Claude, `prompt is too long`
-and `request_too_large`) in the error fields of the answer,
-case-insensitively. `request_too_large` is Anthropic's own documented
-`error.type` for its HTTP 413, and is recognized directly rather than falling
-through to the generic `too large` substring match, so a 413 whose body is
+The length test looks for `context_length`, `context length` and `maximum
+context` (plus, for Claude, `prompt is too long` and `request_too_large`) as
+exact substrings of the error fields of the answer, case-insensitively.
+`request_too_large` is Anthropic's own documented `error.type` for its HTTP
+413, and is recognized directly rather than falling through to a generic
+substring match, so a 413 whose body is
 `{"error":{"type":"request_too_large"}}` reaches `too-much-text` through the
-same 400/413/422 path as every other length refusal. **Those strings are
-matched, not parsed**: an endpoint that words it differently falls through to
-`provider-error`, which is a worse message but never a wrong one, and the
-mapping is a table to extend once a log has shown the wording — never a guess
-about a status code's meaning.
+same 400/413/422 path as every other length refusal. Beyond those exact
+strings, a free-form message is a length refusal only when it names what is
+too long or too large — the word `context`, `input`, `prompt` or `request`
+appearing near `too long` or `too large` — so `"input too long"` reaches
+`too-much-text` but `"model name is too long"` does not: a bare `too long` /
+`too large` is deliberately not matched on its own, because OpenAI, Claude
+and Sakura all raise those same words for validation errors that have
+nothing to do with size (an over-length model name, for one), and matching
+them there would misreport an unrelated refusal as this page being too
+large. **Every one of these is matched, not parsed**: an endpoint that words
+it differently falls through to `provider-error`, which is a worse message
+but never a wrong one, and the mapping is a table to extend once a log has
+shown the wording — never a guess about a status code's meaning.
+
+OpenAI's HTTP 429 is split the same way. `error.code` values
+`credit_balance_exhausted`, `organization_usage_limit_exceeded`,
+`organization_spend_limit_exceeded` and `project_spend_limit_exceeded`, and
+`error.type` value `insufficient_quota`, are OpenAI's own documented signals
+that the account itself — not the request rate — is what is blocking the
+call, and only these recognized values are mapped to `account-limit`; every
+other 429, including one with no body or an unrecognized code, keeps the
+existing `rate-limited` mapping rather than being guessed at. Claude's HTTP
+402 is Anthropic's own documented `billing_error`, so it is mapped to the
+same `account-limit` detail directly from the status, with no body to
+inspect. Claude's HTTP 504 is Anthropic's own documented `timeout_error`: the
+reader's next action is the same as any other timeout — trying again is
+reasonable — so it is mapped to `timeout` rather than joining the rest of the
+5xx range at `unavailable`.
 
 Claude's HTTP 403 is Anthropic's documented permission error rather than an
 unknown model, so it is not mapped to `refused`, whose message sends the
@@ -1539,10 +1565,11 @@ selected AI provider" rather than assuming which of the three it is.
 | `permission-missing` | the worker, before extraction (§22 step 6) | the run stops before the tab is touched | "Browser permission for the selected AI provider is missing. Open Settings to grant it again." | yes, the provider's permission |
 | `credential-rejected` | the selected provider's adapter, HTTP 401 (§11.6) | the status is logged, not shown | "The selected AI provider refused the credential. Check it in Settings." | yes, that provider's credential |
 | `provider-unreachable` | the selected provider's adapter, `fetch` rejects | the exception is not carried further | "The selected AI provider could not be reached. Check your connection and try again." | no |
-| `timeout` | the selected provider's adapter, the abort at `REQUEST_TIMEOUT_MS` (§11.3) | the elapsed time is logged | "The selected AI provider took too long to answer. Trying again is reasonable." | no |
-| `provider-error` / `rate-limited` | the selected provider's adapter, HTTP 429 | the status is logged | "The selected AI provider reported a rate limit. Try again later." | no |
+| `timeout` | the selected provider's adapter, the abort at `REQUEST_TIMEOUT_MS` (§11.3), or Claude's HTTP 504 (§11.6) | the elapsed time, or the status, is logged | "The selected AI provider took too long to answer. Trying again is reasonable." | no |
+| `provider-error` / `rate-limited` | the selected provider's adapter, HTTP 429 without a documented account-limit signal | the status is logged | "The selected AI provider reported a rate limit. Try again later." | no |
+| `provider-error` / `account-limit` | the selected provider's adapter, an OpenAI HTTP 429 with a documented account-limit `error.code`/`error.type`, or Claude's HTTP 402 (§11.6) | the status is logged | "The selected AI provider reported a billing or usage-limit problem. Check the provider account's billing and usage limits." | no — the provider account's own billing/usage settings, not this extension's |
 | `provider-error` / `refused` | the selected provider's adapter, HTTP 404 for OpenAI or Claude | the status is logged | "The selected AI provider refused the request. Check the model name in Settings." | possibly, the model |
-| `provider-error` / `unavailable` | the selected provider's adapter, HTTP 5xx (529 for Claude) | the status is logged | "The selected AI provider reported an error. Trying again later is reasonable." | no |
+| `provider-error` / `unavailable` | the selected provider's adapter, HTTP 5xx (529 for Claude, but not Claude's 504) | the status is logged | "The selected AI provider reported an error. Trying again later is reasonable." | no |
 | `provider-error` / `unspecified` | the selected provider's adapter, HTTP 403 for any provider, HTTP 404 for Sakura, or any other non-2xx not mapped elsewhere in this table | the status is logged | "The selected AI provider reported an error." | no |
 | `page-unreadable` | the worker, from the injection failing or returning nothing usable (§7.5) | the rejection is not carried further | "The content of this page could not be obtained." | no |
 | `too-little-text` | `shape.js` (§9.1) | the run stops before a request | "This page has too little text to summarize." | no |

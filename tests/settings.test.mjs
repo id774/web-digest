@@ -213,6 +213,13 @@ test("each provider-error detail has its own message", () => {
   assert.equal(new Set(messages).size, messages.length);
 });
 
+test("the account-limit detail has the exact billing/usage-limit message", () => {
+  assert.equal(
+    messageFor(ErrorKind.PROVIDER_ERROR, ProviderErrorDetail.ACCOUNT_LIMIT),
+    "The selected AI provider reported a billing or usage-limit problem. Check the provider account's billing and usage limits.",
+  );
+});
+
 test("no credential and credential rejected stay distinguishable", () => {
   assert.notEqual(
     messageFor(ErrorKind.CREDENTIAL_MISSING),

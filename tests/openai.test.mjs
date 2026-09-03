@@ -119,6 +119,70 @@ test("the failure mapping table", () => {
   assert.equal(mapHttpFailure(404, null).detail, "refused");
 });
 
+test("a documented account-limit 429 error.code is account-limit, not rate-limited", () => {
+  for (const code of [
+    "credit_balance_exhausted",
+    "organization_usage_limit_exceeded",
+    "organization_spend_limit_exceeded",
+    "project_spend_limit_exceeded",
+  ]) {
+    const mapped = mapHttpFailure(429, { error: { code } });
+    assert.equal(mapped.kind, "provider-error", code);
+    assert.equal(mapped.detail, "account-limit", code);
+  }
+});
+
+test("a 429 with error.type=insufficient_quota is account-limit", () => {
+  const mapped = mapHttpFailure(429, {
+    error: { type: "insufficient_quota" },
+  });
+  assert.equal(mapped.detail, "account-limit");
+});
+
+test("an ordinary or unknown 429 stays rate-limited, never guessed as account-limit", () => {
+  for (const body of [
+    null,
+    {},
+    { error: {} },
+    { error: { code: "rate_limit_exceeded" } },
+    { error: { type: "requests" } },
+    { error: { message: "You are sending requests too quickly." } },
+  ]) {
+    const mapped = mapHttpFailure(429, body);
+    assert.equal(mapped.detail, "rate-limited", JSON.stringify(body));
+  }
+});
+
+test("an unrelated validation error naming 'too long' or 'too large' is not too-much-text", () => {
+  for (const status of [400, 413, 422]) {
+    for (const error of [
+      { message: "model name is too long" },
+      { message: "header value is too large" },
+      { message: "identifier is too long" },
+      { message: "parameter value is too large" },
+    ]) {
+      const mapped = mapHttpFailure(status, { error });
+      assert.notEqual(mapped.kind, "too-much-text", JSON.stringify(error));
+    }
+  }
+});
+
+test("a free-form message naming a size target is still too-much-text", () => {
+  for (const status of [400, 413, 422]) {
+    for (const error of [
+      { message: "input too long" },
+      { message: "the request is too large" },
+      { message: "This model's maximum context is 8192 tokens" },
+    ]) {
+      assert.equal(
+        mapHttpFailure(status, { error }).kind,
+        "too-much-text",
+        JSON.stringify(error),
+      );
+    }
+  }
+});
+
 test("a successful call returns the summary and no credential", async () => {
   const result = await callOpenAI(CALL, {
     fetchImpl: answering(200, completedBody("A summary.")),

@@ -147,6 +147,65 @@ test("the failure mapping table", () => {
   );
 });
 
+test("HTTP 402 is billing_error, mapped to account-limit", () => {
+  const mapped = mapHttpFailure(402, { error: { type: "billing_error" } });
+  assert.equal(mapped.kind, "provider-error");
+  assert.equal(mapped.detail, "account-limit");
+});
+
+test("HTTP 402 is account-limit even with no body", () => {
+  const mapped = mapHttpFailure(402, null);
+  assert.equal(mapped.kind, "provider-error");
+  assert.equal(mapped.detail, "account-limit");
+});
+
+test("HTTP 504 is timeout_error, mapped to timeout rather than unavailable", () => {
+  const mapped = mapHttpFailure(504, { error: { type: "timeout_error" } });
+  assert.equal(mapped.kind, "timeout");
+  assert.notEqual(mapped.detail, "unavailable");
+});
+
+test("529 overloaded and ordinary 5xx (other than 504) remain unavailable", () => {
+  assert.equal(mapHttpFailure(529, null).kind, "provider-error");
+  assert.equal(mapHttpFailure(529, null).detail, "unavailable");
+  assert.equal(mapHttpFailure(500, null).detail, "unavailable");
+  assert.equal(mapHttpFailure(503, null).detail, "unavailable");
+});
+
+test("an unrelated validation error naming 'too long' or 'too large' is not too-much-text", () => {
+  for (const status of [400, 413, 422]) {
+    for (const error of [
+      { message: "model name is too long" },
+      { message: "header value is too large" },
+      { message: "identifier is too long" },
+      { message: "parameter value is too large" },
+    ]) {
+      const mapped = mapHttpFailure(status, { error });
+      assert.notEqual(mapped.kind, "too-much-text", JSON.stringify(error));
+    }
+  }
+});
+
+test("a free-form message naming a size target is still too-much-text", () => {
+  const mapped = mapHttpFailure(400, { error: { message: "input too long" } });
+  assert.equal(mapped.kind, "too-much-text");
+});
+
+test("a call that receives HTTP 504 ends the run as timeout", async () => {
+  const result = await callClaude(CALL, {
+    fetchImpl: answering(504, { error: { type: "timeout_error" } }),
+  });
+  assert.equal(result.kind, "timeout");
+});
+
+test("a call that receives HTTP 402 ends the run as provider-error/account-limit", async () => {
+  const result = await callClaude(CALL, {
+    fetchImpl: answering(402, { error: { type: "billing_error" } }),
+  });
+  assert.equal(result.kind, "provider-error");
+  assert.equal(result.detail, "account-limit");
+});
+
 test("a successful call returns the summary and no credential", async () => {
   const result = await callClaude(CALL, {
     fetchImpl: answering(200, textBody("A summary.")),

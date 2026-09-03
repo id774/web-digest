@@ -2,7 +2,7 @@
 //
 // Nothing else in the extension composes a message. An ordinary kind has its
 // message chosen by the kind alone; `provider-error` is the one exception,
-// refined by its fixed `detail` into one of four messages. A message names
+// refined by its fixed `detail` into one of five messages. A message names
 // the cause and what would address it; it carries no raw status, no response
 // body, no exception, no stack and no credential, and nothing is
 // interpolated into it from the page, the answer or the settings.
@@ -25,10 +25,11 @@ export const ErrorKind = {
   PERMISSION_MISSING: "permission-missing",
 };
 
-// The four fixed values of `detail`, which exists only for `provider-error`.
+// The five fixed values of `detail`, which exists only for `provider-error`.
 export const ProviderErrorDetail = {
   REFUSED: "refused",
   RATE_LIMITED: "rate-limited",
+  ACCOUNT_LIMIT: "account-limit",
   UNAVAILABLE: "unavailable",
   UNSPECIFIED: "unspecified",
 };
@@ -59,6 +60,8 @@ const PROVIDER_ERROR_MESSAGES = {
     "The selected AI provider reported a rate limit. Try again later.",
   [ProviderErrorDetail.REFUSED]:
     "The selected AI provider refused the request. Check the model name in Settings.",
+  [ProviderErrorDetail.ACCOUNT_LIMIT]:
+    "The selected AI provider reported a billing or usage-limit problem. Check the provider account's billing and usage limits.",
   [ProviderErrorDetail.UNAVAILABLE]:
     "The selected AI provider reported an error. Trying again later is reasonable.",
   [ProviderErrorDetail.UNSPECIFIED]:
