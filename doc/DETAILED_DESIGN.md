@@ -457,16 +457,24 @@ The ladder of basic design §8.3, with one accept test.
 
 | Rung | Root | Accepted when |
 |---|---|---|
-| 1 | the first of `main`, `[role="main"]`, `article` that exists | its visible text is at least `MIN_ROOT_CHARS` |
+| 1 | the first of `main`, `[role="main"]`, `article` that exists | its eligible text is at least `MIN_ROOT_CHARS` |
 | 2 | the highest scoring candidate | the same test |
 | 3 | `document.body` | always; the test is applied to the material instead (§9.1) |
+
+**Eligible text** is what block collection below would go on to keep from that
+element: every descendant text node, except one inside a subtree that is
+hidden, furniture, or non-content by the same three tests §7.2 skips a
+candidate for. An element that is itself hidden, furniture or non-content
+measures as empty text, not as whatever it happens to contain — a `main` with
+a lot of hidden text is not mistaken for a `main` with a lot of content, and
+raw `textContent` is never used for this measurement.
 
 Rung 2 scores every element matching `article, section, div` that contains at
 least one `p`:
 
 ```text
-  text     = the element's rendered text, trimmed
-  links    = the rendered text of the <a> elements inside it
+  text     = the element's eligible text
+  links    = the eligible text of the <a> elements inside it
   density  = links.length / text.length      (0 when text is empty)
   score    = text.length × (1 − density)
 ```
@@ -479,25 +487,41 @@ inside a document. No site is named, no class name is matched, and no
 
 ### 7.2 Collecting blocks
 
-The accepted root is walked in document order. An element is a **candidate**
-when it matches
+The accepted root is walked top-down, in document order. An element is a
+**candidate** when it matches
 
 ```text
   h1, h2, h3, h4, h5, h6, p, li, blockquote, pre, th, td
 ```
 
-and a candidate is **emitted** only when it contains no candidate of its own,
-so that a `li` holding a `p` yields one block and not two.
-
-A candidate is skipped when any of these holds:
+A candidate is skipped entirely — it and everything inside it — when any of
+these holds:
 
 | Skipped | Test |
 |---|---|
 | it is inside dropped furniture | it has an ancestor matching `nav, header, footer, aside, form, dialog, [role="navigation"], [role="banner"], [role="contentinfo"], [role="complementary"], [role="search"], [role="form"]` |
 | it is not being displayed | `hidden`, `aria-hidden="true"`, or a computed `display: none` or `visibility: hidden` on it or an ancestor |
 | it is not content | it is inside, or is, `script, style, noscript, template, iframe, svg, canvas, button, select, textarea, input, label` |
-| it carries nothing | its trimmed text is empty |
-| it is a list of links | its anchor text is at least `LINK_DENSITY_MAX` of its text |
+
+Four of the six candidate tags — `li`, `blockquote`, `th`, `td` — are
+**containers**: their own emitted block owns every bit of ordinary prose
+inside them, including a `p` wrapping it, so that kind is never lost to a
+prose wrapper placed inside a list item, a quote or a table cell. A nested
+element that is a candidate in its own right — another `li`, a nested
+`blockquote`, a heading, a `pre`, or another `th`/`td` — is not prose: it
+keeps its own kind and is collected as its own block instead, in the same
+walk, immediately after the container that holds it. A `p` is the only
+candidate tag that is never independent this way; a `p` not inside one of the
+four containers is its own `paragraph` block, exactly as before.
+
+This is what lets `<li>Parent<ul><li>Child</li></ul></li>` keep both
+`Parent`, as one list item, and `Child`, as the next one — rather than either
+losing `Parent` to the nested `li`'s presence, or merging the two into one
+block — and what lets `<blockquote><p>Quoted text</p></blockquote>` stay a
+`quote` and `<td><p>Value</p></td>` stay a `table-cell` with its row intact,
+instead of falling to plain `paragraph` semantics the moment a `p` sits
+inside them. No DOM text is ever emitted twice: a container's own text is
+exactly the text a nested independent candidate does not already claim.
 
 The kind of an emitted block comes from its own tag:
 
@@ -510,9 +534,14 @@ The kind of an emitted block comes from its own tag:
 | `pre` | `code` | — |
 | `th`, `td` | `table-cell` | `row`, an integer counted over the document |
 
-A `p` inside a `li` is therefore a paragraph, not a list item. The imprecision
-is accepted: the text is kept, the order is kept, and the alternative is a rule
-about ancestors that would be harder to predict than the loss it prevents.
+A candidate that carries nothing — its owned text, trimmed, is empty — is
+never emitted. Beyond that, a `paragraph` or `list-item` is additionally
+skipped when its own anchor text is at least `LINK_DENSITY_MAX` of its text —
+a list of links rather than prose, the same furniture the rung 2 score in
+§7.1 discounts. A `heading`, `quote`, `code` or `table-cell` is never skipped
+on link density alone: a heading that is entirely a link, or a table cell
+that is entirely a link, is still the heading or the cell the reader asked
+for, not a list of links to discard.
 
 `row` is what lets shaping put a table row back together as one line (§8.4).
 It counts table rows in document order across the whole page, so cells of
