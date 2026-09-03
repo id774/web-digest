@@ -10,6 +10,8 @@ v1.1.1 (Release Date: TBD)
   and saved preferences stay consistent with the last confirmed user action.
 - Fixed content extraction so hidden text cannot select a root, nested semantic
   content is preserved, and linked headings and table cells are not discarded.
+- Fixed side-panel state synchronization and session-state failures so the panel
+  follows the active tab and cannot regress to an older state snapshot.
 
 v1.1.0 (2026-08-31)
 -------------------

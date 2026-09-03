@@ -333,11 +333,54 @@ available in every phase.
   `innerHTML`** (§20).
 - The title is written to its own element with `textContent`, from the state
   and never from the page directly.
-- The panel learns its tab from `chrome.tabs.query({ active: true,
-  currentWindow: true })` when it loads, which yields a tab id without the
-  `tabs` permission. It reads no other field of that tab.
-- On load it sends `getState`; afterwards it re-renders on each `stateChanged`
-  it receives for its own tab and ignores the others.
+
+### 6.1.1 Following the active tab
+
+The panel document is not reloaded by Chrome on an ordinary tab switch — a
+tab-specific side panel and the window's global default can resolve to the
+same `panel.html`, so the same document and the same script instance can
+stay alive across a switch between them. The panel therefore tracks the
+active tab itself, rather than only the one it happened to be looking at
+when it loaded:
+
+- It learns a tab id from `chrome.tabs.query({ active: true, currentWindow:
+  true })`, the same call its load always made, which yields an id without
+  the `tabs` permission and reads no other field of that tab.
+- `chrome.tabs.onActivated` — which carries only a `tabId` and a `windowId`,
+  never a URL or a title, so it needs no permission beyond what the panel
+  already has — is what tells it to re-run that query. An activation in a
+  different window is harmless: `currentWindow: true` still resolves to this
+  panel's own already-current tab, so the re-query is a no-op.
+- Rebinding to a new tab id is a new *generation*: it fetches that tab's
+  `getState` snapshot and renders it, but only if no `stateChanged` for that
+  same new binding has already arrived and been rendered first, and only if
+  no still-newer rebind has started since. A snapshot belonging to a tab this
+  panel no longer follows is never applied, however late it resolves.
+- `stateChanged` is applied only when its `tabId` matches the tab currently
+  bound — exactly as before switching tabs was accounted for — which is what
+  keeps a live update for the tab just left from reaching the new one.
+
+No `RunState` field carries a revision or a timestamp for this: the ordering
+above is entirely client-side bookkeeping in the panel, private to it, and
+adds nothing to what `getState` or `stateChanged` carry.
+
+### 6.1.2 What the panel does when it cannot learn a tab's state
+
+A `chrome.tabs.query` rejection, or a `getState` message that never resolves
+into a response, is not the same thing as a tab genuinely having no summary
+yet. Either is caught and rendered as the panel's `failed` phase, carrying
+`internal-error` — the same kind and message an unexpected exception inside
+a run already produces — so the reader is told something went wrong rather
+than being shown "No summary has been run for this tab yet." for a tab that
+may well have one. Nothing here is written to `chrome.storage.session`: it
+is a state the panel renders locally, not one `getState` or `stateChanged`
+ever carries, and a later valid rebind or update replaces it exactly as it
+would replace any other rendered phase.
+
+`chrome.runtime.openOptionsPage()` failing — the click handler behind both
+`Settings` and `Open settings` — is caught the same way, without touching
+the stored `RunState`: only the status line changes, so a summary already on
+screen stays there.
 
 **The panel decides nothing.** It renders what it is given, and it holds no
 copy of a setting, no credential and no knowledge of which provider produced
@@ -1403,7 +1446,7 @@ Two messages, both `chrome.runtime.sendMessage`, both shaped
 
 | Type | From | To | Payload | Response | On failure |
 |---|---|---|---|---|---|
-| `getState` | panel | worker | `{ tabId }` | the `RunState` for that tab, or an `idle` one when there is none | the panel renders `idle` |
+| `getState` | panel | worker | `{ tabId }` | the `RunState` for that tab, or an `idle` one when there is none — and, if reading `chrome.storage.session` itself fails, a `failed` one carrying `internal-error`, never a rejected message | the panel renders that response's `failed`/`internal-error` state; if the message itself never gets a response, the panel renders the same locally instead (§6.1.2) |
 | `stateChanged` | worker | any listening panel | `{ tabId, state }` | none | a broadcast with no listener rejects, and the worker ignores that: the state is already stored, and a panel that opens later reads it with `getState` |
 
 The extraction pass is **not** a message. It is injected and its return value
@@ -1459,6 +1502,20 @@ The four states of basic design §14, one per tab.
   themselves are unconditional and always run in the order they were asked
   for, so a later run's own first write is never undone by an earlier
   cleanup that was still queued behind it.
+- A `chrome.storage.session.set` failure is not mistaken for success: the run
+  continues past it only if the write actually went through. Where that
+  write was the run's own failure state — the outer catch of §22, or an
+  earlier step's own `fail()` — retrying the same failing write is not
+  attempted; the state is instead broadcast directly over `stateChanged`,
+  best-effort, so a reader watching that tab can still learn the run ended
+  even though storage itself could not confirm it. This is what keeps one
+  failing write from producing a second, unhandled one.
+- A `chrome.storage.session.remove` failure during cleanup is caught rather
+  than left to take the `idle` broadcast down with it. One fallback write of
+  the idle state is tried in its place — never a retry of the remove, and
+  never more than the one fallback — so a stale stored `RunState` is not
+  left as the answer the next `getState` would read; the `idle` broadcast
+  itself is then attempted regardless of whether either write succeeded.
 - **No summary and no page text is written to disk by this design**, which is
   what requirement §16 asks of it.
 
