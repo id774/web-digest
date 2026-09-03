@@ -6,6 +6,8 @@ v1.1.1 (Release Date: TBD)
 - Fixed side-panel opening and per-tab run-state cleanup races so a run stays
   bound to its target tab and stale state cannot return after navigation or
   tab closure.
+- Fixed settings-page async races and storage-write failures so provider selection
+  and saved preferences stay consistent with the last confirmed user action.
 
 v1.1.0 (2026-08-31)
 -------------------

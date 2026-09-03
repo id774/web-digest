@@ -287,7 +287,7 @@ test("changing the Japanese summary preference does not touch a credential or mo
     "utf8",
   );
   const changeHandler = script.match(
-    /japaneseSummary\.addEventListener\("change", async \(\) => \{([\s\S]*?)\n {2}\}\);/,
+    /japaneseSummary\.addEventListener\("change", (?:async )?\(\) => \{([\s\S]*?)\n {2}\}\);/,
   );
   assert.ok(changeHandler, "expected a change handler on japaneseSummary");
   assert.doesNotMatch(

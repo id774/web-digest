@@ -385,7 +385,26 @@ provider status line says so, and no credential or model of any provider is
 touched. If it is granted — or was already granted, in which case
 `chrome.permissions.request` resolves without prompting again — the new
 provider selection is written to `storage.local` only afterward, never
-before.
+before. If that write itself fails, the `<select>` reverts the same way, the
+provider status line says the provider could not be saved and was not
+changed, and a permission already granted is not revoked because of it — the
+rollback is the provider selection's alone.
+
+A provider change is one transaction: the provider `<select>`, Save, Delete
+credential and Grant/restore permission are all disabled for as long as one
+is in flight, and a conflicting attempt to start another one is ignored
+rather than raced against it. This is what stops a slower, earlier change
+from completing after a faster, later one and overwriting the provider it
+had already confirmed with stale labels, model and credential status — only
+the provider a transaction itself confirms is ever loaded into those fields,
+never one from an attempt that lost the race to start.
+
+Save and Delete credential likewise treat a `storage.local` write failure as
+the operation not having happened: Save leaves the entered credential and
+model in place and shows "The settings could not be saved." rather than
+clearing the field or claiming success; Delete credential leaves the
+credential status exactly as it read before and shows "The credential could
+not be deleted." rather than reporting removal.
 
 The `Grant or restore permission` button is a second, independent way to reach
 `requestProviderPermission`, for a permission Chrome has since revoked rather
@@ -404,7 +423,13 @@ The Japanese summary checkbox is outside Save, Delete credential and the
 provider selector entirely: it is read on load and written the moment it
 changes (§13.1), so turning it on or off never requires a credential to be
 re-entered and never touches a credential or a model, for the selected
-provider or any other.
+provider or any other. It is not part of the provider transaction's lock —
+toggling it while a provider change is in flight is allowed — but its own
+saves are queued behind one another, so a second toggle before the first has
+reached storage is written only once the first has, and never races it
+there. A write failure reverts the checkbox to the last value confirmed
+saved and shows "The Japanese summary preference could not be saved."
+rather than "Saved.".
 
 The page also states, as fixed text, where a credential is kept and what it is
 used for — the substance of §12, in one short paragraph, because the reader

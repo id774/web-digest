@@ -1,0 +1,362 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  STORAGE_KEY_JAPANESE_SUMMARY,
+  STORAGE_KEY_TOKEN,
+} from "../src/common/settings.js";
+
+// A hand-rolled DOM stub: only what options.js touches on the elements it
+// looks up by id — value, textContent, checked, hidden, disabled,
+// placeholder — plus addEventListener, captured so a test can invoke a
+// handler directly instead of driving a real event loop.
+
+const ELEMENT_IDS = [
+  "provider",
+  "provider-status",
+  "grant-permission",
+  "credential",
+  "credential-label",
+  "credential-status",
+  "model",
+  "save",
+  "delete",
+  "status",
+  "japanese-summary",
+  "japanese-summary-status",
+];
+
+function makeElement() {
+  return {
+    value: "",
+    textContent: "",
+    checked: false,
+    hidden: false,
+    disabled: false,
+    placeholder: "",
+    _listeners: {},
+    addEventListener(type, handler) {
+      this._listeners[type] = handler;
+    },
+  };
+}
+
+function makeFakeDocument() {
+  const elements = {};
+  for (const id of ELEMENT_IDS) elements[id] = makeElement();
+  return {
+    elements,
+    getElementById: (id) => elements[id],
+  };
+}
+
+async function fire(element, type) {
+  const handler = element._listeners[type];
+  assert.ok(handler, `expected a "${type}" listener`);
+  await handler();
+}
+
+// chrome.storage.local.get resolves immediately from the seeded store — the
+// races under test are all about set/remove/request, never about reads.
+// Each set/remove/request instead returns a promise this test settles by
+// hand, via the entry pushed onto its queue, so the exact interleaving a
+// race needs can be constructed deterministically.
+function makeFakeChrome(seed = {}) {
+  const store = new Map(Object.entries(seed));
+  const calls = [];
+  const pendingSets = [];
+  const pendingRemoves = [];
+  const pendingPermissionRequests = [];
+
+  const chrome = {
+    storage: {
+      local: {
+        get: async (keys) => {
+          const keyList = Array.isArray(keys) ? keys : [keys];
+          const result = {};
+          for (const key of keyList) {
+            if (store.has(key)) result[key] = store.get(key);
+          }
+          return result;
+        },
+        set: (fields) => {
+          calls.push(["set-called", fields]);
+          return new Promise((resolve, reject) => {
+            pendingSets.push({
+              fields,
+              resolve: () => {
+                for (const [key, value] of Object.entries(fields)) {
+                  store.set(key, value);
+                }
+                calls.push(["set-applied", fields]);
+                resolve();
+              },
+              reject: (error) => {
+                calls.push(["set-rejected", fields]);
+                reject(error);
+              },
+            });
+          });
+        },
+        remove: (key) => {
+          calls.push(["remove-called", key]);
+          return new Promise((resolve, reject) => {
+            pendingRemoves.push({
+              key,
+              resolve: () => {
+                store.delete(key);
+                calls.push(["remove-applied", key]);
+                resolve();
+              },
+              reject: (error) => {
+                calls.push(["remove-rejected", key]);
+                reject(error);
+              },
+            });
+          });
+        },
+      },
+    },
+    permissions: {
+      request: (query) => {
+        calls.push(["permission-request", query]);
+        return new Promise((resolve, reject) => {
+          pendingPermissionRequests.push({ query, resolve, reject });
+        });
+      },
+    },
+  };
+
+  return { chrome, store, calls, pendingSets, pendingRemoves, pendingPermissionRequests };
+}
+
+async function flushUntil(predicate, maxTicks = 200) {
+  for (let i = 0; i < maxTicks && !predicate(); i++) {
+    await Promise.resolve();
+  }
+  assert.ok(predicate(), "condition was not met within the tick budget");
+}
+
+async function loadOptionsPage(chrome) {
+  const fakeDocument = makeFakeDocument();
+  globalThis.chrome = chrome;
+  globalThis.document = fakeDocument;
+  await import(`../src/options/options.js?options-state-${Math.random()}`);
+  // load() runs unawaited from wire(); every read it uses resolves on its
+  // own microtask, so draining until the credential status is populated is
+  // enough to know the initial state has settled.
+  await flushUntil(
+    () => fakeDocument.elements["credential-status"].textContent !== "",
+  );
+  return fakeDocument.elements;
+}
+
+function cleanup() {
+  delete globalThis.chrome;
+  delete globalThis.document;
+}
+
+test("a second provider change started while one is in flight is ignored, not raced", async () => {
+  const { chrome, calls, pendingPermissionRequests, pendingSets } =
+    makeFakeChrome();
+  try {
+    const els = await loadOptionsPage(chrome);
+    assert.equal(els.provider.value, "sakura");
+
+    els.provider.value = "openai";
+    const firstChange = fire(els.provider, "change");
+    await flushUntil(() => pendingPermissionRequests.length === 1);
+
+    // The select is disabled for the duration, but a test can still race the
+    // handler directly — that must be a no-op, not a second transaction.
+    assert.equal(els.provider.disabled, true);
+    els.provider.value = "anthropic";
+    await fire(els.provider, "change");
+
+    // Ignored: no second permission request went out, and the control was
+    // put back to the provider this page still has confirmed.
+    assert.equal(pendingPermissionRequests.length, 1);
+    assert.equal(els.provider.value, "sakura");
+
+    pendingPermissionRequests.shift().resolve(true);
+    await flushUntil(() => pendingSets.length === 1);
+    pendingSets.shift().resolve();
+    await firstChange;
+
+    assert.equal(els.provider.value, "openai");
+    assert.equal(els["provider-status"].textContent, "Now using OpenAI.");
+    assert.equal(els.provider.disabled, false);
+    assert.equal(
+      calls.filter(([kind]) => kind === "permission-request").length,
+      1,
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("a blocked second change never lets a stale provider load reach the DOM", async () => {
+  const { chrome, pendingPermissionRequests, pendingSets } = makeFakeChrome();
+  try {
+    const els = await loadOptionsPage(chrome);
+    const initialCredentialLabel = els["credential-label"].textContent;
+
+    els.provider.value = "openai";
+    const firstChange = fire(els.provider, "change");
+    await flushUntil(() => pendingPermissionRequests.length === 1);
+
+    // Attempting a second, conflicting change while the first is unresolved.
+    els.provider.value = "anthropic";
+    await fire(els.provider, "change");
+
+    // Neither the ignored attempt's provider nor its fields ever appear:
+    // the label is still whatever the confirmed (sakura) provider showed
+    // before this transaction started.
+    assert.equal(els["credential-label"].textContent, initialCredentialLabel);
+    assert.notEqual(els["credential-label"].textContent, "OpenAI API key");
+    assert.notEqual(els["credential-label"].textContent, "Claude API key");
+
+    pendingPermissionRequests.shift().resolve(true);
+    await flushUntil(() => pendingSets.length === 1);
+    pendingSets.shift().resolve();
+    await firstChange;
+
+    // Only the confirmed (openai) provider's fields ever landed.
+    assert.equal(els["credential-label"].textContent, "OpenAI API key");
+  } finally {
+    cleanup();
+  }
+});
+
+test("a provider selection storage failure keeps the previous provider confirmed", async () => {
+  const { chrome, pendingPermissionRequests, pendingSets } = makeFakeChrome();
+  try {
+    const els = await loadOptionsPage(chrome);
+
+    els.provider.value = "openai";
+    const change = fire(els.provider, "change");
+    await flushUntil(() => pendingPermissionRequests.length === 1);
+    pendingPermissionRequests.shift().resolve(true);
+
+    await flushUntil(() => pendingSets.length === 1);
+    pendingSets.shift().reject(new Error("storage unavailable"));
+    await change;
+
+    assert.equal(els.provider.value, "sakura");
+    assert.equal(
+      els["provider-status"].textContent,
+      "The provider could not be saved. The provider was not changed.",
+    );
+    // Granted permission is not revoked by the rollback: nothing here calls
+    // chrome.permissions.remove, and requesting again for openai would not
+    // prompt — out of scope to assert directly without a fake `contains`,
+    // but the rollback itself must not have touched credential-label.
+    assert.equal(els["credential-label"].textContent, "Sakura AI Engine API token");
+    assert.equal(els.provider.disabled, false);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a Save storage failure keeps the entered credential and model, and does not claim success", async () => {
+  const { chrome, pendingSets } = makeFakeChrome();
+  try {
+    const els = await loadOptionsPage(chrome);
+    assert.equal(els["credential-status"].textContent, "No credential is configured.");
+
+    els.credential.value = "sk-test-credential";
+    els.model.value = "custom-model";
+    const save = fire(els.save, "click");
+
+    await flushUntil(() => pendingSets.length === 1);
+    pendingSets.shift().reject(new Error("storage unavailable"));
+    await save;
+
+    assert.equal(els.credential.value, "sk-test-credential");
+    assert.equal(els.model.value, "custom-model");
+    assert.equal(els["credential-status"].textContent, "No credential is configured.");
+    assert.equal(els.status.textContent, "The settings could not be saved.");
+  } finally {
+    cleanup();
+  }
+});
+
+test("a Delete credential storage failure does not report the credential as removed", async () => {
+  const { chrome, pendingRemoves } = makeFakeChrome({
+    [STORAGE_KEY_TOKEN]: "sk-existing",
+  });
+  try {
+    const els = await loadOptionsPage(chrome);
+    assert.equal(els["credential-status"].textContent, "A credential is configured.");
+
+    const remove = fire(els.delete, "click");
+    await flushUntil(() => pendingRemoves.length === 1);
+    pendingRemoves.shift().reject(new Error("storage unavailable"));
+    await remove;
+
+    assert.equal(els["credential-status"].textContent, "A credential is configured.");
+    assert.equal(els.status.textContent, "The credential could not be deleted.");
+  } finally {
+    cleanup();
+  }
+});
+
+test("a Japanese summary storage failure reverts the checkbox to the last confirmed value", async () => {
+  const { chrome, pendingSets } = makeFakeChrome();
+  try {
+    const els = await loadOptionsPage(chrome);
+    assert.equal(els["japanese-summary"].checked, false);
+
+    els["japanese-summary"].checked = true;
+    const change = fire(els["japanese-summary"], "change");
+    await flushUntil(() => pendingSets.length === 1);
+    pendingSets.shift().reject(new Error("storage unavailable"));
+    await change;
+
+    assert.equal(els["japanese-summary"].checked, false);
+    assert.equal(
+      els["japanese-summary-status"].textContent,
+      "The Japanese summary preference could not be saved.",
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("two overlapping Japanese summary toggles are serialized, so the later one alone decides the stored value", async () => {
+  const { chrome, store, pendingSets } = makeFakeChrome();
+  try {
+    const els = await loadOptionsPage(chrome);
+
+    els["japanese-summary"].checked = true;
+    const firstChange = fire(els["japanese-summary"], "change");
+    await flushUntil(() => pendingSets.length === 1);
+
+    // The reader toggles again before the first save has landed. A bare
+    // generation check on the UI would let this second save start racing
+    // the first one in storage; queuing must keep it from even being
+    // issued until the first one settles.
+    els["japanese-summary"].checked = false;
+    const secondChange = fire(els["japanese-summary"], "change");
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(
+      pendingSets.length,
+      1,
+      "the second save must stay queued behind the first, not race it",
+    );
+
+    pendingSets.shift().resolve();
+    await firstChange;
+
+    await flushUntil(() => pendingSets.length === 1);
+    pendingSets.shift().resolve();
+    await secondChange;
+
+    assert.equal(els["japanese-summary"].checked, false);
+    assert.equal(els["japanese-summary-status"].textContent, "Saved.");
+    assert.equal(store.get(STORAGE_KEY_JAPANESE_SUMMARY), false);
+  } finally {
+    cleanup();
+  }
+});
