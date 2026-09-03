@@ -8,6 +8,8 @@ v1.1.1 (Release Date: TBD)
   tab closure.
 - Fixed settings-page async races and storage-write failures so provider selection
   and saved preferences stay consistent with the last confirmed user action.
+- Fixed content extraction so hidden text cannot select a root, nested semantic
+  content is preserved, and linked headings and table cells are not discarded.
 
 v1.1.0 (2026-08-31)
 -------------------
