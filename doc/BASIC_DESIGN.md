@@ -289,6 +289,11 @@ summarized, that state is "not run yet" and waits for the toolbar action.
 Navigating to another page **never starts a run**. The panel returns to "not run
 yet" for the new page, and waits to be asked.
 
+Switching to a different tab while the panel stays open **never starts a run**
+either. The panel follows whichever tab is active and shows that tab's own
+state — the summary of a tab left behind does not linger on screen for a tab
+that has none of its own.
+
 ### 7.3 What the panel shows
 
 | State | What the reader sees | Controls |
@@ -301,9 +306,13 @@ yet" for the new page, and waits to be asked.
 The panel itself starts and re-runs nothing: the toolbar action (§7.2) is the
 only way a summary begins or begins again. The `Settings` header control is
 available in every phase; `Open settings` is added in the failed phase only
-when the error is `credential-missing` or `permission-missing`, since only
-those two are addressed by a setting. The not-run-yet phase does not fetch or
-show the page's title.
+when the error is `credential-missing` or `permission-missing`, the two a run
+recognizes before it ever touches the page, so returning to Settings is the
+one same act either way. Other failures a setting could also address — a
+credential the provider rejected, a model name it does not recognize — are
+not exclusive to those two; the reader reaches Settings for them through the
+`Settings` header control, present in every phase, rather than through this
+shortcut. The not-run-yet phase does not fetch or show the page's title.
 
 The summary is rendered as text. **No markup from the page and no markup from
 the model is put into the panel's DOM** (§18), and no summary is written to

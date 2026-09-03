@@ -236,9 +236,17 @@ export async function keepServiceWorkerAlive(
   }
 }
 
+// Never rejects: a getState response the panel can bound into an
+// internal-error presentation is what a storage read failure becomes here,
+// not a dropped message port the panel would otherwise have to infer a
+// meaning for.
 async function readState(tabId) {
-  const stored = await chrome.storage.session.get(stateKey(tabId));
-  return stored[stateKey(tabId)] || idleState();
+  try {
+    const stored = await chrome.storage.session.get(stateKey(tabId));
+    return stored[stateKey(tabId)] || idleState();
+  } catch {
+    return failedState("", ErrorKind.INTERNAL_ERROR, "");
+  }
 }
 
 // Queued behind whatever is already pending for this tab, and a no-op if
@@ -258,9 +266,23 @@ async function writeState(tabId, state, run) {
 }
 
 // Unconditional: a cleanup always removes, regardless of which run — if any
-// — is current by the time its turn in the queue comes up.
+// — is current by the time its turn in the queue comes up. A remove failure
+// is caught rather than left to swallow the idle notification with it — the
+// two outcomes below are independent of whether it succeeded, and a stale
+// stored RunState is never left as the reload-time authority: one fallback
+// write of the idle state stands in for a remove that did not go through,
+// never a second attempt of either.
 async function discardState(tabId) {
-  await chrome.storage.session.remove(stateKey(tabId));
+  try {
+    await chrome.storage.session.remove(stateKey(tabId));
+  } catch {
+    try {
+      await chrome.storage.session.set({ [stateKey(tabId)]: idleState() });
+    } catch {
+      // Storage is not answering either write; the broadcast below is the
+      // only signal left to try.
+    }
+  }
   chrome.runtime
     .sendMessage({
       type: MessageType.STATE_CHANGED,
@@ -299,9 +321,25 @@ async function loadInstruction() {
   return await response.text();
 }
 
-async function fail(tabId, run, title, started, kind, detail, status) {
+// Never itself throws: a run's own try/catch calls this from its catch
+// block and from every early-return failure path, and a second exception
+// escaping from here — the same storage write that is already the failure
+// failing again — would leave that catch block, and the run's promise,
+// rejecting with nothing left to catch it.
+export async function fail(tabId, run, title, started, kind, detail, status) {
   if (!isCurrentRun(tabId, run)) return;
-  await writeState(tabId, failedState(title, kind, detail), run);
+  const state = failedState(title, kind, detail);
+  try {
+    await writeState(tabId, state, run);
+  } catch {
+    // The write itself failed. Retrying the same failing storage helper
+    // would not help; broadcasting the state directly, best-effort, is the
+    // only way a reader watching this tab's panel can still learn the run
+    // ended.
+    chrome.runtime
+      .sendMessage({ type: MessageType.STATE_CHANGED, tabId, state })
+      .catch(() => {});
+  }
   if (!isCurrentRun(tabId, run)) return;
   logRun({
     phase: "failed",
