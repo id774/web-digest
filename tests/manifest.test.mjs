@@ -10,9 +10,9 @@ async function readManifest() {
   return JSON.parse(text);
 }
 
-test("the manifest is valid JSON carrying the v1.1.0 version", async () => {
+test("the manifest is valid JSON carrying the v1.1.1 version", async () => {
   const manifest = await readManifest();
-  assert.equal(manifest.version, "1.1.0");
+  assert.equal(manifest.version, "1.1.1");
 });
 
 test("Sakura's host permission stays required", async () => {

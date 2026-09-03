@@ -30,7 +30,25 @@ export const SERVICE_WORKER_KEEPALIVE_INTERVAL_MS = 25000;
 
 const KNOWN_KINDS = new Set(BLOCK_KINDS);
 const activeRuns = new Map();
-const pendingDiscards = new Map();
+
+// Every chrome.storage.session mutation for a tab — a run's own write and a
+// navigation/close cleanup's remove alike — is appended to this tab's own
+// chain, so a write already in flight when a cleanup starts is guaranteed to
+// finish before the remove that follows it, and cleanups for the same tab
+// can never land out of the order they were asked for. A generation check
+// alone cannot give this guarantee: it only stops a write from being
+// started, not one that is already in flight.
+const tabMutationQueue = new Map();
+
+function enqueueStateMutation(tabId, task) {
+  const previous = tabMutationQueue.get(tabId);
+  const chained = previous ? previous.catch(() => {}).then(task) : task();
+  tabMutationQueue.set(tabId, chained);
+  chained.catch(() => {}).finally(() => {
+    if (tabMutationQueue.get(tabId) === chained) tabMutationQueue.delete(tabId);
+  });
+  return chained;
+}
 
 // The two output-language modes `prompts/summarize.md` defines. The mode is
 // fixed once per run and carried by the instruction itself, so page content
@@ -105,17 +123,11 @@ export function invalidateRun(tabId) {
 }
 
 export function startDiscard(tabId, discard) {
-  const pending = Promise.resolve()
-    .then(discard)
-    .finally(() => {
-      if (pendingDiscards.get(tabId) === pending) pendingDiscards.delete(tabId);
-    });
-  pendingDiscards.set(tabId, pending);
-  return pending;
+  return enqueueStateMutation(tabId, discard);
 }
 
 export async function waitForDiscard(tabId) {
-  await pendingDiscards.get(tabId);
+  await tabMutationQueue.get(tabId);
 }
 
 // An object, with blocks an array and title a string, every block carrying a
@@ -229,15 +241,24 @@ async function readState(tabId) {
   return stored[stateKey(tabId)] || idleState();
 }
 
-async function writeState(tabId, state) {
-  await chrome.storage.session.set({ [stateKey(tabId)]: state });
-  // A broadcast with no listener rejects, and that is ignored: the state is
-  // already stored, and a panel that opens later reads it with getState.
-  chrome.runtime
-    .sendMessage({ type: MessageType.STATE_CHANGED, tabId, state })
-    .catch(() => {});
+// Queued behind whatever is already pending for this tab, and a no-op if
+// `run` has since stopped being the tab's current run: a write a navigation
+// or close outran while it was still queued must never land after that
+// cleanup's remove.
+async function writeState(tabId, state, run) {
+  return enqueueStateMutation(tabId, async () => {
+    if (!isCurrentRun(tabId, run)) return;
+    await chrome.storage.session.set({ [stateKey(tabId)]: state });
+    // A broadcast with no listener rejects, and that is ignored: the state is
+    // already stored, and a panel that opens later reads it with getState.
+    chrome.runtime
+      .sendMessage({ type: MessageType.STATE_CHANGED, tabId, state })
+      .catch(() => {});
+  });
 }
 
+// Unconditional: a cleanup always removes, regardless of which run — if any
+// — is current by the time its turn in the queue comes up.
 async function discardState(tabId) {
   await chrome.storage.session.remove(stateKey(tabId));
   chrome.runtime
@@ -280,7 +301,7 @@ async function loadInstruction() {
 
 async function fail(tabId, run, title, started, kind, detail, status) {
   if (!isCurrentRun(tabId, run)) return;
-  await writeState(tabId, failedState(title, kind, detail));
+  await writeState(tabId, failedState(title, kind, detail), run);
   if (!isCurrentRun(tabId, run)) return;
   logRun({
     phase: "failed",
@@ -308,7 +329,7 @@ async function runSummary(tabId, titleFromTab) {
 
     // running is written before the first await of the work, so a worker
     // terminated mid-run leaves a state that says what was happening.
-    await writeState(tabId, runningState(title));
+    await writeState(tabId, runningState(title), run);
 
     const settings = await readSettings();
     if (!isCurrentRun(tabId, run)) return;
@@ -399,7 +420,7 @@ async function runSummary(tabId, titleFromTab) {
     }
 
     if (!isCurrentRun(tabId, run)) return;
-    await writeState(tabId, succeededState(title, answer.summary));
+    await writeState(tabId, succeededState(title, answer.summary), run);
     if (!isCurrentRun(tabId, run)) return;
     logRun({
       phase: "succeeded",
@@ -422,13 +443,17 @@ export async function openPanelAndRun(
 ) {
   if (!tab || typeof tab.id !== "number") return;
   const tabId = tab.id;
-  const configured = sidePanel.setOptions({
+  // setOptions must be settled before open() is asked to open a panel for
+  // this tabId, or open() can resolve the global default path instead of
+  // the one just set for this tab. Both calls still happen inside the
+  // click's own user gesture: nothing else is awaited before or between
+  // them.
+  await sidePanel.setOptions({
     tabId,
     path: PANEL_PATH,
     enabled: true,
   });
-  const opened = sidePanel.open({ tabId });
-  await Promise.all([configured, opened]);
+  await sidePanel.open({ tabId });
   startRun(tabId, tab.title || "");
 }
 
@@ -443,8 +468,9 @@ function registerListeners() {
   });
 
   // The click is the reader's explicit request, and it is the only way a run
-  // begins. sidePanel.open() requires a user gesture, so openPanelAndRun calls
-  // it before awaiting either panel operation.
+  // begins. sidePanel.open() requires a user gesture; openPanelAndRun awaits
+  // only the two side panel calls themselves, in the order that keeps this
+  // tab's own panel path settled before open() can resolve it.
   chrome.action.onClicked.addListener((tab) => {
     openPanelAndRun(tab).catch(() => {});
   });
@@ -464,9 +490,11 @@ function registerListeners() {
   // nothing and hold no URL.
   chrome.tabs.onRemoved.addListener((tabId) => {
     // Invalidate before removing, so a late answer cannot restore the state of
-    // a tab that no longer exists.
+    // a tab that no longer exists. Queued the same way navigation's cleanup
+    // is, so a write already in flight for this tab is guaranteed to finish
+    // before this remove, never after it.
     invalidateRun(tabId);
-    chrome.storage.session.remove(stateKey(tabId)).catch(() => {});
+    startDiscard(tabId, () => discardState(tabId)).catch(() => {});
   });
 
   chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
