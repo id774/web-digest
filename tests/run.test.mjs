@@ -347,7 +347,7 @@ test("a run does not start when its side panel cannot open", async () => {
   assert.equal(started, false);
 });
 
-test("a run does not start when its side panel cannot be configured for the tab", async () => {
+test("a run does not start when setOptions rejects, but open() is still called to preserve the user gesture", async () => {
   let openCalled = false;
   let started = false;
   const sidePanel = {
@@ -365,13 +365,14 @@ test("a run does not start when its side panel cannot be configured for the tab"
     }),
     /cannot configure panel/,
   );
-  assert.equal(openCalled, false);
+  assert.equal(openCalled, true);
   assert.equal(started, false);
 });
 
-test("open() is never called before setOptions has settled for that tab, closing the global-panel race", async () => {
+test("open() is called before setOptions settles so the action user gesture is preserved", async () => {
   const events = [];
   let resolveConfigure;
+  let started = false;
   const sidePanel = {
     setOptions(options) {
       events.push(["configuring", options]);
@@ -392,24 +393,27 @@ test("open() is never called before setOptions has settled for that tab, closing
     sidePanel,
     (id, title) => {
       events.push(["started", { id, title }]);
+      started = true;
     },
   );
 
-  // While setOptions is still pending, open() must not have been reached —
-  // otherwise it could resolve the global panel instead of tab 33's own.
+  // open() must be reached even while setOptions is still pending, or the
+  // action click's user gesture is lost by the time open() is called.
   await Promise.resolve();
   await Promise.resolve();
   assert.deepEqual(events, [
     ["configuring", { tabId: 33, path: "src/panel/panel.html", enabled: true }],
+    ["opened", { tabId: 33 }],
   ]);
+  assert.equal(started, false);
 
   resolveConfigure();
   await done;
 
   assert.deepEqual(events, [
     ["configuring", { tabId: 33, path: "src/panel/panel.html", enabled: true }],
-    ["configured", { tabId: 33, path: "src/panel/panel.html", enabled: true }],
     ["opened", { tabId: 33 }],
+    ["configured", { tabId: 33, path: "src/panel/panel.html", enabled: true }],
     ["started", { id: 33, title: "A title" }],
   ]);
 });

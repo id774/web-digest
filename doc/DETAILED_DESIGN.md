@@ -248,9 +248,9 @@ needed to use them.
   the reader clicks the toolbar action
           │
           ├── chrome.sidePanel.setOptions({ tabId, path, enabled: true })
-          │   (awaited: this tab's panel path must be settled first)
-          ├── chrome.sidePanel.open({ tabId })      ← the click is the gesture
-          └── the run starts for that tabId, only once open() has resolved
+          ├── chrome.sidePanel.open({ tabId })      ← called before any await
+          ├── await both side-panel operations
+          └── the run starts for that tabId only after both have resolved
 ```
 
 `chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false })` is set
@@ -258,15 +258,12 @@ once, when the worker installs. **This is load bearing**: with the behaviour
 turned on Chrome opens the panel itself and `chrome.action.onClicked` never
 fires, so the one click would open a panel and start nothing.
 
-`sidePanel.open()` requires a user gesture, and the action click is one. The
-worker awaits `setOptions` before calling `open`, so this tab's panel path is
-always settled first — otherwise `open()` can resolve the global default path
-instead of this tab's, since it opens whatever is currently configured for
-the tabId, not necessarily what this click just asked for. Nothing else is
-awaited before either call, so both stay inside the click's own gesture. The
-run for that tab starts only after `open()` itself resolves; a rejection from
-either call — the tab-specific panel could not be configured, or could not be
-opened — ends there with no run and no fallback to the global panel.
+`sidePanel.open()` requires a user action. The action click is that user
+action, so the worker invokes `setOptions()` and then invokes `open()` before
+awaiting either Promise. It then waits for both operations together. This
+preserves the click gesture for the `open()` call while still preventing the
+run from starting unless both panel operations succeed. A rejection from
+either operation ends the action path with no run.
 
 ### 5.2 The whole of the reader's path
 
