@@ -481,17 +481,17 @@ export async function openPanelAndRun(
 ) {
   if (!tab || typeof tab.id !== "number") return;
   const tabId = tab.id;
-  // setOptions must be settled before open() is asked to open a panel for
-  // this tabId, or open() can resolve the global default path instead of
-  // the one just set for this tab. Both calls still happen inside the
-  // click's own user gesture: nothing else is awaited before or between
-  // them.
-  await sidePanel.setOptions({
+  // open() must be called while the action click's user gesture is still
+  // active, so it is invoked before awaiting setOptions()'s completion.
+  // Both calls are issued here, then both Promises are awaited together.
+  // The run only starts once both operations have succeeded.
+  const configured = sidePanel.setOptions({
     tabId,
     path: PANEL_PATH,
     enabled: true,
   });
-  await sidePanel.open({ tabId });
+  const opened = sidePanel.open({ tabId });
+  await Promise.all([configured, opened]);
   startRun(tabId, tab.title || "");
 }
 
@@ -506,9 +506,8 @@ function registerListeners() {
   });
 
   // The click is the reader's explicit request, and it is the only way a run
-  // begins. sidePanel.open() requires a user gesture; openPanelAndRun awaits
-  // only the two side panel calls themselves, in the order that keeps this
-  // tab's own panel path settled before open() can resolve it.
+  // begins. sidePanel.open() requires the action click's user gesture, so
+  // openPanelAndRun calls open() before awaiting either panel Promise.
   chrome.action.onClicked.addListener((tab) => {
     openPanelAndRun(tab).catch(() => {});
   });
