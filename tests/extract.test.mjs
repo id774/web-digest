@@ -283,6 +283,91 @@ test("row identity never crosses two different tables", () => {
   assert.notEqual(rowsOfA[0], rowsOfB[0]);
 });
 
+test("a visible paragraph's hidden descendant text is excluded, and its visible text is kept", () => {
+  const doc = page([
+    el("p", {}, [
+      "Visible lead-in. ",
+      el("span", { hidden: true }, ["Hidden aside."]),
+      " Visible close.",
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+  const paragraphs = result.blocks.filter((b) => b.kind === "paragraph");
+
+  assert.equal(paragraphs.length, 1);
+  assert.match(paragraphs[0].text, /Visible lead-in\./);
+  assert.match(paragraphs[0].text, /Visible close\./);
+  assert.doesNotMatch(paragraphs[0].text, /Hidden aside/);
+});
+
+test("a visible heading's hidden descendant text is excluded, and its visible text is kept", () => {
+  const doc = page([
+    el("h2", {}, [
+      "Visible heading text",
+      el("span", { "aria-hidden": "true" }, [" (internal note)"]),
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+  const headings = result.blocks.filter((b) => b.kind === "heading");
+
+  assert.equal(headings.length, 1);
+  assert.equal(headings[0].text, "Visible heading text");
+  assert.doesNotMatch(headings[0].text, /internal note/);
+});
+
+test("a visible candidate's non-content descendant text is excluded", () => {
+  const doc = page([
+    el("p", {}, [
+      "Visible prose. ",
+      el("script", {}, ["trackEvent('should not appear');"]),
+      el("button", {}, ["Click me"]),
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+  const paragraphs = result.blocks.filter((b) => b.kind === "paragraph");
+
+  assert.equal(paragraphs.length, 1);
+  assert.equal(paragraphs[0].text, "Visible prose.");
+  assert.doesNotMatch(paragraphs[0].text, /trackEvent/);
+  assert.doesNotMatch(paragraphs[0].text, /Click me/);
+});
+
+test("a hidden h1 is never the title: a later visible h1 is preferred over it", () => {
+  const doc = page(
+    [
+      el("h1", { hidden: true }, ["Hidden skip-link heading"]),
+      el("h1", {}, ["Visible Page Title"]),
+      el("p", {}, ["Some body text."]),
+    ],
+    { title: "Document Title - Some Site" },
+  );
+
+  const result = runExtract(doc);
+
+  assert.equal(result.title, "Visible Page Title");
+  const serialized = JSON.stringify(result);
+  assert.doesNotMatch(serialized, /Hidden skip-link heading/);
+});
+
+test("a hidden h1 is never the title: document.title is preferred over it when no visible h1 exists", () => {
+  const doc = page(
+    [
+      el("h1", { hidden: true }, ["Hidden skip-link heading"]),
+      el("p", {}, ["Some body text."]),
+    ],
+    { title: "Document Title Only" },
+  );
+
+  const result = runExtract(doc);
+
+  assert.equal(result.title, "Document Title Only");
+  const serialized = JSON.stringify(result);
+  assert.doesNotMatch(serialized, /Hidden skip-link heading/);
+});
+
 test("no URL is ever returned", () => {
   const doc = page([
     el("h2", {}, [el("a", { href: "/section" }, ["Installation"])]),

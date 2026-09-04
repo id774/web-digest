@@ -169,7 +169,7 @@ needed to use them.
 {
   "manifest_version": 3,
   "name": "web-digest",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Summarize the page you are reading, with your own Sakura AI Engine, OpenAI or Claude credential.",
   "minimum_chrome_version": "116",
   "icons": {

@@ -39,7 +39,13 @@ function makeFakeChrome(initialActiveTabId = 1) {
   const listeners = {};
   const calls = [];
   const pendingSendMessage = [];
+  // Held open only once a test calls setHoldTabsQuery(true) — every other
+  // test keeps the original, immediately-resolving behavior. This is what
+  // lets the reversed-completion race test below start two overlapping
+  // chrome.tabs.query() calls and settle them in either order by hand.
+  const pendingTabsQuery = [];
   let activeTabId = initialActiveTabId;
+  let holdTabsQuery = false;
 
   const chrome = {
     runtime: {
@@ -59,7 +65,10 @@ function makeFakeChrome(initialActiveTabId = 1) {
     tabs: {
       query: (query) => {
         calls.push(["tabsQuery", query]);
-        return chrome.tabs._queryImpl(query);
+        if (!holdTabsQuery) return chrome.tabs._queryImpl(query);
+        return new Promise((resolve, reject) => {
+          pendingTabsQuery.push({ query, resolve, reject });
+        });
       },
       _queryImpl: async () =>
         activeTabId === null ? [] : [{ id: activeTabId }],
@@ -72,8 +81,12 @@ function makeFakeChrome(initialActiveTabId = 1) {
     listeners,
     calls,
     pendingSendMessage,
+    pendingTabsQuery,
     setActiveTab(id) {
       activeTabId = id;
+    },
+    setHoldTabsQuery(value) {
+      holdTabsQuery = value;
     },
   };
 }
@@ -217,6 +230,61 @@ test("a stale snapshot for the previous tab does not overwrite the new tab's vie
       doc.elements.status.textContent,
       "No summary has been run for this tab yet.",
     );
+  } finally {
+    cleanup();
+  }
+});
+
+// §15.1 of the requirements this fixes: two active-tab lookups overlap — one
+// started following a switch to B, the next started following a switch to
+// C before B's lookup resolved — and are made to complete in reverse order.
+// The panel must end up following C regardless: B's lookup belongs to an
+// earlier followActiveTab() call than the one already in flight when it
+// finally resolves, so it must never rebind the panel at all.
+test("a stale active-tab lookup completing after a newer one does not revert the panel to the older tab", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  try {
+    await loadPanel(fake.chrome, doc);
+    await flushUntil(() => fake.pendingSendMessage.length === 1);
+    fake.pendingSendMessage
+      .shift()
+      .resolve(succeededState("Tab A title", "Tab A summary"));
+    await flushUntil(() => doc.elements.summary.textContent !== "");
+
+    fake.setHoldTabsQuery(true);
+
+    // Switch to B: its active-tab lookup starts and is held open.
+    fake.listeners.activated();
+    await flushUntil(() => fake.pendingTabsQuery.length === 1);
+    const bLookup = fake.pendingTabsQuery.shift();
+
+    // Switch to C before B's lookup has resolved: its own lookup starts too.
+    fake.listeners.activated();
+    await flushUntil(() => fake.pendingTabsQuery.length === 1);
+    const cLookup = fake.pendingTabsQuery.shift();
+
+    // C's lookup — the newer one — resolves first, and its snapshot request
+    // is answered.
+    cLookup.resolve([{ id: 3 }]);
+    await flushUntil(() => fake.pendingSendMessage.length === 1);
+    fake.pendingSendMessage
+      .shift()
+      .resolve(succeededState("Tab C title", "Tab C summary"));
+    await flushUntil(() => doc.elements.summary.textContent === "Tab C summary");
+
+    // B's lookup — the older one — resolves only now, well after C is
+    // already being followed.
+    bLookup.resolve([{ id: 2 }]);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // The stale B completion must never have started a rebind: no further
+    // getState request went out, and C's already-rendered state stands.
+    assert.equal(fake.pendingSendMessage.length, 0);
+    assert.equal(doc.elements.title.textContent, "Tab C title");
+    assert.equal(doc.elements.summary.textContent, "Tab C summary");
   } finally {
     cleanup();
   }

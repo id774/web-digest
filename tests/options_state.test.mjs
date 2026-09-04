@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 
 import {
   STORAGE_KEY_JAPANESE_SUMMARY,
+  STORAGE_KEY_OPENAI_KEY,
+  STORAGE_KEY_PROVIDER,
   STORAGE_KEY_TOKEN,
 } from "../src/common/settings.js";
 
@@ -56,28 +58,41 @@ async function fire(element, type) {
   await handler();
 }
 
-// chrome.storage.local.get resolves immediately from the seeded store — the
-// races under test are all about set/remove/request, never about reads.
-// Each set/remove/request instead returns a promise this test settles by
-// hand, via the entry pushed onto its queue, so the exact interleaving a
-// race needs can be constructed deterministically.
-function makeFakeChrome(seed = {}) {
+// chrome.storage.local.get resolves immediately from the seeded store for
+// most tests — the races they cover are all about set/remove/request, never
+// about reads. The initial-load race tests (§15.2/§15.3 of the requirements
+// this fixes) are the exception: `holdGets: true` makes every get() instead
+// return a promise pushed onto `pendingGets`, settled by hand, so a test can
+// hold the options page's own initial reads open and attempt a user action
+// while they are still unresolved. Each set/remove/request likewise returns
+// a promise this test settles by hand, via the entry pushed onto its queue,
+// so the exact interleaving a race needs can be constructed deterministically.
+function makeFakeChrome(seed = {}, { holdGets = false } = {}) {
   const store = new Map(Object.entries(seed));
   const calls = [];
+  const pendingGets = [];
   const pendingSets = [];
   const pendingRemoves = [];
   const pendingPermissionRequests = [];
 
+  function readResult(keys) {
+    const keyList = Array.isArray(keys) ? keys : [keys];
+    const result = {};
+    for (const key of keyList) {
+      if (store.has(key)) result[key] = store.get(key);
+    }
+    return result;
+  }
+
   const chrome = {
     storage: {
       local: {
-        get: async (keys) => {
-          const keyList = Array.isArray(keys) ? keys : [keys];
-          const result = {};
-          for (const key of keyList) {
-            if (store.has(key)) result[key] = store.get(key);
-          }
-          return result;
+        get: (keys) => {
+          calls.push(["get-called", keys]);
+          if (!holdGets) return Promise.resolve(readResult(keys));
+          return new Promise((resolve) => {
+            pendingGets.push({ keys, resolve: () => resolve(readResult(keys)) });
+          });
         },
         set: (fields) => {
           calls.push(["set-called", fields]);
@@ -127,7 +142,15 @@ function makeFakeChrome(seed = {}) {
     },
   };
 
-  return { chrome, store, calls, pendingSets, pendingRemoves, pendingPermissionRequests };
+  return {
+    chrome,
+    store,
+    calls,
+    pendingGets,
+    pendingSets,
+    pendingRemoves,
+    pendingPermissionRequests,
+  };
 }
 
 async function flushUntil(predicate, maxTicks = 200) {
@@ -143,17 +166,34 @@ async function loadOptionsPage(chrome) {
   globalThis.document = fakeDocument;
   await import(`../src/options/options.js?options-state-${Math.random()}`);
   // load() runs unawaited from wire(); every read it uses resolves on its
-  // own microtask, so draining until the credential status is populated is
-  // enough to know the initial state has settled.
-  await flushUntil(
-    () => fakeDocument.elements["credential-status"].textContent !== "",
-  );
+  // own microtask. The provider control is re-enabled only once every read
+  // — provider, model, credential status and the Japanese summary
+  // preference — has landed, so draining until it is no longer disabled is
+  // what actually knows the initializing phase (§7.3) is over, rather than
+  // just that the first of those reads has resolved.
+  await flushUntil(() => fakeDocument.elements.provider.disabled === false);
   return fakeDocument.elements;
 }
 
 function cleanup() {
   delete globalThis.chrome;
   delete globalThis.document;
+}
+
+// For the initial-load race tests below: returns as soon as the module is
+// wired, without waiting for load() — which, with `holdGets: true`, never
+// resolves on its own until the test releases its held get() calls.
+async function loadOptionsPageWithoutWaiting(chrome) {
+  const fakeDocument = makeFakeDocument();
+  globalThis.chrome = chrome;
+  globalThis.document = fakeDocument;
+  await import(`../src/options/options.js?options-init-race-${Math.random()}`);
+  return fakeDocument.elements;
+}
+
+async function resolveNextGet(pendingGets) {
+  await flushUntil(() => pendingGets.length >= 1);
+  pendingGets.shift().resolve();
 }
 
 test("a second provider change started while one is in flight is ignored, not raced", async () => {
@@ -352,6 +392,118 @@ test("two overlapping Japanese summary toggles are serialized, so the later one 
     await flushUntil(() => pendingSets.length === 1);
     pendingSets.shift().resolve();
     await secondChange;
+
+    assert.equal(els["japanese-summary"].checked, false);
+    assert.equal(els["japanese-summary-status"].textContent, "Saved.");
+    assert.equal(store.get(STORAGE_KEY_JAPANESE_SUMMARY), false);
+  } finally {
+    cleanup();
+  }
+});
+
+// §15.2 of the requirements this fixes: the initial read of the stored
+// provider is held open, and a provider change and a Save are both attempted
+// while it is still unresolved — before this page has any confirmed idea
+// what provider is actually stored. Neither may go through: `currentProvider`
+// is still the provisional "sakura" default at that point, and a write based
+// on it would land in the wrong provider's storage keys once the real,
+// different stored provider ("openai") is read back.
+test("a provider change and a Save attempted before the initial load resolves are refused, and the confirmed provider wins once ready", async () => {
+  const { chrome, store, calls, pendingGets, pendingSets, pendingPermissionRequests } =
+    makeFakeChrome({ [STORAGE_KEY_PROVIDER]: "openai" }, { holdGets: true });
+  try {
+    const els = await loadOptionsPageWithoutWaiting(chrome);
+
+    // load() has started; its first read (the stored provider) is pending.
+    await flushUntil(() => pendingGets.length >= 1);
+    assert.equal(els.provider.disabled, true);
+
+    els.provider.value = "anthropic";
+    await fire(els.provider, "change");
+    assert.equal(
+      pendingPermissionRequests.length,
+      0,
+      "a provider change during initial load must not request a permission",
+    );
+    assert.equal(els.provider.value, "sakura");
+
+    els.credential.value = "sk-during-init";
+    await fire(els.save, "click");
+    assert.equal(
+      calls.filter(([kind]) => kind === "set-called").length,
+      0,
+      "Save during initial load must not write anything",
+    );
+
+    await fire(els["grant-permission"], "click");
+    assert.equal(
+      pendingPermissionRequests.length,
+      0,
+      "Grant permission during initial load must not request a permission",
+    );
+
+    // Now let the initial load's own reads settle, in the order load() and
+    // loadProviderFields() issue them: provider, model, credential, then the
+    // Japanese summary preference.
+    await resolveNextGet(pendingGets); // provider
+    await resolveNextGet(pendingGets); // model
+    await resolveNextGet(pendingGets); // credential presence
+    await resolveNextGet(pendingGets); // japanese summary
+    await flushUntil(() => els.provider.disabled === false);
+
+    assert.equal(els.provider.value, "openai");
+    assert.equal(store.get(STORAGE_KEY_PROVIDER), "openai");
+    assert.equal(
+      store.has(STORAGE_KEY_OPENAI_KEY),
+      false,
+      "the credential typed during initial load must never have been saved",
+    );
+    assert.equal(pendingSets.length, 0);
+  } finally {
+    cleanup();
+  }
+});
+
+// §15.3: the initial read of the Japanese summary preference is held open,
+// and the reader attempts to toggle it while it is still unresolved. PASS
+// requires that the stale initial value never overwrites a later confirmed
+// action, and that no write reaches storage before the confirmed baseline
+// (here, `true`) is known.
+test("a Japanese summary toggle attempted before the initial load resolves is refused, and the latest confirmed toggle after that wins", async () => {
+  const { chrome, store, calls, pendingGets, pendingSets } = makeFakeChrome(
+    { [STORAGE_KEY_JAPANESE_SUMMARY]: true },
+    { holdGets: true },
+  );
+  try {
+    const els = await loadOptionsPageWithoutWaiting(chrome);
+
+    await flushUntil(() => pendingGets.length >= 1);
+
+    els["japanese-summary"].checked = false;
+    await fire(els["japanese-summary"], "change");
+    assert.equal(
+      calls.filter(([kind]) => kind === "set-called").length,
+      0,
+      "a toggle during initial load must not write anything",
+    );
+
+    await resolveNextGet(pendingGets); // provider
+    await resolveNextGet(pendingGets); // model
+    await resolveNextGet(pendingGets); // credential presence
+    await resolveNextGet(pendingGets); // japanese summary
+    await flushUntil(() => els.provider.disabled === false);
+
+    // The confirmed stored value (true) is what is now shown, not the
+    // refused attempt made while it was still loading.
+    assert.equal(els["japanese-summary"].checked, true);
+
+    // A real toggle, made only now that the page is ready, is the latest
+    // confirmed user action and must be the one left standing.
+    els["japanese-summary"].checked = false;
+    const change = fire(els["japanese-summary"], "change");
+    await flushUntil(() => pendingSets.length === 1);
+    pendingSets.shift().resolve();
+    await change;
 
     assert.equal(els["japanese-summary"].checked, false);
     assert.equal(els["japanese-summary-status"].textContent, "Saved.");

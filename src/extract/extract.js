@@ -46,10 +46,6 @@ function webDigestExtract(doc) {
 
   const view = doc.defaultView;
 
-  function textOf(element) {
-    return (element.textContent || "").trim();
-  }
-
   function isHidden(element) {
     for (let node = element; node && node.nodeType === 1; node = node.parentElement) {
       if (node.hidden === true) return true;
@@ -76,20 +72,6 @@ function webDigestExtract(doc) {
       !!element.closest(FURNITURE) ||
       !!element.closest(NON_CONTENT)
     );
-  }
-
-  // Prose is worth its length, and a block that is mostly link text is worth
-  // almost nothing — which is what navigation, related-article rails and
-  // advertising look like from inside a document.
-  function linkDensity(element) {
-    const text = textOf(element);
-    if (text.length === 0) return 0;
-    let linkChars = 0;
-    const anchors = element.querySelectorAll("a");
-    for (const anchor of anchors) {
-      linkChars += (anchor.textContent || "").trim().length;
-    }
-    return linkChars / text.length;
   }
 
   // The text inside `element` that a reader would actually see: hidden,
@@ -227,13 +209,25 @@ function webDigestExtract(doc) {
 
   // The page's own heading, where document.title usually carries the site name
   // as well. An h1 used as the title is not also emitted as a heading block.
+  // The same eligibility rule that decides block collection decides this: an
+  // h1 that is itself excluded, or that holds no eligible text of its own, is
+  // never the title just for being the first one in the document — the
+  // search keeps going to the next h1, and falls back to document.title if
+  // none qualifies.
   let title = "";
   let titleElement = null;
-  const heading = root.querySelector ? root.querySelector("h1") : null;
-  if (heading && textOf(heading).length > 0) {
-    title = textOf(heading);
-    titleElement = heading;
-  } else if (typeof doc.title === "string" && doc.title.trim().length > 0) {
+  const headingCandidates = root.querySelectorAll
+    ? root.querySelectorAll("h1")
+    : [];
+  for (const candidate of headingCandidates) {
+    if (isExcluded(candidate)) continue;
+    const text = eligibleText(candidate);
+    if (text.length === 0) continue;
+    title = text;
+    titleElement = candidate;
+    break;
+  }
+  if (!titleElement && typeof doc.title === "string" && doc.title.trim().length > 0) {
     title = doc.title.trim();
   }
 
@@ -251,11 +245,17 @@ function webDigestExtract(doc) {
 
   function tryEmitLeaf(element, tag) {
     if (element === titleElement) return;
-    const text =
-      tag === "pre"
-        ? (element.textContent || "").replace(/^\n+|\s+$/g, "")
-        : textOf(element);
-    const density = tag === "pre" ? 0 : linkDensity(element);
+    if (tag === "pre") {
+      const text = (element.textContent || "").replace(/^\n+|\s+$/g, "");
+      tryEmit(element, tag, text, 0);
+      return;
+    }
+    // Eligible text only: a heading or paragraph that is itself displayed
+    // can still hold a hidden, aria-hidden, or non-content descendant, and
+    // that descendant's text must not reach the emitted block just because
+    // its ancestor is visible.
+    const text = eligibleText(element);
+    const density = eligibleLinkDensity(element, text);
     tryEmit(element, tag, text, density);
   }
 
