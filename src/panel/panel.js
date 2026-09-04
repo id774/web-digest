@@ -23,6 +23,14 @@ const elements = {
 // the one it happened to load for.
 let currentTabId = null;
 let bindGeneration = 0;
+// Bumped on every call to followActiveTab, independently of bindGeneration:
+// the tab-activation query itself is asynchronous, so two overlapping calls
+// (fired by two onActivated events in quick succession) can have their
+// browser-side queries settle in either order. Only the completion whose
+// call started last is allowed to act — an earlier call's query resolving
+// after a later one has already started is exactly the stale-tab regression
+// this guards against, regardless of which tab either query actually names.
+let tabLookupGeneration = 0;
 // Reset on every rebind: set once a live stateChanged for the *current*
 // binding has been rendered, so the snapshot request that binding started
 // with — issued before that update was known to exist — can never overwrite
@@ -128,6 +136,9 @@ async function bindTo(tabId) {
 // the tabs permission, no field but the id is used — so this adds no
 // permission and starts no run, no extraction and no page read of its own.
 async function followActiveTab() {
+  tabLookupGeneration += 1;
+  const lookupGeneration = tabLookupGeneration;
+
   let tabId = null;
   try {
     const tabs = await chrome.tabs.query({
@@ -137,9 +148,11 @@ async function followActiveTab() {
     const tab = tabs && tabs[0];
     tabId = tab && typeof tab.id === "number" ? tab.id : null;
   } catch {
+    if (lookupGeneration !== tabLookupGeneration) return;
     render(internalErrorState());
     return;
   }
+  if (lookupGeneration !== tabLookupGeneration) return;
   if (tabId === null) {
     render(null);
     return;

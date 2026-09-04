@@ -10,6 +10,13 @@ async function readManifest() {
   return JSON.parse(text);
 }
 
+async function readDetailedDesign() {
+  return await readFile(
+    new URL("../doc/DETAILED_DESIGN.md", import.meta.url),
+    "utf8",
+  );
+}
+
 test("the manifest is valid JSON carrying the v1.1.1 version", async () => {
   const manifest = await readManifest();
   assert.equal(manifest.version, "1.1.1");
@@ -36,5 +43,21 @@ test("no unrelated permission was added", async () => {
   assert.deepEqual(
     new Set(manifest.permissions),
     new Set(["activeTab", "scripting", "storage", "sidePanel"]),
+  );
+});
+
+test("doc/DETAILED_DESIGN.md's manifest example carries the same version as manifest.json", async () => {
+  const manifest = await readManifest();
+  const detailedDesign = await readDetailedDesign();
+
+  assert.match(
+    detailedDesign,
+    new RegExp(`"version":\\s*"${manifest.version}"`),
+    `doc/DETAILED_DESIGN.md's manifest example must say version ${manifest.version}`,
+  );
+  assert.doesNotMatch(
+    detailedDesign,
+    /"version":\s*"1\.1\.0"/,
+    "doc/DETAILED_DESIGN.md must not still show the stale 1.1.0 manifest version",
   );
 });

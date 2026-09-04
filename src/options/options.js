@@ -119,6 +119,16 @@ function wire() {
   let currentProvider = Provider.SAKURA;
   let confirmedJapaneseSummary = false;
 
+  // True until the stored provider, its fields, and the Japanese summary
+  // preference have all been read back at least once. `currentProvider` and
+  // `confirmedJapaneseSummary` are provisional defaults until then — not yet
+  // what is actually stored — so no provider-scoped or preference mutation
+  // may be based on them while this is true. Every handler below checks it
+  // first, rather than relying on the controls' own `disabled` attribute,
+  // exactly the way `providerBusy` is checked below rather than trusted to
+  // the DOM alone.
+  let initializing = true;
+
   // Provider selection, Save, Delete credential and Grant/restore permission
   // all read or write the selected provider's own fields, so at most one of
   // them runs at a time: starting one while another is still in flight is
@@ -179,11 +189,23 @@ function wire() {
   }
 
   async function load() {
-    currentProvider = await readStoredProvider();
-    fields.provider.value = currentProvider;
-    await loadProviderFields(currentProvider);
-    confirmedJapaneseSummary = await readJapaneseSummary();
-    fields.japaneseSummary.checked = confirmedJapaneseSummary;
+    try {
+      currentProvider = await readStoredProvider();
+      fields.provider.value = currentProvider;
+      await loadProviderFields(currentProvider);
+      confirmedJapaneseSummary = await readJapaneseSummary();
+      fields.japaneseSummary.checked = confirmedJapaneseSummary;
+    } catch {
+      // The confirmed provider and preference are still unknown: mutations
+      // stay refused (initializing stays true) rather than risk one landing
+      // against a guessed value, and this is reported as the failure it is,
+      // never displayed as a successfully loaded — and so mutable — state.
+      say("Settings could not be loaded. Reload the page to try again.");
+      return;
+    }
+    initializing = false;
+    setProviderControlsDisabled(false);
+    fields.japaneseSummary.disabled = false;
   }
 
   // Every provider-scoped operation below starts by claiming this single
@@ -191,7 +213,7 @@ function wire() {
   // observe another one's half-finished state — there is only ever a
   // previous confirmed state or this one's own outcome, never both at once.
   fields.provider.addEventListener("change", async () => {
-    if (providerBusy) {
+    if (initializing || providerBusy) {
       fields.provider.value = currentProvider;
       return;
     }
@@ -228,7 +250,7 @@ function wire() {
   // granted: it only requests, never changes the provider, a credential, a
   // model or the Japanese summary preference.
   fields.grantPermission.addEventListener("click", async () => {
-    if (providerBusy) return;
+    if (initializing || providerBusy) return;
     providerBusy = true;
     setProviderControlsDisabled(true);
     try {
@@ -254,7 +276,7 @@ function wire() {
   });
 
   fields.save.addEventListener("click", async () => {
-    if (providerBusy) return;
+    if (initializing || providerBusy) return;
     const credential = validateCredential(fields.credential.value);
     if (!credential.ok) {
       say(credential.message);
@@ -288,7 +310,7 @@ function wire() {
   });
 
   fields.remove.addEventListener("click", async () => {
-    if (providerBusy) return;
+    if (initializing || providerBusy) return;
     const provider = currentProvider;
     providerBusy = true;
     setProviderControlsDisabled(true);
@@ -314,6 +336,10 @@ function wire() {
   // the reader just changed — never re-read later, so a still-queued save
   // is unaffected by another one's revert running ahead of it.
   fields.japaneseSummary.addEventListener("change", () => {
+    if (initializing) {
+      fields.japaneseSummary.checked = confirmedJapaneseSummary;
+      return;
+    }
     const requested = fields.japaneseSummary.checked;
     japaneseSummaryQueue = japaneseSummaryQueue.catch(() => {}).then(async () => {
       try {
@@ -331,6 +357,12 @@ function wire() {
     return japaneseSummaryQueue;
   });
 
+  // Disabled until load() confirms what is actually stored, so nothing
+  // above can be reached — by a real click or by a handler invoked directly
+  // — while `currentProvider` and `confirmedJapaneseSummary` are still the
+  // provisional defaults set above, not the reader's saved settings.
+  setProviderControlsDisabled(true);
+  fields.japaneseSummary.disabled = true;
   load();
 }
 

@@ -196,6 +196,15 @@ options page. It does not start a run.
 It performs no extraction and makes no request to any AI provider. It receives
 what to display and displays it.
 
+Following the active tab means re-checking, on every tab activation, which tab
+is active now and binding to it — a check that is itself asynchronous and can
+overlap another one already in flight. The most recently started check is
+always the authority: an earlier check's result is discarded, whatever order
+the two actually resolve in, so a tab the reader has since switched away from
+can never be the one shown because its own check happened to finish late.
+Neither the check itself nor the rebind it can lead to starts a run, an
+extraction or a provider request.
+
 ### 5.4 The options page
 
 The provider, its credential and its model, and the Japanese summary
@@ -336,7 +345,7 @@ An ordered list of blocks, each carrying a kind and its text:
 
 | Kind | Taken from |
 |---|---|
-| title | the document title, or the page's own main heading where that is more faithful |
+| title | the document title, or the page's own main heading where that is more faithful, chosen under the same §8.2 rule — a heading dropped as not displayed is never preferred over a displayed one or over the document title |
 | heading | `h1`–`h6`, with the level kept |
 | paragraph | ordinary prose blocks |
 | list item | items of ordered and unordered lists |
@@ -354,7 +363,9 @@ As far as it can be recognized, and never by naming a site:
 - structural furniture — navigation, banners, menus, footers, complementary
   regions, and the elements HTML already labels as such,
 - anything not being displayed — hidden elements, elements marked hidden from
-  assistive technology, collapsed regions,
+  assistive technology, collapsed regions — dropped even when they sit inside
+  a block that is itself displayed, so a visible paragraph or heading never
+  carries a hidden descendant's text into its own,
 - scripts, styles, embedded frames and form controls,
 - link-dense blocks that are lists of links rather than prose, which is what
   most advertising and most site-common furniture looks like from inside the
@@ -719,6 +730,15 @@ guarantee, and is not part of this design.
 | the Claude (Anthropic) API key | `storage.local` | entered by the reader; no default; independent of the other two providers' credentials |
 | the Claude model | `storage.local` | a documented default of its own |
 | the Japanese summary preference | `storage.local` | a boolean, off by default; shared by every provider; saved independently of the provider selection and of any provider's credential or model |
+
+Reading these stored values back when the options page opens is its own
+initializing phase, distinct from any later change the reader makes. A
+provider-scoped save or delete, a provider switch, or a change to the
+Japanese summary preference is never carried out against a value this phase
+has not yet confirmed: the page accepts none of them until that initial read
+has finished, so a change can never land against the wrong provider's keys
+for having started too early, and the initial read — however late it
+actually finishes — can never undo a change the reader completed after it.
 
 **That is the whole of the settings.** The endpoint, the timeout, the size
 budget, the minimum length and the prompt are design constants and resources,
