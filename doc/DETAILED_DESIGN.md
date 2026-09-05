@@ -1092,20 +1092,31 @@ normalized result of §11.5.
   is not empty after trimming; missing or empty content is
   `no-usable-summary`. `usage`, `id` and everything else in the answer is
   ignored rather than interpreted.
-- **OpenAI**: when the top-level `status` field is present and is not
-  `"completed"` (`"incomplete"`, `"failed"`, `"cancelled"`, `"queued"`), the
-  answer is not shown as a summary, whatever text it happens to carry. The
-  summary is otherwise the concatenation of every `output_text` content block
-  of every `message` item in `data.output`, or the convenience `data
-  .output_text` field when the answer carries one, trimmed. No usable text is
-  `no-usable-summary`.
-- **Claude**: when `data.stop_reason` is `"max_tokens"` or
+- **OpenAI**: when the top-level `status` field is `"failed"`, the provider
+  itself failed to produce a Response — a provider-side `provider-error`, not
+  `no-usable-summary` — and no attempt is made to classify the accompanying
+  `error` object further; an unrecognized code or message stays the generic
+  `unspecified` detail rather than being guessed at. Otherwise, when any
+  `message` output item in `data.output` carries a `refusal` content block,
+  that is the model explicitly declining to answer — a distinct
+  `provider-error` / `provider-refusal`, not `no-usable-summary` — and this is
+  checked before any output text, so a response carrying both is still a
+  refusal rather than a partial success. Otherwise, when the top-level
+  `status` field is present and is not `"completed"` (`"incomplete"`,
+  `"cancelled"`, `"queued"`), the answer is not shown as a summary, whatever
+  text it happens to carry. The summary is otherwise the concatenation of
+  every `output_text` content block of every `message` item in `data.output`,
+  or the convenience `data.output_text` field when the answer carries one,
+  trimmed. No usable text is `no-usable-summary`.
+- **Claude**: when `data.stop_reason` is `"refusal"`, Claude explicitly
+  declined to answer — this design's own HTTP-200 response for that — and it
+  is a distinct `provider-error` / `provider-refusal`, not
+  `no-usable-summary`, checked before any text block so a response carrying
+  both is still a refusal. When `data.stop_reason` is `"max_tokens"` or
   `"model_context_window_exceeded"`, the answer is truncated and is not shown
-  as a summary. When it is `"refusal"`, Claude declined to answer, and that
-  response is likewise not shown as a summary even if it carries text. The
-  summary is otherwise the concatenation of every `text` block's `text` in
-  `data.content`, trimmed. No text block, or only empty ones, is
-  `no-usable-summary`.
+  as a summary. The summary is otherwise the concatenation of every `text`
+  block's `text` in `data.content`, trimmed. No text block, or only empty
+  ones, is `no-usable-summary`.
 
 A body that is not JSON, or JSON without the path an adapter reads, is also
 `no-usable-summary` for that adapter. A blank panel and a fragment of
@@ -1119,7 +1130,7 @@ protocol are both worse than being told the run failed.
 ```
 
 The same shape for every adapter. `detail` is present only for
-`provider-error` and is one of five fixed values. No status line, no response
+`provider-error` and is one of seven fixed values. No status line, no response
 body and no exception text crosses this boundary (§18), and nothing in it
 names which provider produced it — the caller already knows, from the
 `provider` it passed to the dispatcher.
@@ -1136,7 +1147,8 @@ own provider's status codes and error body:
 | HTTP 401 | `credential-rejected` | — |
 | HTTP 400, 413 or 422 whose error names the context length or a maximum input | `too-much-text` | — |
 | HTTP 402 for Claude | `provider-error` | `account-limit` |
-| HTTP 403 | `provider-error` | `unspecified` |
+| HTTP 403 for OpenAI or Claude | `provider-error` | `access-denied` |
+| HTTP 403 for Sakura | `provider-error` | `unspecified` |
 | HTTP 404 for OpenAI or Claude | `provider-error` | `refused` |
 | HTTP 404 for Sakura | `provider-error` | `unspecified` |
 | HTTP 429 for OpenAI whose error names a documented account-side limit | `provider-error` | `account-limit` |
@@ -1144,6 +1156,8 @@ own provider's status codes and error body:
 | HTTP 504 for Claude | `timeout` | — |
 | HTTP 5xx (and, for Claude, 529 "overloaded", but not 504) | `provider-error` | `unavailable` |
 | any other non-2xx | `provider-error` | `unspecified` |
+| an OpenAI 2xx response whose top-level `status` is `"failed"` | `provider-error` | `unspecified` |
+| an OpenAI 2xx response with explicit refusal content, or a Claude 2xx response whose `stop_reason` is `"refusal"` | `provider-error` | `provider-refusal` |
 | a 2xx answer with no usable content, by the rule of §11.4 | `no-usable-summary` | — |
 
 The length test looks for `context_length`, `context length` and `maximum
@@ -1182,20 +1196,40 @@ reader's next action is the same as any other timeout — trying again is
 reasonable — so it is mapped to `timeout` rather than joining the rest of the
 5xx range at `unavailable`.
 
-Claude's HTTP 403 is Anthropic's documented permission error rather than an
-unknown model, so it is not mapped to `refused`, whose message sends the
-reader to the model setting, but to the generic `unspecified` provider error.
+Claude's HTTP 403 is Anthropic's documented permission error: the API key
+lacks permission for a resource the request needs, which is provider-side
+access denial rather than an unknown model, so it is not mapped to `refused`,
+whose message sends the reader to the model setting, but to the distinct
+`access-denied` detail — provider account, project, workspace or model access
+being the reader's next thing to check, and not to be confused with this
+extension's own `permission-missing` kind, which is a browser optional
+permission the service worker detects before the request is ever sent.
 OpenAI's HTTP 403 is the same kind of case: it can be raised for permission
-reasons that have nothing to do with the model name, so it is not specific
-enough to justify `refused`'s model-name guidance either, and is mapped to
-`unspecified` for the same reason. Sakura's HTTP 403 and HTTP 404 are read the
-same way: the current official AI Engine Inference API documentation does not
-establish that either of them means the model name, so neither is specific
-enough to send the reader to the model field of Settings, and both take the
-default `unspecified` mapping — which is this section's own rule against
-guessing at a status code's meaning, applied to Sakura. OpenAI's and Claude's
-HTTP 404 keeps its existing `refused` mapping. An undocumented response from
-one provider does not become a failure category of its own.
+reasons that have nothing to do with the model name, so it is likewise mapped
+to `access-denied` rather than `refused`. Sakura's HTTP 403 and HTTP 404 are
+read differently: the current official AI Engine Inference API documentation
+does not establish that either of them means provider-side access denial or
+the model name, so neither is specific enough to leave the generic mapping,
+and both keep the default `unspecified` mapping — which is this section's own
+rule against guessing at a status code's meaning, applied to Sakura. OpenAI's
+and Claude's HTTP 404 keeps its existing `refused` mapping. An undocumented
+response from one provider does not become a failure category of its own.
+
+OpenAI's Responses API can also report failure without a non-2xx status: a
+top-level `status` of `"failed"` means the provider itself failed to produce
+a Response, and message output can carry explicit `refusal` content instead
+of an answer. Claude's Messages API reports its own explicit decline the same
+way, as `stop_reason: "refusal"` on an ordinary HTTP-200 response. None of
+these was previously reachable from this table — they used to be read only as
+`no-usable-summary` (§11.4) — but a `"failed"` status and an explicit refusal
+are provider-side outcomes with their own meaning, not merely "no summary
+came back", so they are mapped here instead: `"failed"` to the generic
+`unspecified` provider error (its `error` object is not classified further,
+per the same rule against guessing at wording), and explicit refusal content,
+from either provider, to the distinct `provider-refusal` detail. Refusal
+content is read before any output text, and a `"failed"` status before either,
+so a response that happens to carry both a refusal and other content is still
+classified as refusal, never as a partial success.
 
 The status code and the wording are read here and go no further. They reach the
 log (§19) and never the reader (§18).
@@ -1566,8 +1600,10 @@ selected AI provider" rather than assuming which of the three it is.
 | `provider-error` / `rate-limited` | the selected provider's adapter, HTTP 429 without a documented account-limit signal | the status is logged | "The selected AI provider reported a rate limit. Try again later." | no |
 | `provider-error` / `account-limit` | the selected provider's adapter, an OpenAI HTTP 429 with a documented account-limit `error.code`/`error.type`, or Claude's HTTP 402 (§11.6) | the status is logged | "The selected AI provider reported a billing or usage-limit problem. Check the provider account's billing and usage limits." | no — the provider account's own billing/usage settings, not this extension's |
 | `provider-error` / `refused` | the selected provider's adapter, HTTP 404 for OpenAI or Claude | the status is logged | "The selected AI provider refused the request. Check the model name in Settings." | possibly, the model |
+| `provider-error` / `access-denied` | the selected provider's adapter, HTTP 403 for OpenAI or Claude | the status is logged | "The selected AI provider denied access for this request. Check the provider account's access to the selected project, workspace and model." | possibly, the provider account's own access settings — not this extension's |
+| `provider-error` / `provider-refusal` | the selected provider's adapter, explicit refusal content in an OpenAI answer or Claude's `stop_reason: "refusal"` (§11.4) | the answer is discarded, not shown | "The selected AI provider declined to generate a summary for this request." | no |
 | `provider-error` / `unavailable` | the selected provider's adapter, HTTP 5xx (529 for Claude, but not Claude's 504) | the status is logged | "The selected AI provider reported an error. Trying again later is reasonable." | no |
-| `provider-error` / `unspecified` | the selected provider's adapter, HTTP 403 for any provider, HTTP 404 for Sakura, or any other non-2xx not mapped elsewhere in this table | the status is logged | "The selected AI provider reported an error." | no |
+| `provider-error` / `unspecified` | the selected provider's adapter, HTTP 403 for Sakura, HTTP 404 for Sakura, an OpenAI answer whose top-level `status` is `"failed"`, or any other non-2xx not mapped elsewhere in this table | the status is logged | "The selected AI provider reported an error." | no |
 | `page-unreadable` | the worker, from the injection failing or returning nothing usable (§7.5) | the rejection is not carried further | "The content of this page could not be obtained." | no |
 | `too-little-text` | `shape.js` (§9.1) | the run stops before a request | "This page has too little text to summarize." | no |
 | `too-much-text` | the staged summarizer safety bound, or an adapter from its provider's refusal (§9.3, §11.6) | the run stops | "This page is too large to process." | no |
@@ -1616,10 +1652,11 @@ web-digest run: phase=failed kind=provider-error detail=rate-limited status=429 
 
 `status` appears only on a failure that had one. It is worth recording even
 though the panel never shows it: 401 is a credential to replace, 429 a rate
-limit, and 403 is mapped by what each adapter's provider documents (§11.6)
-rather than assumed to always mean the model — every adapter maps it to the
-generic provider error today, so only the log, with the raw status, can say
-which happened. `elapsed` is recorded on success too, because an answer that
+limit, and 403 is mapped by what each adapter's provider documents (§11.6) —
+provider-side access denial for OpenAI and Claude, but still the generic
+provider error for Sakura, whose documentation does not establish the same
+meaning — so only the log, with the raw status, can say which provider and
+which status actually happened. `elapsed` is recorded on success too, because an answer that
 arrived in almost the whole of `REQUEST_TIMEOUT_MS` is next run's timeout,
 seen one run early. **Which provider was used is deliberately not logged**:
 the log's purpose is diagnosing a run, and the reader who reads their own

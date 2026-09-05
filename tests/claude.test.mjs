@@ -97,12 +97,8 @@ test("several text blocks are concatenated", () => {
   });
 });
 
-test("a truncated or refused response is not shown as a summary", () => {
-  for (const stopReason of [
-    "max_tokens",
-    "refusal",
-    "model_context_window_exceeded",
-  ]) {
+test("a truncated response is not shown as a summary", () => {
+  for (const stopReason of ["max_tokens", "model_context_window_exceeded"]) {
     assert.deepEqual(
       readAnswer(textBody("not a usable summary", stopReason)),
       {
@@ -111,6 +107,23 @@ test("a truncated or refused response is not shown as a summary", () => {
       },
     );
   }
+});
+
+test("stop_reason refusal is a distinct provider refusal, not success or no-usable-summary", () => {
+  const result = readAnswer(textBody("I can't help with that.", "refusal"));
+  assert.equal(result.ok, false);
+  assert.equal(result.kind, "provider-error");
+  assert.equal(result.detail, "provider-refusal");
+});
+
+test("refusal text is not displayed as a successful summary even with a text block", () => {
+  const data = {
+    content: [{ type: "text", text: "declined text" }],
+    stop_reason: "refusal",
+  };
+  const result = readAnswer(data);
+  assert.notEqual(result.ok, true);
+  assert.equal(result.detail, "provider-refusal");
 });
 
 test("a response with no text block is no-usable-summary", () => {
@@ -131,7 +144,8 @@ test("a response with no text block is no-usable-summary", () => {
 test("the failure mapping table", () => {
   assert.equal(mapHttpFailure(401, null).kind, "credential-rejected");
   assert.equal(mapHttpFailure(403, null).kind, "provider-error");
-  assert.equal(mapHttpFailure(403, null).detail, "unspecified");
+  assert.equal(mapHttpFailure(403, null).detail, "access-denied");
+  assert.notEqual(mapHttpFailure(403, null).kind, "permission-missing");
   assert.equal(mapHttpFailure(404, null).kind, "provider-error");
   assert.equal(mapHttpFailure(404, null).detail, "refused");
   assert.equal(mapHttpFailure(429, null).detail, "rate-limited");
@@ -204,6 +218,24 @@ test("a call that receives HTTP 402 ends the run as provider-error/account-limit
   });
   assert.equal(result.kind, "provider-error");
   assert.equal(result.detail, "account-limit");
+});
+
+test("a call that receives HTTP 403 ends the run as provider-error/access-denied, not permission-missing", async () => {
+  const result = await callClaude(CALL, {
+    fetchImpl: answering(403, { error: { type: "permission_error" } }),
+  });
+  assert.equal(result.kind, "provider-error");
+  assert.equal(result.detail, "access-denied");
+  assert.notEqual(result.kind, "permission-missing");
+});
+
+test("a call whose response has stop_reason refusal is not a success", async () => {
+  const result = await callClaude(CALL, {
+    fetchImpl: answering(200, textBody("declined", "refusal")),
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.kind, "provider-error");
+  assert.equal(result.detail, "provider-refusal");
 });
 
 test("a successful call returns the summary and no credential", async () => {
