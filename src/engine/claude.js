@@ -107,6 +107,18 @@ export function mapHttpFailure(status, data) {
   if (status === 504) {
     return { ok: false, kind: ErrorKind.TIMEOUT, status };
   }
+  // Anthropic's own documented meaning for HTTP 403: a permission_error, the
+  // API key lacking permission for a resource — not an unknown model, so it
+  // is kept distinct from `refused`, whose message sends the reader to the
+  // model setting.
+  if (status === 403) {
+    return {
+      ok: false,
+      kind: ErrorKind.PROVIDER_ERROR,
+      detail: ProviderErrorDetail.ACCESS_DENIED,
+      status,
+    };
+  }
   if (status === 404) {
     return {
       ok: false,
@@ -143,20 +155,29 @@ export function mapHttpFailure(status, data) {
 
 // The concatenation of every text block's text, trimmed, is the summary.
 // `max_tokens` and `model_context_window_exceeded` are truncated responses:
-// the answer ended at a ceiling rather than completing normally. `refusal`
-// is Claude declining to answer. None of these is shown as a summary, even
-// if it carries text — a cut-off or declined fragment is worse than being
-// told the run failed. A response with no text block at all, or only empty
-// ones, is the same no-usable-summary case.
+// the answer ended at a ceiling rather than completing normally. Neither is
+// shown as a summary, even if it carries text — a cut-off fragment is worse
+// than being told the run failed. A response with no text block at all, or
+// only empty ones, is the same no-usable-summary case.
 const UNUSABLE_STOP_REASONS = new Set([
   "max_tokens",
-  "refusal",
   "model_context_window_exceeded",
 ]);
 
+// `stop_reason: "refusal"` is Claude explicitly declining to answer, which
+// this design returns as its own HTTP-200 response — a provider-side
+// refusal, not the no-usable-summary case, and never shown as a summary even
+// if the response also carries text.
 export function readAnswer(data) {
   if (!data || typeof data !== "object") {
     return { ok: false, kind: ErrorKind.NO_USABLE_SUMMARY };
+  }
+  if (data.stop_reason === "refusal") {
+    return {
+      ok: false,
+      kind: ErrorKind.PROVIDER_ERROR,
+      detail: ProviderErrorDetail.PROVIDER_REFUSAL,
+    };
   }
   if (UNUSABLE_STOP_REASONS.has(data.stop_reason)) {
     return { ok: false, kind: ErrorKind.NO_USABLE_SUMMARY };

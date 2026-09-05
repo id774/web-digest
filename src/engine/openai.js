@@ -92,6 +92,14 @@ export function mapHttpFailure(status, data) {
   ) {
     return { ok: false, kind: ErrorKind.TOO_MUCH_TEXT, status };
   }
+  if (status === 403) {
+    return {
+      ok: false,
+      kind: ErrorKind.PROVIDER_ERROR,
+      detail: ProviderErrorDetail.ACCESS_DENIED,
+      status,
+    };
+  }
   if (status === 404) {
     return {
       ok: false,
@@ -151,14 +159,56 @@ function extractOutputText(data) {
   return parts.length ? parts.join("") : null;
 }
 
-// A response whose top-level `status` is present and is not `completed` —
-// `incomplete`, `failed`, `cancelled` or `queued` — is not shown as a summary,
-// whatever text it happens to carry: the run was not the successful,
-// complete answer this design accepts. A missing usable text is the same
-// no-usable-summary case as an unreadable body.
+// True when any message output item carries a `refusal` content block: the
+// Responses API's own documented shape for the model declining to answer.
+// This is read before any output text, so a response that carries both is
+// still a refusal rather than a partial success.
+function hasRefusalContent(data) {
+  const output = Array.isArray(data.output) ? data.output : [];
+  for (const item of output) {
+    if (!item || item.type !== "message" || !Array.isArray(item.content)) {
+      continue;
+    }
+    for (const block of item.content) {
+      if (block && block.type === "refusal") return true;
+    }
+  }
+  return false;
+}
+
+// A top-level `status` of `failed` means the provider itself failed to
+// produce a Response, not that no usable summary came back — this is a
+// provider-side error, not the no-usable-summary case. No attempt is made to
+// classify the failure further from the accompanying `error` object: an
+// unrecognized code or message stays the generic, unspecified provider
+// error rather than being guessed at.
+//
+// Explicit refusal content is checked next, whatever the status: it is
+// Claude's `stop_reason: "refusal"` counterpart for OpenAI, and is never
+// shown as a summary even if the response also carries usable output text.
+//
+// A response whose top-level `status` is present and is neither `failed` nor
+// `completed` — `incomplete`, `cancelled` or `queued` — is not shown as a
+// summary, whatever text it happens to carry: the run was not the
+// successful, complete answer this design accepts. A missing usable text is
+// the same no-usable-summary case as an unreadable body.
 export function readAnswer(data) {
   if (!data || typeof data !== "object") {
     return { ok: false, kind: ErrorKind.NO_USABLE_SUMMARY };
+  }
+  if (data.status === "failed") {
+    return {
+      ok: false,
+      kind: ErrorKind.PROVIDER_ERROR,
+      detail: ProviderErrorDetail.UNSPECIFIED,
+    };
+  }
+  if (hasRefusalContent(data)) {
+    return {
+      ok: false,
+      kind: ErrorKind.PROVIDER_ERROR,
+      detail: ProviderErrorDetail.PROVIDER_REFUSAL,
+    };
   }
   if (typeof data.status === "string" && data.status !== "completed") {
     return { ok: false, kind: ErrorKind.NO_USABLE_SUMMARY };

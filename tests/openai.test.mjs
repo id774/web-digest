@@ -39,6 +39,18 @@ function completedBody(text) {
   };
 }
 
+function refusalBody(refusal = "I can't help with that.") {
+  return {
+    status: "completed",
+    output: [
+      {
+        type: "message",
+        content: [{ type: "refusal", refusal }],
+      },
+    ],
+  };
+}
+
 test("the request is the documented Responses call, to one origin", () => {
   const request = buildRequest(CALL);
   assert.equal(request.url, `${OPENAI_BASE_URL}/responses`);
@@ -83,12 +95,54 @@ test("the output_text convenience field is used when present", () => {
 });
 
 test("an incomplete or non-completed response is not shown as a summary", () => {
-  for (const status of ["incomplete", "failed", "cancelled", "queued"]) {
+  for (const status of ["incomplete", "cancelled", "queued"]) {
     assert.deepEqual(readAnswer({ status, output_text: "partial" }), {
       ok: false,
       kind: "no-usable-summary",
     });
   }
+});
+
+test("status failed is a provider error, not no-usable-summary", () => {
+  const result = readAnswer({ status: "failed", output_text: "partial" });
+  assert.equal(result.ok, false);
+  assert.equal(result.kind, "provider-error");
+  assert.notEqual(result.kind, "no-usable-summary");
+});
+
+test("a failed response with an unrecognized or missing error does not invent a classification", () => {
+  for (const body of [
+    { status: "failed" },
+    { status: "failed", error: {} },
+    {
+      status: "failed",
+      error: { code: "something_unexpected", message: "an unrecognized failure" },
+    },
+  ]) {
+    assert.deepEqual(readAnswer(body), {
+      ok: false,
+      kind: "provider-error",
+      detail: "unspecified",
+    });
+  }
+});
+
+test("explicit refusal content is a distinct provider refusal, not success or no-usable-summary", () => {
+  const result = readAnswer(refusalBody());
+  assert.equal(result.ok, false);
+  assert.equal(result.kind, "provider-error");
+  assert.equal(result.detail, "provider-refusal");
+});
+
+test("refusal content takes precedence over usable text in the same response", () => {
+  const body = refusalBody();
+  body.output.push({
+    type: "message",
+    content: [{ type: "output_text", text: "partial text" }],
+  });
+  const result = readAnswer(body);
+  assert.equal(result.ok, false);
+  assert.equal(result.detail, "provider-refusal");
 });
 
 test("a response with no usable text is no-usable-summary", () => {
@@ -115,7 +169,9 @@ test("the failure mapping table", () => {
     mapHttpFailure(400, { error: { code: "context_length_exceeded" } }).kind,
     "too-much-text",
   );
-  assert.equal(mapHttpFailure(403, null).detail, "unspecified");
+  assert.equal(mapHttpFailure(403, null).kind, "provider-error");
+  assert.equal(mapHttpFailure(403, null).detail, "access-denied");
+  assert.notEqual(mapHttpFailure(403, null).kind, "permission-missing");
   assert.equal(mapHttpFailure(404, null).detail, "refused");
 });
 
@@ -221,4 +277,30 @@ test("an incomplete response from the network is not a success", async () => {
     fetchImpl: answering(200, { status: "incomplete", output_text: "cut" }),
   });
   assert.deepEqual(result, { ok: false, kind: "no-usable-summary" });
+});
+
+test("a call whose response carries explicit refusal content is not a success", async () => {
+  const result = await callOpenAI(CALL, {
+    fetchImpl: answering(200, refusalBody()),
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.kind, "provider-error");
+  assert.equal(result.detail, "provider-refusal");
+});
+
+test("a call whose response status is failed ends the run as provider error", async () => {
+  const result = await callOpenAI(CALL, {
+    fetchImpl: answering(200, { status: "failed", error: { message: "x" } }),
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.kind, "provider-error");
+});
+
+test("a call that receives HTTP 403 ends the run as provider-error/access-denied, not permission-missing", async () => {
+  const result = await callOpenAI(CALL, {
+    fetchImpl: answering(403, { error: { message: "insufficient permissions" } }),
+  });
+  assert.equal(result.kind, "provider-error");
+  assert.equal(result.detail, "access-denied");
+  assert.notEqual(result.kind, "permission-missing");
 });
