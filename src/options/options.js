@@ -70,17 +70,26 @@ export function validateModel(value) {
 // the new selection; denying leaves the previous provider selected and
 // touches no credential or model of any provider.
 //
-// A permission denial or rejected request and a storage write failure are
-// both `{ ok: false, provider }`, so the previous provider is kept either
-// way — but only the write failure carries `reason: "storage"`, since the
-// two are told apart in the UI with a different message. A permission
-// already granted is never revoked because the write that would have used
-// it failed: that side effect stays exactly what Chrome recorded.
+// `readSnapshot`, when given, is awaited after permission is granted and
+// before the provider selection is saved: it is how the caller reads the
+// target provider's own fields while the previous provider is still the one
+// committed, so a read failure can refuse the commit outright rather than
+// leave the provider changed with fields that never loaded. Omitting it
+// (the default) skips that step entirely, unchanged from before it existed.
+//
+// A permission denial or rejected request, a snapshot read failure and a
+// storage write failure are all `{ ok: false, provider }`, so the previous
+// provider is kept either way — but the read failure carries
+// `reason: "read"` and the write failure `reason: "storage"`, since the UI
+// tells the three apart with a different message. A permission already
+// granted is never revoked because a later read or write failed: that side
+// effect stays exactly what Chrome recorded.
 export async function changeProvider({
   provider,
   permissionsApi,
   requestPermission = requestProviderPermission,
   needsPermission = needsOptionalPermission,
+  readSnapshot,
   save = saveProvider,
 }) {
   if (needsPermission(provider)) {
@@ -92,12 +101,22 @@ export async function changeProvider({
     }
     if (!granted) return { ok: false, provider };
   }
+  let snapshot;
+  if (readSnapshot) {
+    try {
+      snapshot = await readSnapshot(provider);
+    } catch {
+      return { ok: false, provider, reason: "read" };
+    }
+  }
   try {
     await save(provider);
   } catch {
     return { ok: false, provider, reason: "storage" };
   }
-  return { ok: true, provider };
+  return snapshot === undefined
+    ? { ok: true, provider }
+    : { ok: true, provider, snapshot };
 }
 
 function wire() {
@@ -173,19 +192,35 @@ function wire() {
     fields.grantPermission.hidden = !needsOptionalPermission(provider);
   }
 
-  async function refreshCredentialStatus(provider) {
-    fields.credentialStatus.textContent = (await hasCredential(provider))
+  // Reads a provider's own model and credential-presence together, without
+  // touching the DOM or the stored provider selection — the pre-commit
+  // snapshot a provider change needs before it may commit that selection
+  // (§7.2 of the detailed design), and also what the initial load applies
+  // for the provider it finds already stored.
+  async function readProviderSnapshot(provider) {
+    const [model, credentialPresent] = await Promise.all([
+      readStoredModel(provider),
+      hasCredential(provider),
+    ]);
+    return { model, credentialPresent };
+  }
+
+  // Applies an already-read snapshot to the DOM. This never itself reads
+  // storage, so it cannot fail partway through with some fields updated and
+  // others not: a snapshot is either fully applied or not applied at all.
+  function applyProviderSnapshot(provider, snapshot) {
+    applyProviderLabels(provider);
+    // The credential field is never prefilled, whatever is stored: a field
+    // the reader is about to overwrite does not have to display one.
+    fields.credential.value = "";
+    fields.model.value = snapshot.model;
+    fields.credentialStatus.textContent = snapshot.credentialPresent
       ? "A credential is configured."
       : "No credential is configured.";
   }
 
   async function loadProviderFields(provider) {
-    applyProviderLabels(provider);
-    // The credential field is never prefilled, whatever is stored: a field
-    // the reader is about to overwrite does not have to display one.
-    fields.credential.value = "";
-    fields.model.value = await readStoredModel(provider);
-    await refreshCredentialStatus(provider);
+    applyProviderSnapshot(provider, await readProviderSnapshot(provider));
   }
 
   async function load() {
@@ -221,13 +256,18 @@ function wire() {
     providerBusy = true;
     setProviderControlsDisabled(true);
     try {
-      const result = await changeProvider({ provider: requested });
+      const result = await changeProvider({
+        provider: requested,
+        readSnapshot: readProviderSnapshot,
+      });
       if (!result.ok) {
         fields.provider.value = currentProvider;
         sayProvider(
           result.reason === "storage"
             ? "The provider could not be saved. The provider was not changed."
-            : `Permission for ${PROVIDER_LABEL[requested]} was not granted. The provider was not changed.`,
+            : result.reason === "read"
+              ? "The provider settings could not be loaded. The provider was not changed."
+              : `Permission for ${PROVIDER_LABEL[requested]} was not granted. The provider was not changed.`,
         );
         return;
       }
@@ -238,7 +278,11 @@ function wire() {
       // the control has to be put back to this transaction's own result
       // explicitly once it wins, not left to whatever the DOM still shows.
       fields.provider.value = currentProvider;
-      await loadProviderFields(currentProvider);
+      // The snapshot was already read before the provider selection was
+      // committed to storage (§7.2), so applying it here is a pure DOM
+      // update — no further, fallible storage read stands between a
+      // committed selection and the fields the reader sees for it.
+      applyProviderSnapshot(currentProvider, result.snapshot);
       sayProvider(`Now using ${PROVIDER_LABEL[currentProvider]}.`);
     } finally {
       providerBusy = false;
@@ -300,8 +344,11 @@ function wire() {
         say("The settings could not be saved.");
         return;
       }
+      // The write above already resolved: the credential and model are
+      // committed, so this is a pure DOM update, never a read-back of what
+      // was just written.
       fields.credential.value = "";
-      await refreshCredentialStatus(provider);
+      fields.credentialStatus.textContent = "A credential is configured.";
       say("Saved.");
     } finally {
       providerBusy = false;
@@ -321,8 +368,10 @@ function wire() {
         say("The credential could not be deleted.");
         return;
       }
+      // The removal above already resolved: the credential is gone, so this
+      // is a pure DOM update, never a read-back of what was just removed.
       fields.credential.value = "";
-      await refreshCredentialStatus(provider);
+      fields.credentialStatus.textContent = "No credential is configured.";
       say("The credential was deleted.");
     } finally {
       providerBusy = false;
