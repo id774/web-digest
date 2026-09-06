@@ -3,12 +3,10 @@ web-digest Repository Version History
 
 v1.1.1 (Release Date: TBD)
 --------------------------
-- Fixed side-panel opening and per-tab run-state cleanup races so a run stays
-  bound to its target tab and stale state cannot return after navigation or
-  tab closure.
-- Fixed settings-page async races, storage-write failures, and post-write storage
-  read failures so provider selection, displayed provider fields, and saved
-  preferences stay consistent with the last confirmed storage outcome.
+- Fixed side-panel opening and per-tab run-state cleanup races so a run stays bound
+  to its target tab and stale state cannot return after navigation or tab closure.
+- Fixed settings-page async races, storage-write failures, and post-write storage read failures so provider selection,
+  displayed provider fields, and saved preferences stay consistent with the last confirmed storage outcome.
 - Fixed content extraction so hidden text cannot select a root, nested semantic
   content is preserved, and linked headings and table cells are not discarded.
 - Fixed side-panel synchronization so stale bindings, snapshots, and session-state
@@ -20,12 +18,10 @@ v1.1.0 (2026-08-31)
 -------------------
 - Added an opt-in "Summarize in Japanese" setting; off by default, summaries
   continue to use the page's own language.
-- Added OpenAI and Claude alongside Sakura AI Engine as selectable AI providers,
-  with independent credentials and models per provider. Sakura remains the default
-  and existing Sakura settings continue to work without migration.
-- Raised the per-request material budget from 40,000 to 200,000 characters,
-  so substantially larger pages can use the one-request path before staged
-  summarization is needed.
+- Added OpenAI and Claude alongside Sakura AI Engine as selectable AI providers, with independent credentials and
+  models per provider. Sakura remains the default and existing Sakura settings continue to work without migration.
+- Raised the per-request material budget from 40,000 to 200,000 characters, so substantially
+  larger pages can use the one-request path before staged summarization is needed.
 
 v1.0.1 (2026-08-26)
 -------------------
