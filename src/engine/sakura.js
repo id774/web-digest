@@ -99,22 +99,26 @@ export function mapHttpFailure(status, data) {
   };
 }
 
-// The generated text of the first returned choice, trimmed, is the summary.
-// One member of the answer is read rather than ignored: a finish_reason of
-// "length" says the text stopped at the output limit, and a fragment presented
-// as a finished summary is worse than being told the run failed. usage, id and
-// every other member are ignored. A body that is not JSON, or JSON without that
-// path, is no-usable-summary: a blank panel and a fragment of protocol are
-// both worse than being told the run failed.
+// The generated text of the first returned choice, trimmed, is the summary —
+// but only once the first choice's own `finish_reason` confirms the
+// documented normal-completion marker, `"stop"`. A missing, unknown, or
+// otherwise non-"stop" reason (`"length"` among them, for a response cut off
+// at the output limit) is no-usable-summary even when it carries non-empty
+// text: a fragment presented as a finished summary is worse than being told
+// the run failed, and a positive check for the one marker a completed answer
+// actually carries is what keeps an unrecognized shape from slipping through
+// as success. usage, id and every other member are ignored. A body that is
+// not JSON, or JSON without a usable choice, is the same no-usable-summary
+// case.
 export function readAnswer(data) {
   const choices = data && Array.isArray(data.choices) ? data.choices : null;
   const first = choices && choices.length ? choices[0] : null;
 
-  if (first && first.finish_reason === "length") {
+  if (!first || first.finish_reason !== "stop") {
     return { ok: false, kind: ErrorKind.NO_USABLE_SUMMARY };
   }
 
-  const content = first && first.message ? first.message.content : null;
+  const content = first.message ? first.message.content : null;
   if (typeof content !== "string" || content.trim() === "") {
     return { ok: false, kind: ErrorKind.NO_USABLE_SUMMARY };
   }

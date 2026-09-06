@@ -20,7 +20,9 @@ test("sakura is dispatched to the documented Sakura endpoint", async () => {
         return {
           ok: true,
           status: 200,
-          json: async () => ({ choices: [{ message: { content: "ok" } }] }),
+          json: async () => ({
+            choices: [{ finish_reason: "stop", message: { content: "ok" } }],
+          }),
         };
       },
     },

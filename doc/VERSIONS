@@ -13,11 +13,8 @@ v1.1.1 (Release Date: TBD)
   content is preserved, and linked headings and table cells are not discarded.
 - Fixed side-panel synchronization so stale bindings, snapshots, and session-state
   failures cannot replace the active tab.
-- Fixed provider failure classification so billing and timeout errors are actionable,
-  unrelated validation errors are not reported as oversized pages, an explicit OpenAI
-  or Claude model refusal and an OpenAI response generation failure are no longer
-  reported as no summary having come back, and an OpenAI or Claude access denial is
-  no longer reported as a generic provider error.
+- Fixed provider response handling so failures stay distinct and only complete
+  responses are shown as summaries.
 
 v1.1.0 (2026-08-31)
 -------------------

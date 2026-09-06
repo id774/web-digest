@@ -109,6 +109,28 @@ test("a truncated response is not shown as a summary", () => {
   }
 });
 
+// A missing, non-terminal, or unknown stop_reason must not be shown as a
+// summary either, even with non-empty text: success requires positively
+// confirming the documented `"end_turn"` marker, not just the absence of a
+// recognized truncation or refusal marker.
+test("a missing, non-terminal, or unknown stop_reason is not shown as a summary, even with usable text", () => {
+  for (const stopReason of [
+    undefined,
+    "pause_turn",
+    "tool_use",
+    "stop_sequence",
+    "something_unexpected",
+  ]) {
+    const body = { content: [{ type: "text", text: "Looks complete." }] };
+    if (stopReason !== undefined) body.stop_reason = stopReason;
+    assert.deepEqual(
+      readAnswer(body),
+      { ok: false, kind: "no-usable-summary" },
+      String(stopReason),
+    );
+  }
+});
+
 test("stop_reason refusal is a distinct provider refusal, not success or no-usable-summary", () => {
   const result = readAnswer(textBody("I can't help with that.", "refusal"));
   assert.equal(result.ok, false);
@@ -236,6 +258,23 @@ test("a call whose response has stop_reason refusal is not a success", async () 
   assert.equal(result.ok, false);
   assert.equal(result.kind, "provider-error");
   assert.equal(result.detail, "provider-refusal");
+});
+
+test("a call whose response has a missing or unsupported stop_reason is not a success", async () => {
+  for (const body of [
+    { content: [{ type: "text", text: "Looks complete." }] },
+    {
+      content: [{ type: "text", text: "Looks complete." }],
+      stop_reason: "pause_turn",
+    },
+  ]) {
+    const result = await callClaude(CALL, { fetchImpl: answering(200, body) });
+    assert.deepEqual(
+      result,
+      { ok: false, kind: "no-usable-summary" },
+      JSON.stringify(body),
+    );
+  }
 });
 
 test("a successful call returns the summary and no credential", async () => {

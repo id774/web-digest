@@ -187,11 +187,16 @@ function hasRefusalContent(data) {
 // Claude's `stop_reason: "refusal"` counterpart for OpenAI, and is never
 // shown as a summary even if the response also carries usable output text.
 //
-// A response whose top-level `status` is present and is neither `failed` nor
-// `completed` — `incomplete`, `cancelled` or `queued` — is not shown as a
-// summary, whatever text it happens to carry: the run was not the
-// successful, complete answer this design accepts. A missing usable text is
-// the same no-usable-summary case as an unreadable body.
+// Past those two, `status` must positively be `"completed"` — the
+// documented normal-completion marker — or the response is not shown as a
+// summary, whatever text it happens to carry: a missing `status`, or any
+// value other than `"completed"` (`incomplete`, `cancelled`, `queued`,
+// `in_progress`, or an unrecognized one), means the run was not the
+// successful, complete answer this design accepts. A positive check for
+// that one marker, rather than excluding known non-success values, is what
+// keeps a malformed or unrecognized response from slipping through as
+// success. A missing usable text is the same no-usable-summary case as an
+// unreadable body.
 export function readAnswer(data) {
   if (!data || typeof data !== "object") {
     return { ok: false, kind: ErrorKind.NO_USABLE_SUMMARY };
@@ -210,7 +215,7 @@ export function readAnswer(data) {
       detail: ProviderErrorDetail.PROVIDER_REFUSAL,
     };
   }
-  if (typeof data.status === "string" && data.status !== "completed") {
+  if (data.status !== "completed") {
     return { ok: false, kind: ErrorKind.NO_USABLE_SUMMARY };
   }
   const text = extractOutputText(data);
