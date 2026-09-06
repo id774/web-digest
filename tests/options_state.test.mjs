@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   STORAGE_KEY_JAPANESE_SUMMARY,
   STORAGE_KEY_OPENAI_KEY,
+  STORAGE_KEY_OPENAI_MODEL,
   STORAGE_KEY_PROVIDER,
   STORAGE_KEY_TOKEN,
 } from "../src/common/settings.js";
@@ -67,7 +68,15 @@ async function fire(element, type) {
 // while they are still unresolved. Each set/remove/request likewise returns
 // a promise this test settles by hand, via the entry pushed onto its queue,
 // so the exact interleaving a race needs can be constructed deterministically.
-function makeFakeChrome(seed = {}, { holdGets = false } = {}) {
+//
+// `rejectGetKeys` is the minimal addition for the provider-change pre-commit
+// read failure tests below: a get() for a key listed there rejects with the
+// given error immediately, deterministically, regardless of `holdGets` —
+// there is no ordering to construct for a read failure, only its outcome.
+function makeFakeChrome(
+  seed = {},
+  { holdGets = false, rejectGetKeys = {} } = {},
+) {
   const store = new Map(Object.entries(seed));
   const calls = [];
   const pendingGets = [];
@@ -89,6 +98,13 @@ function makeFakeChrome(seed = {}, { holdGets = false } = {}) {
       local: {
         get: (keys) => {
           calls.push(["get-called", keys]);
+          const keyList = Array.isArray(keys) ? keys : [keys];
+          for (const key of keyList) {
+            if (Object.prototype.hasOwnProperty.call(rejectGetKeys, key)) {
+              calls.push(["get-rejected", keys]);
+              return Promise.reject(rejectGetKeys[key]);
+            }
+          }
           if (!holdGets) return Promise.resolve(readResult(keys));
           return new Promise((resolve) => {
             pendingGets.push({ keys, resolve: () => resolve(readResult(keys)) });
@@ -298,6 +314,200 @@ test("a provider selection storage failure keeps the previous provider confirmed
   }
 });
 
+// §15.2 (1) of the requirements this fixes: the target provider's stored
+// model cannot be read. The provider selection must never reach storage —
+// not merely be rolled back after the fact — and the previous provider's
+// own fields must stay exactly what they were.
+test("a provider change whose target model read fails never commits the provider selection", async () => {
+  const { chrome, store, calls, pendingPermissionRequests, pendingSets } =
+    makeFakeChrome(
+      {},
+      {
+        rejectGetKeys: {
+          [STORAGE_KEY_OPENAI_MODEL]: new Error("storage unavailable"),
+        },
+      },
+    );
+  try {
+    const els = await loadOptionsPage(chrome);
+    const initialCredentialLabel = els["credential-label"].textContent;
+    const initialModel = els.model.value;
+    const initialCredentialStatus = els["credential-status"].textContent;
+
+    els.provider.value = "openai";
+    const change = fire(els.provider, "change");
+    await flushUntil(() => pendingPermissionRequests.length === 1);
+    pendingPermissionRequests.shift().resolve(true);
+    await change;
+
+    assert.equal(
+      calls.some(([kind]) => kind === "set-called"),
+      false,
+      "the provider selection must never be written when its target read fails",
+    );
+    assert.equal(pendingSets.length, 0);
+    assert.equal(store.has(STORAGE_KEY_PROVIDER), false);
+    assert.equal(els.provider.value, "sakura");
+    assert.equal(els["credential-label"].textContent, initialCredentialLabel);
+    assert.notEqual(els["credential-label"].textContent, "OpenAI API key");
+    assert.equal(els.model.value, initialModel);
+    assert.equal(els["credential-status"].textContent, initialCredentialStatus);
+    assert.equal(
+      els["provider-status"].textContent,
+      "The provider settings could not be loaded. The provider was not changed.",
+    );
+    assert.equal(els.provider.disabled, false);
+  } finally {
+    cleanup();
+  }
+});
+
+// §15.2 (2): the target provider's credential-presence read fails instead.
+// Same outcome as the model-read failure above: no commit, previous
+// provider and fields kept, the same exact message.
+test("a provider change whose target credential-presence read fails never commits the provider selection", async () => {
+  const { chrome, store, calls, pendingPermissionRequests, pendingSets } =
+    makeFakeChrome(
+      {},
+      {
+        rejectGetKeys: {
+          [STORAGE_KEY_OPENAI_KEY]: new Error("storage unavailable"),
+        },
+      },
+    );
+  try {
+    const els = await loadOptionsPage(chrome);
+
+    els.provider.value = "openai";
+    const change = fire(els.provider, "change");
+    await flushUntil(() => pendingPermissionRequests.length === 1);
+    pendingPermissionRequests.shift().resolve(true);
+    await change;
+
+    assert.equal(
+      calls.some(([kind]) => kind === "set-called"),
+      false,
+      "the provider selection must never be written when its target read fails",
+    );
+    assert.equal(pendingSets.length, 0);
+    assert.equal(store.has(STORAGE_KEY_PROVIDER), false);
+    assert.equal(els.provider.value, "sakura");
+    assert.equal(
+      els["provider-status"].textContent,
+      "The provider settings could not be loaded. The provider was not changed.",
+    );
+    assert.equal(els.provider.disabled, false);
+  } finally {
+    cleanup();
+  }
+});
+
+// §15.3: a successful provider change reads the target provider's settings
+// to completion before the provider selection is ever written, and applies
+// them to the DOM from that same pre-commit snapshot — never from a further
+// read issued once the selection is already committed.
+test("a successful provider change reads target settings before committing the selection, and never reads again afterward", async () => {
+  const { chrome, store, calls, pendingGets, pendingSets, pendingPermissionRequests } =
+    makeFakeChrome(
+      {
+        [STORAGE_KEY_OPENAI_MODEL]: "gpt-configured",
+        [STORAGE_KEY_OPENAI_KEY]: "sk-configured",
+      },
+      { holdGets: true },
+    );
+  try {
+    const els = await loadOptionsPageWithoutWaiting(chrome);
+
+    // Let the initial load's own reads settle first, in the same order the
+    // init-race tests above rely on: provider, model, credential presence,
+    // Japanese summary.
+    await resolveNextGet(pendingGets);
+    await resolveNextGet(pendingGets);
+    await resolveNextGet(pendingGets);
+    await resolveNextGet(pendingGets);
+    await flushUntil(() => els.provider.disabled === false);
+
+    els.provider.value = "openai";
+    const change = fire(els.provider, "change");
+    await flushUntil(() => pendingPermissionRequests.length === 1);
+    pendingPermissionRequests.shift().resolve(true);
+
+    // Both of the target provider's own reads (model, credential presence)
+    // are issued and still held open before the provider selection write.
+    await flushUntil(() => pendingGets.length === 2);
+    assert.equal(
+      pendingSets.length,
+      0,
+      "the provider selection must not be written before its target reads resolve",
+    );
+    while (pendingGets.length > 0) pendingGets.shift().resolve();
+
+    await flushUntil(() => pendingSets.length === 1);
+    const getsBeforeCommit = calls.filter(
+      ([kind]) => kind === "get-called",
+    ).length;
+    pendingSets.shift().resolve();
+    await change;
+
+    assert.equal(store.get(STORAGE_KEY_PROVIDER), "openai");
+    assert.equal(els.provider.value, "openai");
+    assert.equal(els.model.value, "gpt-configured");
+    assert.equal(
+      els["credential-status"].textContent,
+      "A credential is configured.",
+    );
+    assert.equal(els["provider-status"].textContent, "Now using OpenAI.");
+    // No storage read happened once the pre-commit snapshot was read: the
+    // fields above came from that snapshot, never from a read-back issued
+    // after the provider selection was committed.
+    assert.equal(
+      calls.filter(([kind]) => kind === "get-called").length,
+      getsBeforeCommit,
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("a successful Save commits the credential-configured status directly, without any read-back", async () => {
+  const { chrome, store, calls, pendingSets } = makeFakeChrome();
+  try {
+    const els = await loadOptionsPage(chrome);
+    assert.equal(
+      els["credential-status"].textContent,
+      "No credential is configured.",
+    );
+
+    els.credential.value = "sk-test-credential";
+    els.model.value = "custom-model";
+    const getsBeforeSave = calls.filter(
+      ([kind]) => kind === "get-called",
+    ).length;
+    const save = fire(els.save, "click");
+
+    await flushUntil(() => pendingSets.length === 1);
+    pendingSets.shift().resolve();
+    await save;
+
+    assert.equal(els.credential.value, "");
+    assert.equal(els.model.value, "custom-model");
+    assert.equal(
+      els["credential-status"].textContent,
+      "A credential is configured.",
+    );
+    assert.equal(els.status.textContent, "Saved.");
+    assert.equal(store.get(STORAGE_KEY_TOKEN), "sk-test-credential");
+    // The successful write is itself the confirmed state: no
+    // credential-presence read-back followed it.
+    assert.equal(
+      calls.filter(([kind]) => kind === "get-called").length,
+      getsBeforeSave,
+    );
+  } finally {
+    cleanup();
+  }
+});
+
 test("a Save storage failure keeps the entered credential and model, and does not claim success", async () => {
   const { chrome, pendingSets } = makeFakeChrome();
   try {
@@ -316,6 +526,42 @@ test("a Save storage failure keeps the entered credential and model, and does no
     assert.equal(els.model.value, "custom-model");
     assert.equal(els["credential-status"].textContent, "No credential is configured.");
     assert.equal(els.status.textContent, "The settings could not be saved.");
+  } finally {
+    cleanup();
+  }
+});
+
+test("a successful Delete commits the credential-not-configured status directly, without any read-back", async () => {
+  const { chrome, store, calls, pendingRemoves } = makeFakeChrome({
+    [STORAGE_KEY_TOKEN]: "sk-existing",
+  });
+  try {
+    const els = await loadOptionsPage(chrome);
+    assert.equal(
+      els["credential-status"].textContent,
+      "A credential is configured.",
+    );
+
+    const getsBeforeDelete = calls.filter(
+      ([kind]) => kind === "get-called",
+    ).length;
+    const remove = fire(els.delete, "click");
+    await flushUntil(() => pendingRemoves.length === 1);
+    pendingRemoves.shift().resolve();
+    await remove;
+
+    assert.equal(
+      els["credential-status"].textContent,
+      "No credential is configured.",
+    );
+    assert.equal(els.status.textContent, "The credential was deleted.");
+    assert.equal(store.has(STORAGE_KEY_TOKEN), false);
+    // The successful removal is itself the confirmed state: no
+    // credential-presence read-back followed it.
+    assert.equal(
+      calls.filter(([kind]) => kind === "get-called").length,
+      getsBeforeDelete,
+    );
   } finally {
     cleanup();
   }

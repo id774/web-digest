@@ -422,13 +422,34 @@ part of the reader's own change of the `<select>`. Sakura needs no such
 request, since its permission is required and always present. If the request
 is denied, the `<select>` reverts to the previously selected provider, the
 provider status line says so, and no credential or model of any provider is
-touched. If it is granted — or was already granted, in which case
-`chrome.permissions.request` resolves without prompting again — the new
-provider selection is written to `storage.local` only afterward, never
-before. If that write itself fails, the `<select>` reverts the same way, the
-provider status line says the provider could not be saved and was not
-changed, and a permission already granted is not revoked because of it — the
-rollback is the provider selection's alone.
+touched.
+
+If the permission step succeeds (granted, or already granted so
+`chrome.permissions.request` resolves without prompting again), the target
+provider's own model and credential-presence are read from `storage.local`
+into an in-memory snapshot *before* the provider selection is written —
+never after. This is the one storage read a provider change makes for the
+target provider, and it happens while the previously selected provider is
+still the one committed: nothing in the DOM changes yet, and the previous
+provider's own labels, model and credential status stay exactly what they
+were. If that read fails, the provider selection is never written at all —
+not written and then rolled back, simply never written — the `<select>`
+stays on the previous provider, and the provider status line reads "The
+provider settings could not be loaded. The provider was not changed."
+
+Only once that snapshot has been read successfully is the new provider
+selection written to `storage.local`. If that write itself fails, the
+`<select>` reverts the same way, the provider status line says the provider
+could not be saved and was not changed, and a permission already granted is
+not revoked because of it — the rollback is the provider selection's alone,
+and nothing has read or written the target provider's fields to roll back.
+
+Once the write succeeds, the already-read snapshot is applied to the DOM
+directly: the provider `<select>`, the credential label and model
+placeholder, the model field and the credential status all come from that
+one snapshot. No further `storage.local` read follows the successful write —
+a provider selection committed to storage and the fields shown for it are
+never separated by a read that could itself fail in between.
 
 A provider change is one transaction: the provider `<select>`, Save, Delete
 credential and Grant/restore permission are all disabled for as long as one
@@ -444,7 +465,12 @@ the operation not having happened: Save leaves the entered credential and
 model in place and shows "The settings could not be saved." rather than
 clearing the field or claiming success; Delete credential leaves the
 credential status exactly as it read before and shows "The credential could
-not be deleted." rather than reporting removal.
+not be deleted." rather than reporting removal. When the write or removal
+succeeds, that success is itself the confirmed state: Save clears the
+credential field and sets the credential status to "A credential is
+configured." directly, and Delete credential sets it to "No credential is
+configured." directly — neither reads `storage.local` again to confirm what
+its own already-resolved write or removal already settled.
 
 The `Grant or restore permission` button is a second, independent way to reach
 `requestProviderPermission`, for a permission Chrome has since revoked rather
