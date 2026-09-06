@@ -53,6 +53,8 @@ Version History Guidelines
   same file or feature.
 - Place closely related entries near each other.
 - Append an independent new change to the end of the current version entry.
+- The first entry, at the lowest version this file reaches, reads only
+  "Initial release." and nothing else.
 - An unreleased entry carries (Release Date: TBD). Replacing TBD with the
   actual date is the release itself, and is not a change to record here.
 - This file records the history of the repository. A change that is not
