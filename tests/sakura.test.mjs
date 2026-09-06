@@ -27,8 +27,11 @@ function answering(status, body, { json = true } = {}) {
   });
 }
 
+// `finish_reason: "stop"` is the documented normal-completion marker: every
+// fixture built with this helper carries it, so a test using it to build a
+// success case is exercising the marker check, not skirting it.
 function summaryBody(content) {
-  return { choices: [{ message: { content } }] };
+  return { choices: [{ finish_reason: "stop", message: { content } }] };
 }
 
 test("the request is the documented one, to one origin", () => {
@@ -89,6 +92,42 @@ test("a response cut off at the output limit is not shown as a summary", () => {
     ok: false,
     kind: "no-usable-summary",
   });
+});
+
+// A missing, unknown, or otherwise non-"stop" finish_reason must not be
+// shown as a summary even when the choice carries non-empty content: success
+// requires positively confirming the documented normal-completion marker,
+// not just the absence of a recognized failure marker.
+test("a missing or unsupported finish_reason is not shown as a summary, even with usable content", () => {
+  for (const first of [
+    { message: { content: "Looks complete." } },
+    { finish_reason: "content_filter", message: { content: "Looks complete." } },
+    { finish_reason: "tool_calls", message: { content: "Looks complete." } },
+  ]) {
+    assert.deepEqual(
+      readAnswer({ choices: [first] }),
+      { ok: false, kind: "no-usable-summary" },
+      JSON.stringify(first),
+    );
+  }
+});
+
+test("a call-level 2xx response with a missing or unsupported finish_reason is not shown as a summary", async () => {
+  for (const body of [
+    { choices: [{ message: { content: "Looks complete." } }] },
+    {
+      choices: [
+        { finish_reason: "content_filter", message: { content: "Looks complete." } },
+      ],
+    },
+  ]) {
+    const result = await callSakura(CALL, { fetchImpl: answering(200, body) });
+    assert.deepEqual(
+      result,
+      { ok: false, kind: "no-usable-summary" },
+      JSON.stringify(body),
+    );
+  }
 });
 
 test("the failure mapping table", () => {

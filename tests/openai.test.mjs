@@ -95,12 +95,44 @@ test("the output_text convenience field is used when present", () => {
 });
 
 test("an incomplete or non-completed response is not shown as a summary", () => {
-  for (const status of ["incomplete", "cancelled", "queued"]) {
+  for (const status of [
+    "incomplete",
+    "cancelled",
+    "queued",
+    "in_progress",
+    "something_unexpected",
+  ]) {
     assert.deepEqual(readAnswer({ status, output_text: "partial" }), {
       ok: false,
       kind: "no-usable-summary",
     });
   }
+});
+
+// A missing top-level `status` must not be shown as a summary either, even
+// with usable text: success requires positively confirming the documented
+// `"completed"` marker, not just the absence of a recognized failed/refusal
+// marker.
+test("a missing status is not shown as a summary, even with usable output_text", () => {
+  assert.deepEqual(readAnswer({ output_text: "Looks complete." }), {
+    ok: false,
+    kind: "no-usable-summary",
+  });
+});
+
+test("a missing status is not shown as a summary, even with a usable output text block", () => {
+  const body = {
+    output: [
+      {
+        type: "message",
+        content: [{ type: "output_text", text: "Looks complete." }],
+      },
+    ],
+  };
+  assert.deepEqual(readAnswer(body), {
+    ok: false,
+    kind: "no-usable-summary",
+  });
 });
 
 test("status failed is a provider error, not no-usable-summary", () => {
@@ -275,6 +307,13 @@ test("the bounded wait ends the run as timeout", async () => {
 test("an incomplete response from the network is not a success", async () => {
   const result = await callOpenAI(CALL, {
     fetchImpl: answering(200, { status: "incomplete", output_text: "cut" }),
+  });
+  assert.deepEqual(result, { ok: false, kind: "no-usable-summary" });
+});
+
+test("a call whose response has no status is not a success, even with usable text", async () => {
+  const result = await callOpenAI(CALL, {
+    fetchImpl: answering(200, { output_text: "Looks complete." }),
   });
   assert.deepEqual(result, { ok: false, kind: "no-usable-summary" });
 });

@@ -153,21 +153,26 @@ export function mapHttpFailure(status, data) {
   };
 }
 
-// The concatenation of every text block's text, trimmed, is the summary.
-// `max_tokens` and `model_context_window_exceeded` are truncated responses:
-// the answer ended at a ceiling rather than completing normally. Neither is
-// shown as a summary, even if it carries text — a cut-off fragment is worse
-// than being told the run failed. A response with no text block at all, or
-// only empty ones, is the same no-usable-summary case.
-const UNUSABLE_STOP_REASONS = new Set([
-  "max_tokens",
-  "model_context_window_exceeded",
-]);
-
+// The concatenation of every text block's text, trimmed, is the summary —
+// but only once `stop_reason` positively confirms the documented
+// normal-completion marker, `"end_turn"`. A missing, unknown, or otherwise
+// non-"end_turn" reason is no-usable-summary even when it carries non-empty
+// text: `"max_tokens"` and `"model_context_window_exceeded"` are truncated
+// responses that ended at a ceiling rather than completing normally, and a
+// continuation reason such as `"pause_turn"` or `"tool_use"` is not a
+// completed answer either — a cut-off or unfinished fragment shown as a
+// summary is worse than being told the run failed. A positive check for the
+// one marker a completed answer actually carries, rather than excluding
+// known non-success reasons one at a time, is what keeps an unrecognized
+// stop reason from slipping through as success. A response with no text
+// block at all, or only empty ones, is the same no-usable-summary case.
+//
 // `stop_reason: "refusal"` is Claude explicitly declining to answer, which
 // this design returns as its own HTTP-200 response — a provider-side
 // refusal, not the no-usable-summary case, and never shown as a summary even
-// if the response also carries text.
+// if the response also carries text. It is checked first, before the
+// normal-completion marker, exactly as OpenAI's own explicit refusal
+// content is.
 export function readAnswer(data) {
   if (!data || typeof data !== "object") {
     return { ok: false, kind: ErrorKind.NO_USABLE_SUMMARY };
@@ -179,7 +184,7 @@ export function readAnswer(data) {
       detail: ProviderErrorDetail.PROVIDER_REFUSAL,
     };
   }
-  if (UNUSABLE_STOP_REASONS.has(data.stop_reason)) {
+  if (data.stop_reason !== "end_turn") {
     return { ok: false, kind: ErrorKind.NO_USABLE_SUMMARY };
   }
   const blocks = Array.isArray(data.content) ? data.content : [];

@@ -1131,11 +1131,24 @@ against a different provider either (§11.1).
 Each adapter reduces its provider's own documented answer shape to the one
 normalized result of §11.5.
 
-- **Sakura**: when the first choice's `finish_reason` is `"length"`, the text
-  stopped at the output limit and the answer is not shown as a summary,
-  whatever text it happens to carry. The summary is otherwise
-  `data.choices[0].message.content`, trimmed, accepted when it is a string and
-  is not empty after trimming; missing or empty content is
+An HTTP 2xx status alone is not success for any of the three: each adapter
+requires a **positive** confirmation of its provider's own documented
+normal-completion marker before it will accept any text at all. This is
+deliberately not "exclude the known failure markers and accept whatever is
+left" — a missing marker, an unrecognized one, or one that names a genuine
+but non-terminal state (a truncation, a refusal, a continuation) is
+`no-usable-summary` (or the provider's own distinct failure kind, where one
+is documented) exactly like a malformed body is, never a success just
+because the text happens to be non-empty.
+
+- **Sakura**: success requires the first choice's `finish_reason` to be
+  exactly `"stop"` — the Chat Completions API's own documented
+  normal-completion marker. Any other value, including the documented
+  truncation marker `"length"`, an unrecognized value, or a missing
+  `finish_reason`, is `no-usable-summary`, whatever text the choice carries.
+  Only once `"stop"` is confirmed is the summary read, from
+  `data.choices[0].message.content`, trimmed, accepted when it is a string
+  and is not empty after trimming; missing or empty content is
   `no-usable-summary`. `usage`, `id` and everything else in the answer is
   ignored rather than interpreted.
 - **OpenAI**: when the top-level `status` field is `"failed"`, the provider
@@ -1147,22 +1160,29 @@ normalized result of §11.5.
   that is the model explicitly declining to answer — a distinct
   `provider-error` / `provider-refusal`, not `no-usable-summary` — and this is
   checked before any output text, so a response carrying both is still a
-  refusal rather than a partial success. Otherwise, when the top-level
-  `status` field is present and is not `"completed"` (`"incomplete"`,
-  `"cancelled"`, `"queued"`), the answer is not shown as a summary, whatever
-  text it happens to carry. The summary is otherwise the concatenation of
-  every `output_text` content block of every `message` item in `data.output`,
-  or the convenience `data.output_text` field when the answer carries one,
-  trimmed. No usable text is `no-usable-summary`.
+  refusal rather than a partial success. Past those two, success requires the
+  top-level `status` field to be exactly `"completed"` — the Responses API's
+  own documented normal-completion marker. Any other value (`"incomplete"`,
+  `"cancelled"`, `"queued"`, `"in_progress"`, or an unrecognized one) or a
+  missing `status` is `no-usable-summary`, whatever text the response
+  carries. Only once `"completed"` is confirmed is the summary read, as the
+  concatenation of every `output_text` content block of every `message` item
+  in `data.output`, or the convenience `data.output_text` field when the
+  answer carries one, trimmed. No usable text is `no-usable-summary`.
 - **Claude**: when `data.stop_reason` is `"refusal"`, Claude explicitly
   declined to answer — this design's own HTTP-200 response for that — and it
   is a distinct `provider-error` / `provider-refusal`, not
-  `no-usable-summary`, checked before any text block so a response carrying
-  both is still a refusal. When `data.stop_reason` is `"max_tokens"` or
-  `"model_context_window_exceeded"`, the answer is truncated and is not shown
-  as a summary. The summary is otherwise the concatenation of every `text`
-  block's `text` in `data.content`, trimmed. No text block, or only empty
-  ones, is `no-usable-summary`.
+  `no-usable-summary`, checked before the normal-completion marker so a
+  response carrying both is still a refusal. Past that, success requires
+  `data.stop_reason` to be exactly `"end_turn"` — the Messages API's own
+  documented normal-completion marker. Any other value — the documented
+  truncation reasons `"max_tokens"` and `"model_context_window_exceeded"`, a
+  continuation reason such as `"pause_turn"` or `"tool_use"`, an
+  unrecognized one, or a missing `stop_reason` — is `no-usable-summary`,
+  whatever text the response carries. Only once `"end_turn"` is confirmed is
+  the summary read, as the concatenation of every `text` block's `text` in
+  `data.content`, trimmed. No text block, or only empty ones, is
+  `no-usable-summary`.
 
 A body that is not JSON, or JSON without the path an adapter reads, is also
 `no-usable-summary` for that adapter. A blank panel and a fragment of
