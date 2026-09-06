@@ -108,6 +108,21 @@ async function requestState(tabId) {
   });
 }
 
+// Invalidates whatever tab this panel is currently bound to, without
+// binding to a replacement. Called only when active-tab identity itself
+// cannot be confirmed — a rejected active-tab query, or one that resolves
+// with no valid tab id — never on an ordinary rebind, which goes through
+// bindTo below instead. Advancing bindGeneration here is what turns a
+// pending snapshot requested by the invalidated binding into a stale one:
+// its own generation check can no longer match once this has run. Clearing
+// currentTabId is what stops a stateChanged for that same old tab from
+// still being accepted as the current binding's own live update.
+function invalidateBinding() {
+  currentTabId = null;
+  bindGeneration += 1;
+  liveSeenThisGeneration = false;
+}
+
 // Binds to `tabId`: starts a new generation, fetches its current snapshot,
 // and renders it — unless a live update for this same binding, or a newer
 // binding started since, has already made that snapshot stale by the time
@@ -149,11 +164,13 @@ async function followActiveTab() {
     tabId = tab && typeof tab.id === "number" ? tab.id : null;
   } catch {
     if (lookupGeneration !== tabLookupGeneration) return;
+    invalidateBinding();
     render(internalErrorState());
     return;
   }
   if (lookupGeneration !== tabLookupGeneration) return;
   if (tabId === null) {
+    invalidateBinding();
     render(null);
     return;
   }
