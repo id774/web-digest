@@ -354,21 +354,24 @@ finally intended, and merges as if it had been written that way.
 - Each entry opens with a heading of the form `vX.Y.Z (YYYY-MM-DD)`, or `vX.Y.Z
   (Release Date: TBD)` while it is unreleased, underlined with `-` characters,
   followed by one `-` bullet per change.
-- Write one coherent change on one physical line, qualified as below for a file
-  that has settled on a form of its own. The file is read as a list and reviewed
-  as a diff, and both are served by an entry that is not wrapped.
-- That rule comes before the roughly 80 columns a plain text document otherwise
-  aims at. Near 100 columns is the usual target, and an entry that has to name a
-  file, an API, a constant or a setting may run to about 120 columns.
-- That is a deliberate exception in this file. Do not rewrap `doc/VERSIONS` to
-  80 columns, and do not report a long entry there as a violation of that width.
-- Where the file has settled on a width of its own, a new entry is wrapped to
-  that width and balanced against the lines already standing, so that the
-  history stays of a piece. Entries already written are not reflowed to suit a
-  new one.
+- Write one coherent change as one bullet, at most two physical lines. A
+  single line at or under 80 columns is preferred whenever practical. This is
+  an explicit limit, not a prompt to reread: an entry that runs past two
+  lines, or a single line that runs past 80 columns without necessity, must
+  be shortened. The file is read as a list and reviewed as a diff, and both
+  are served by an entry that stays within this limit.
+- An entry that has to name a file, an API, a constant or a setting may pass
+  80 columns on its one or two lines when those names cannot be shortened
+  without losing meaning. The two-line ceiling still applies.
+- Where the file has settled on a width of its own, predating this limit, a
+  new entry is wrapped to that width and balanced against the lines already
+  standing, so that the history stays of a piece. Wrapping to hold an
+  established form does not overturn the two-line, 80-column limit above;
+  entries already written are not reflowed to suit a new one.
 - When an entry runs long, look first for what can be dropped or abstracted —
   the implementation detail, the example, the detailed reason, the secondary
-  effect — before wrapping the line.
+  effect. Wrap onto the second line only when the abstracted entry still
+  exceeds 80 columns.
 - Keep the changed target, the behaviour visible from outside, the effect on
   compatibility, the effect on privacy or security, and the identifiers that
   matter.
