@@ -11,8 +11,8 @@ v1.1.1 (Release Date: TBD)
   preferences stay consistent with the last confirmed storage outcome.
 - Fixed content extraction so hidden text cannot select a root, nested semantic
   content is preserved, and linked headings and table cells are not discarded.
-- Fixed side-panel state synchronization and session-state failures so the panel
-  follows the active tab and cannot regress to an older state snapshot.
+- Fixed side-panel synchronization so stale bindings, snapshots, and session-state
+  failures cannot replace the active tab.
 - Fixed provider failure classification so billing and timeout errors are actionable,
   unrelated validation errors are not reported as oversized pages, an explicit OpenAI
   or Claude model refusal and an OpenAI response generation failure are no longer

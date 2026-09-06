@@ -342,6 +342,247 @@ test("an active tab query failure is shown as internal-error and is not an unhan
   }
 });
 
+// §15.2 of the requirements this fixes: a current-generation active-tab
+// query rejects while the panel is bound to Tab A. The rejection must not
+// just render internal-error locally — it must also invalidate the Tab A
+// binding itself, so a stateChanged that arrives for Tab A afterward is no
+// longer accepted as this panel's own current live update.
+test("an active-tab query failure invalidates the old binding, so a stale stateChanged for it cannot override the failure", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  try {
+    await loadPanel(fake.chrome, doc);
+    await flushUntil(() => fake.pendingSendMessage.length === 1);
+    fake.pendingSendMessage
+      .shift()
+      .resolve(succeededState("Tab A title", "Tab A summary"));
+    await flushUntil(() => doc.elements.summary.textContent !== "");
+
+    fake.setHoldTabsQuery(true);
+    fake.listeners.activated();
+    await flushUntil(() => fake.pendingTabsQuery.length === 1);
+    fake.pendingTabsQuery.shift().reject(new Error("boom"));
+    await flushUntil(
+      () =>
+        doc.elements.status.textContent ===
+        messageFor(ErrorKind.INTERNAL_ERROR, ""),
+    );
+
+    // Tab A's own stateChanged arrives only now, after the query failure
+    // invalidated the binding it used to belong to.
+    fake.listeners.message({
+      type: MessageType.STATE_CHANGED,
+      tabId: 1,
+      state: succeededState("Tab A title", "Tab A summary"),
+    });
+
+    assert.equal(
+      doc.elements.status.textContent,
+      messageFor(ErrorKind.INTERNAL_ERROR, ""),
+    );
+    assert.notEqual(doc.elements.summary.textContent, "Tab A summary");
+    assert.notEqual(doc.elements.title.textContent, "Tab A title");
+  } finally {
+    cleanup();
+  }
+});
+
+// §15.3: the same query failure, but this time Tab A's own still-pending
+// snapshot — requested before the failure, by the binding the failure went
+// on to invalidate — resolves only afterward. It must not be able to
+// override the failure either, the same way a stale rebind snapshot cannot
+// override a newer tab's view (see the rebind test above).
+test("an active-tab query failure invalidates the old binding, so its own still-pending snapshot cannot override the failure", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  try {
+    await loadPanel(fake.chrome, doc);
+    await flushUntil(() => fake.pendingSendMessage.length === 1);
+    const tabASnapshot = fake.pendingSendMessage.shift();
+
+    fake.setHoldTabsQuery(true);
+    fake.listeners.activated();
+    await flushUntil(() => fake.pendingTabsQuery.length === 1);
+    fake.pendingTabsQuery.shift().reject(new Error("boom"));
+    await flushUntil(
+      () =>
+        doc.elements.status.textContent ===
+        messageFor(ErrorKind.INTERNAL_ERROR, ""),
+    );
+
+    // Tab A's own initial snapshot resolves well after the binding it
+    // belongs to was invalidated by the query failure above.
+    tabASnapshot.resolve(succeededState("Tab A title", "Tab A summary"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.equal(
+      doc.elements.status.textContent,
+      messageFor(ErrorKind.INTERNAL_ERROR, ""),
+    );
+    assert.notEqual(doc.elements.summary.textContent, "Tab A summary");
+  } finally {
+    cleanup();
+  }
+});
+
+// §15.4: a current-generation active-tab query succeeds but yields no valid
+// tab id. Idle is shown, as before, but the old binding must also be
+// invalidated the same way a query failure invalidates it, so Tab A's own
+// stateChanged cannot revive its state over idle.
+test("an active-tab query with no valid tab id invalidates the old binding, so the old tab's stateChanged cannot override idle", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  try {
+    await loadPanel(fake.chrome, doc);
+    await flushUntil(() => fake.pendingSendMessage.length === 1);
+    fake.pendingSendMessage
+      .shift()
+      .resolve(succeededState("Tab A title", "Tab A summary"));
+    await flushUntil(() => doc.elements.summary.textContent !== "");
+
+    fake.setActiveTab(null);
+    fake.listeners.activated();
+    await flushUntil(
+      () =>
+        doc.elements.status.textContent ===
+        "No summary has been run for this tab yet.",
+    );
+
+    fake.listeners.message({
+      type: MessageType.STATE_CHANGED,
+      tabId: 1,
+      state: succeededState("Tab A title", "Tab A summary"),
+    });
+
+    assert.equal(
+      doc.elements.status.textContent,
+      "No summary has been run for this tab yet.",
+    );
+    assert.notEqual(doc.elements.summary.textContent, "Tab A summary");
+  } finally {
+    cleanup();
+  }
+});
+
+// §15.4, the pending-snapshot half: Tab A's own still-pending snapshot must
+// not override idle either, once no-valid-tab-id has invalidated its
+// binding.
+test("an active-tab query with no valid tab id invalidates the old binding, so its own still-pending snapshot cannot override idle", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  try {
+    await loadPanel(fake.chrome, doc);
+    await flushUntil(() => fake.pendingSendMessage.length === 1);
+    const tabASnapshot = fake.pendingSendMessage.shift();
+
+    fake.setActiveTab(null);
+    fake.listeners.activated();
+    await flushUntil(
+      () =>
+        doc.elements.status.textContent ===
+        "No summary has been run for this tab yet.",
+    );
+
+    tabASnapshot.resolve(succeededState("Tab A title", "Tab A summary"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.equal(
+      doc.elements.status.textContent,
+      "No summary has been run for this tab yet.",
+    );
+    assert.notEqual(doc.elements.summary.textContent, "Tab A summary");
+  } finally {
+    cleanup();
+  }
+});
+
+// §15.5: after either failure/no-tab transition invalidates the binding, the
+// next valid active-tab lookup must rebind normally — a fresh snapshot
+// request for the new tab, its state shown, and the old tab's own update
+// still ignored, exactly the ordinary-rebind behavior already covered above.
+test("a valid active-tab lookup after a query failure rebinds normally to the new tab", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  try {
+    await loadPanel(fake.chrome, doc);
+    await flushUntil(() => fake.pendingSendMessage.length === 1);
+    fake.pendingSendMessage
+      .shift()
+      .resolve(succeededState("Tab A title", "Tab A summary"));
+    await flushUntil(() => doc.elements.summary.textContent !== "");
+
+    fake.setHoldTabsQuery(true);
+    fake.listeners.activated();
+    await flushUntil(() => fake.pendingTabsQuery.length === 1);
+    fake.pendingTabsQuery.shift().reject(new Error("boom"));
+    await flushUntil(
+      () =>
+        doc.elements.status.textContent ===
+        messageFor(ErrorKind.INTERNAL_ERROR, ""),
+    );
+
+    fake.setHoldTabsQuery(false);
+    fake.setActiveTab(2);
+    fake.listeners.activated();
+    await flushUntil(() => fake.pendingSendMessage.length === 1);
+    fake.pendingSendMessage
+      .shift()
+      .resolve(succeededState("Tab B title", "Tab B summary"));
+    await flushUntil(
+      () => doc.elements.summary.textContent === "Tab B summary",
+    );
+
+    assert.equal(doc.elements.title.textContent, "Tab B title");
+
+    // Tab A's update is still ignored even once the panel has recovered.
+    fake.listeners.message({
+      type: MessageType.STATE_CHANGED,
+      tabId: 1,
+      state: succeededState("Tab A title", "Tab A summary"),
+    });
+    assert.equal(doc.elements.summary.textContent, "Tab B summary");
+  } finally {
+    cleanup();
+  }
+});
+
+test("a valid active-tab lookup after a no-valid-tab-id result rebinds normally to the new tab", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  try {
+    await loadPanel(fake.chrome, doc);
+    await flushUntil(() => fake.pendingSendMessage.length === 1);
+    fake.pendingSendMessage
+      .shift()
+      .resolve(succeededState("Tab A title", "Tab A summary"));
+    await flushUntil(() => doc.elements.summary.textContent !== "");
+
+    fake.setActiveTab(null);
+    fake.listeners.activated();
+    await flushUntil(
+      () =>
+        doc.elements.status.textContent ===
+        "No summary has been run for this tab yet.",
+    );
+
+    fake.setActiveTab(2);
+    fake.listeners.activated();
+    await flushUntil(() => fake.pendingSendMessage.length === 1);
+    fake.pendingSendMessage
+      .shift()
+      .resolve(succeededState("Tab B title", "Tab B summary"));
+    await flushUntil(
+      () => doc.elements.summary.textContent === "Tab B summary",
+    );
+
+    assert.equal(doc.elements.title.textContent, "Tab B title");
+  } finally {
+    cleanup();
+  }
+});
+
 test("an openOptionsPage failure is caught and does not change the displayed RunState", async () => {
   const fake = makeFakeChrome(1);
   const doc = makeFakeDocument();

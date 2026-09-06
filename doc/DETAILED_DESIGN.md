@@ -356,6 +356,16 @@ when it loaded:
 - `stateChanged` is applied only when its `tabId` matches the tab currently
   bound — exactly as before switching tabs was accounted for — which is what
   keeps a live update for the tab just left from reaching the new one.
+- When the *current* active-tab query — the latest one started, never a
+  stale one settling after a newer query has already begun (the same
+  `tabLookupGeneration` check that keeps a stale rebind from winning) —
+  either rejects or resolves with no valid numeric tab id, whatever tab the
+  panel was bound to is invalidated: its id no longer matches what
+  `stateChanged` is compared against, and its own bind generation is
+  advanced, so a `getState` snapshot that binding already had in flight is
+  stale exactly like a superseded rebind's snapshot is (§6.1.2). A stale
+  query completing after a newer one has already started never invalidates
+  anything, the same way it never rebinds anything.
 
 No `RunState` field carries a revision or a timestamp for this: the ordering
 above is entirely client-side bookkeeping in the panel, private to it, and
@@ -369,10 +379,20 @@ yet. Either is caught and rendered as the panel's `failed` phase, carrying
 `internal-error` — the same kind and message an unexpected exception inside
 a run already produces — so the reader is told something went wrong rather
 than being shown "No summary has been run for this tab yet." for a tab that
-may well have one. Nothing here is written to `chrome.storage.session`: it
-is a state the panel renders locally, not one `getState` or `stateChanged`
-ever carries, and a later valid rebind or update replaces it exactly as it
-would replace any other rendered phase.
+may well have one. A `chrome.tabs.query` that resolves without a valid tab id
+is rendered the same way `followActiveTab` renders no tab at all: the idle
+phase, "No summary has been run for this tab yet.". Nothing here is written
+to `chrome.storage.session`: it is a state the panel renders locally, not one
+`getState` or `stateChanged` ever carries.
+
+A `chrome.tabs.query` rejection or no-valid-tab-id result additionally
+invalidates whatever tab the panel was bound to before it (§6.1.1): the tab
+this panel was following can no longer be confirmed as the active one, so
+neither a `stateChanged` for it nor its own already-in-flight `getState`
+snapshot may replace the `internal-error` or idle phase just rendered — only
+a *new* binding, started by a later active-tab query that does yield a valid
+tab id, can replace it, exactly as an ordinary rebind replaces any other
+rendered phase.
 
 `chrome.runtime.openOptionsPage()` failing — the click handler behind both
 `Settings` and `Open settings` — is caught the same way, without touching
