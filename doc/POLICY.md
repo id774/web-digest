@@ -380,6 +380,8 @@ finally intended, and merges as if it had been written that way.
   end of that version.
 - `doc/VERSIONS` carries these guidelines again at its foot, and an entry
   written into it follows the reasons recorded there.
+- The first entry, at the lowest version `doc/VERSIONS` reaches, reads only
+  `Initial release.` and nothing else.
 
 ### 1.15 Document Format
 - The format of a document is decided by what it is for and by the name it
