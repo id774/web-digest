@@ -371,6 +371,24 @@ No `RunState` field carries a revision or a timestamp for this: the ordering
 above is entirely client-side bookkeeping in the panel, private to it, and
 adds nothing to what `getState` or `stateChanged` carry.
 
+- `chrome.tabs.onReplaced` triggers this same `followActiveTab()` recheck,
+  alongside `chrome.tabs.onActivated`.
+- If the identity being removed (`removedTabId`) is the one currently bound,
+  the binding is invalidated — the same private-state change an
+  unconfirmable active tab already causes above: current tab identity
+  cleared, bind generation advanced, live marker reset — before
+  `followActiveTab()` runs.
+- The added identity (`addedTabId`) from the event is never a direct bind
+  source. The recheck re-queries the actual active tab exactly as an
+  ordinary activation does, and a query resolving to the identity already
+  bound is the existing no-op.
+- Replacing a tab that is not the current binding leaves that binding
+  untouched: the recheck it triggers resolves back to the same active tab.
+- The existing `tabLookupGeneration` check applies to a replacement-triggered
+  query exactly as it does to an activation-triggered one, so the two can
+  overlap without either winning out of turn.
+- No `RunState` revision, timestamp or message field is added for this.
+
 ### 6.1.2 What the panel does when it cannot learn a tab's state
 
 A `chrome.tabs.query` rejection, or a `getState` message that never resolves
@@ -1611,20 +1629,24 @@ The four states of basic design §14, one per tab.
 - Live runs are also held in a per-worker set solely to reject a duplicate
   click while work is actually in progress. Worker termination clears that
   set, allowing a later click to recover from the stored `running` state.
-- A stored state is removed when its tab is closed, and when its tab starts
-  loading a different document — so the panel returns to `idle` for a page that
-  has not been summarized, which basic design §7.2 requires. The listener that
-  does this **starts nothing, reads no page, records nothing and holds no
-  URL**; discarding is all it does.
+- A stored state is removed when its tab is closed, when its tab starts
+  loading a different document, and when Chrome replaces its tab identity —
+  so the panel returns to `idle` for a page that has not been summarized,
+  which basic design §7.2 requires. The listener that does this **starts
+  nothing, reads no page, records nothing and holds no URL**; discarding is
+  all it does. A replacement invalidates the removed identity's run first,
+  the same ordering closure and navigation already use, and never migrates
+  state to the added identity: the added identity's own state, if it later
+  gets one, starts from `idle` like any tab not yet summarized.
 - Every `chrome.storage.session` write or remove for a tab is queued behind
   whatever is already pending for that same tab, so a write already in flight
-  when navigation or a tab close begins its cleanup is guaranteed to finish
-  before that cleanup's remove — never after it — and the removed state
-  cannot come back. A write still queued when its run stops being current is
-  a no-op rather than a state that outlives the run it belonged to. Cleanups
-  themselves are unconditional and always run in the order they were asked
-  for, so a later run's own first write is never undone by an earlier
-  cleanup that was still queued behind it.
+  when navigation, a tab close, or a tab replacement begins its cleanup is
+  guaranteed to finish before that cleanup's remove — never after it — and
+  the removed state cannot come back. A write still queued when its run stops
+  being current is a no-op rather than a state that outlives the run it
+  belonged to. Cleanups themselves are unconditional and always run in the
+  order they were asked for, so a later run's own first write is never undone
+  by an earlier cleanup that was still queued behind it.
 - A `chrome.storage.session.set` failure is not mistaken for success: the run
   continues past it only if the write actually went through. Where that
   write was the run's own failure state — the outer catch of §22, or an
@@ -1806,11 +1828,13 @@ What one run does with data, end to end.
 
 - **Only the page a summary was asked for is read**, at the moment it was asked
   for. There is no declared content script, and no listener reads a page or
-  starts a summary run on navigation. A navigation housekeeping listener does
-  exist: it invalidates the run in progress, if any, and discards the tab's
-  stored session state — it reads no page, holds no URL and starts no run.
-  Every summary target is the tab the toolbar action was clicked on, and no
-  code path reads a tab that was not the subject of that click.
+  starts a summary run on navigation. Tab-lifecycle housekeeping listeners for
+  navigation, closure and replacement do exist: each invalidates the run in
+  progress, if any, and discards the old tab identity's stored session
+  state — none of them reads a page, holds a URL or starts a run, and none
+  transfers state from a removed tab identity to an added one. Every summary
+  target is the tab the toolbar action was clicked on, and no code path reads
+  a tab that was not the subject of that click.
 - **No browsing history is collected.** There is no `history` and no `tabs`
   permission, nothing records a URL, and the only trace of a run is a state
   keyed by tab id that the browser discards when it closes.

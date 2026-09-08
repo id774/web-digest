@@ -71,6 +71,7 @@ function makeFakeChrome() {
     tabs: {
       onRemoved: { addListener: (fn) => (listeners.removed = fn) },
       onUpdated: { addListener: (fn) => (listeners.updated = fn) },
+      onReplaced: { addListener: (fn) => (listeners.replaced = fn) },
     },
   };
 

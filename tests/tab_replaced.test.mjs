@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 async function loadWorkerWithFakeChrome() {
   const listeners = {};
   const removedKeys = [];
+  const setKeys = [];
   const chrome = {
     action: { onClicked: { addListener: (fn) => (listeners.clicked = fn) } },
     runtime: {
@@ -22,7 +23,10 @@ async function loadWorkerWithFakeChrome() {
     storage: {
       session: {
         get: () => Promise.resolve({}),
-        set: () => Promise.resolve(),
+        set: (fields) => {
+          setKeys.push(...Object.keys(fields));
+          return Promise.resolve();
+        },
         remove: (key) => {
           removedKeys.push(key);
           return Promise.resolve();
@@ -38,16 +42,16 @@ async function loadWorkerWithFakeChrome() {
 
   globalThis.chrome = chrome;
   const worker = await import(
-    `../src/background/service_worker.js?tab-removed-${Math.random()}`
+    `../src/background/service_worker.js?tab-replaced-${Math.random()}`
   );
-  return { worker, chrome, listeners, removedKeys };
+  return { worker, chrome, listeners, removedKeys, setKeys };
 }
 
-test("closing a tab invalidates its work before the state is removed", async () => {
-  const { worker, chrome, listeners, removedKeys } =
+test("replacing a tab invalidates its work before the removed state is discarded", async () => {
+  const { worker, chrome, listeners, removedKeys, setKeys } =
     await loadWorkerWithFakeChrome();
   try {
-    assert.equal(typeof listeners.removed, "function");
+    assert.equal(typeof listeners.replaced, "function");
 
     assert.equal(worker.claimRun(41), true);
     const run = worker.currentRun(41);
@@ -60,23 +64,29 @@ test("closing a tab invalidates its work before the state is removed", async () 
       return Promise.resolve();
     };
 
-    listeners.removed(41);
+    listeners.replaced(87, 41);
+    await worker.waitForDiscard(41);
 
     assert.deepEqual(removedKeys, ["run:41"]);
     assert.deepEqual(validityAtRemoval, [false]);
     assert.equal(worker.isCurrentRun(41, run), false);
+    assert.equal(worker.currentRun(87), undefined);
+    assert.ok(
+      !setKeys.includes("run:87"),
+      "the added tab identity must never receive a state write",
+    );
   } finally {
     delete globalThis.chrome;
   }
 });
 
-test("a late engine answer writes nothing for a closed tab", async () => {
+test("a late engine answer writes nothing for a replaced tab", async () => {
   const { worker, listeners } = await loadWorkerWithFakeChrome();
   try {
     assert.equal(worker.claimRun(42), true);
     const run = worker.currentRun(42);
 
-    listeners.removed(42);
+    listeners.replaced(88, 42);
 
     let calls = 0;
     const answer = await worker.summarizeMaterial(
@@ -92,6 +102,8 @@ test("a late engine answer writes nothing for a closed tab", async () => {
 
     assert.equal(calls, 0);
     assert.equal(answer, null);
+    assert.equal(worker.isCurrentRun(42, run), false);
+    assert.equal(worker.currentRun(88), undefined);
   } finally {
     delete globalThis.chrome;
   }

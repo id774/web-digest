@@ -27,10 +27,10 @@ Seven decisions shape everything below.
   in the manifest, and no listener reads a page or starts a summary on
   navigation. The extraction pass is injected into a tab at the moment a
   summary is requested, and the extension has no standing presence in any
-  page. A navigation housekeeping listener does exist, but it only discards
-  the stored state of the tab that is navigating — it reads no page, holds
-  no URL and starts no run (§7.3, §16). This is the design of requirement
-  §9, not a rule laid over it.
+  page. Tab-lifecycle housekeeping listeners exist for navigation, closure
+  and replacement. They only invalidate work and discard the stored state of
+  the old tab identity — they read no page, hold no URL and start no run
+  (§7.3, §16). This is the design of requirement §9, not a rule laid over it.
 - **One action is the whole interface.** Clicking the toolbar action is the
   request to summarize. Everything else the reader can do — reading the result,
   running it again, choosing a provider and setting its credential — follows
@@ -205,6 +205,15 @@ can never be the one shown because its own check happened to finish late.
 Neither the check itself nor the rebind it can lead to starts a run, an
 extraction or a provider request.
 
+Chrome replacing a tab identity is also a trigger for this same recheck. If
+the panel was bound to the identity being removed, that binding is invalidated
+first, before the recheck runs — the same invalidation an unconfirmable
+active tab already causes. The added identity from the replacement is never a
+bind source by itself; the panel instead re-queries the actual active tab, the
+same `currentWindow: true` check above, and follows whatever that returns.
+Replacing a tab that was not the active one leaves the current binding
+untouched, since the recheck resolves back to it.
+
 ### 5.4 The options page
 
 The provider, its credential and its model, and the Japanese summary
@@ -302,6 +311,12 @@ Switching to a different tab while the panel stays open **never starts a run**
 either. The panel follows whichever tab is active and shows that tab's own
 state — the summary of a tab left behind does not linger on screen for a tab
 that has none of its own.
+
+When Chrome replaces a tab identity, the removed tab's run and state are
+discarded rather than transferred to the added identity. If the replaced tab
+is active, the panel rechecks the actual active tab and follows that identity.
+A replacement with no state of its own is "not run yet" and waits for a new
+toolbar action. Replacement itself never starts a run.
 
 ### 7.3 What the panel shows
 
@@ -768,6 +783,11 @@ another tab is showing.
   cleared when the browser closes. This survives the service worker being
   terminated mid-life, which Manifest V3 permits at any time, so the panel can
   be reopened and still show the last result.
+- **Stored state is discarded from the old tab identity** on closure, on
+  loading a different document, and on Chrome replacing that identity. A
+  replacement never moves or copies old state to the added identity; an added
+  identity with no state of its own is "not run yet", the same as any tab
+  never summarized.
 - **No summary and no page text is written to disk by this design**, which is
   what §16 requires of it.
 
@@ -824,7 +844,7 @@ promissory:
 
 | Requirement | What makes it true |
 |---|---|
-| a page is read only when a summary is asked for | no declared content script; the navigation housekeeping listener reads no page, holds no URL and starts no run — it only discards stored state; injection happens on the click |
+| a page is read only when a summary is asked for | no declared content script; the tab-lifecycle housekeeping listeners for navigation, closure and replacement read no page, hold no URL and start no run — they only discard the old tab identity's stored work and state; injection happens on the click |
 | no page but the target is touched | the run reads one tab, the one `activeTab` was granted for |
 | no browsing history is collected | no `history` or `tabs` permission, and nothing records a URL beyond the state of the run |
 | no page text reaches a server of this project's | there is no such server; the only outbound origins are the three supported providers', one required and two optional, and the dispatcher sends to exactly the one selected |
