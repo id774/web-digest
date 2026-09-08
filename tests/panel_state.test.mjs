@@ -73,6 +73,7 @@ function makeFakeChrome(initialActiveTabId = 1) {
       _queryImpl: async () =>
         activeTabId === null ? [] : [{ id: activeTabId }],
       onActivated: { addListener: (fn) => (listeners.activated = fn) },
+      onReplaced: { addListener: (fn) => (listeners.replaced = fn) },
     },
   };
 
@@ -659,6 +660,129 @@ test("Open settings is offered only for credential-missing and permission-missin
         `unexpected Open settings visibility for ${kind}`,
       );
     }
+  } finally {
+    cleanup();
+  }
+});
+
+test("replacing the currently bound tab invalidates the old binding and follows the active replacement", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  try {
+    await loadPanel(fake.chrome, doc);
+    await flushUntil(() => fake.pendingSendMessage.length === 1);
+    fake.pendingSendMessage
+      .shift()
+      .resolve(succeededState("Tab A title", "Tab A summary"));
+    await flushUntil(() => doc.elements.summary.textContent !== "");
+
+    fake.setActiveTab(2);
+    fake.setHoldTabsQuery(true);
+    fake.listeners.replaced(2, 1);
+    await flushUntil(() => fake.pendingTabsQuery.length === 1);
+    const replacementLookup = fake.pendingTabsQuery.shift();
+
+    // The old binding was invalidated by the replacement, so a late
+    // stateChanged for the tab it replaced cannot be accepted as current.
+    fake.listeners.message({
+      type: MessageType.STATE_CHANGED,
+      tabId: 1,
+      state: succeededState("Tab A title", "Late old summary"),
+    });
+    assert.notEqual(doc.elements.summary.textContent, "Late old summary");
+
+    replacementLookup.resolve([{ id: 2 }]);
+    await flushUntil(() => fake.pendingSendMessage.length === 1);
+    const request = fake.pendingSendMessage[0];
+    assert.deepEqual(request.message, {
+      type: MessageType.GET_STATE,
+      tabId: 2,
+    });
+
+    fake.pendingSendMessage.shift().resolve(idleState());
+    await flushUntil(
+      () =>
+        doc.elements.status.textContent ===
+        "No summary has been run for this tab yet.",
+    );
+
+    assert.notEqual(doc.elements.summary.textContent, "Late old summary");
+    assert.notEqual(doc.elements.title.textContent, "Tab A title");
+    assert.equal(
+      doc.elements.status.textContent,
+      "No summary has been run for this tab yet.",
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+test("a replaced tab's still-pending snapshot cannot overwrite the replacement binding", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  try {
+    await loadPanel(fake.chrome, doc);
+    await flushUntil(() => fake.pendingSendMessage.length === 1);
+    const oldTabSnapshot = fake.pendingSendMessage.shift();
+
+    fake.setActiveTab(2);
+    fake.listeners.replaced(2, 1);
+    await flushUntil(() => fake.pendingSendMessage.length === 1);
+    const replacementSnapshot = fake.pendingSendMessage.shift();
+    assert.deepEqual(replacementSnapshot.message, {
+      type: MessageType.GET_STATE,
+      tabId: 2,
+    });
+
+    replacementSnapshot.resolve(
+      succeededState("Replacement title", "Replacement summary"),
+    );
+    await flushUntil(
+      () => doc.elements.summary.textContent === "Replacement summary",
+    );
+
+    // The replaced tab's own initial snapshot resolves only now, well after
+    // the replacement binding took over.
+    oldTabSnapshot.resolve(succeededState("Old title", "Old summary"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.equal(doc.elements.title.textContent, "Replacement title");
+    assert.equal(doc.elements.summary.textContent, "Replacement summary");
+    assert.notEqual(doc.elements.summary.textContent, "Old summary");
+  } finally {
+    cleanup();
+  }
+});
+
+test("replacing a non-active tab does not bind the panel to the added tab", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  try {
+    await loadPanel(fake.chrome, doc);
+    await flushUntil(() => fake.pendingSendMessage.length === 1);
+    fake.pendingSendMessage
+      .shift()
+      .resolve(succeededState("Tab 1 title", "Tab 1 summary"));
+    await flushUntil(() => doc.elements.summary.textContent !== "");
+    assert.equal(fake.pendingSendMessage.length, 0);
+
+    const tabsQueryCallsBefore = fake.calls.filter(
+      ([kind]) => kind === "tabsQuery",
+    ).length;
+
+    fake.listeners.replaced(3, 2);
+    await flushUntil(
+      () =>
+        fake.calls.filter(([kind]) => kind === "tabsQuery").length ===
+        tabsQueryCallsBefore + 1,
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.equal(fake.pendingSendMessage.length, 0);
+    assert.equal(doc.elements.title.textContent, "Tab 1 title");
+    assert.equal(doc.elements.summary.textContent, "Tab 1 summary");
   } finally {
     cleanup();
   }

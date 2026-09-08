@@ -197,4 +197,15 @@ chrome.tabs.onActivated.addListener(() => {
   followActiveTab();
 });
 
+// A replacement retires removedTabId as a tab identity. If this panel was
+// bound to it, that binding is invalidated first — the same way an
+// active-tab query failure invalidates one — so a still-pending snapshot or
+// a late stateChanged for it can no longer be accepted as current. The
+// added identity is never bound to directly: followActiveTab re-queries the
+// actual active tab, which also covers a non-active replacement as a no-op.
+chrome.tabs.onReplaced.addListener((_addedTabId, removedTabId) => {
+  if (removedTabId === currentTabId) invalidateBinding();
+  followActiveTab();
+});
+
 followActiveTab();

@@ -534,6 +534,14 @@ function registerListeners() {
     startDiscard(tabId, () => discardState(tabId)).catch(() => {});
   });
 
+  // A replacement retires removedTabId as a tab identity; the added identity
+  // is not a migration target. Cleanup targets removedTabId only, the same
+  // invalidate-then-discard ordering onRemoved uses, and starts no run.
+  chrome.tabs.onReplaced.addListener((_addedTabId, removedTabId) => {
+    invalidateRun(removedTabId);
+    startDiscard(removedTabId, () => discardState(removedTabId)).catch(() => {});
+  });
+
   chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     if (changeInfo && changeInfo.status === "loading") {
       invalidateRun(tabId);

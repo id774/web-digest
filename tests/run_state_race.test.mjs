@@ -64,6 +64,7 @@ function makeFakeChrome() {
     tabs: {
       onRemoved: { addListener: (fn) => (listeners.removed = fn) },
       onUpdated: { addListener: (fn) => (listeners.updated = fn) },
+      onReplaced: { addListener: (fn) => (listeners.replaced = fn) },
     },
   };
 
@@ -217,6 +218,51 @@ test("an old navigation cleanup does not delete the state of the run that starte
     const stored = store.get("run:53");
     assert.equal(stored.phase, "running");
     assert.equal(stored.title, "New page");
+  } finally {
+    delete globalThis.chrome;
+  }
+});
+
+test("a tab-replacement cleanup's remove is not issued until an in-flight write for the removed tab has resolved", async () => {
+  const { chrome, listeners, store, calls, pendingSets, pendingRemoves } =
+    makeFakeChrome();
+  try {
+    const worker = await loadWorker(chrome);
+
+    listeners.clicked({ id: 54, title: "Old page" });
+    await flushUntil(() => pendingSets.length === 1);
+    assert.deepEqual(calls, [["set-called", "run:54"]]);
+
+    // The tab is replaced while that write is still unresolved.
+    listeners.replaced(154, 54);
+
+    // Give a buggy, un-queued cleanup every chance to call remove() early.
+    await flushUntil(() => calls.length > 1, 50);
+    assert.deepEqual(
+      calls,
+      [["set-called", "run:54"]],
+      "remove must stay queued behind the still-pending write",
+    );
+
+    const cleanupSettled = worker.waitForDiscard(54);
+
+    // Only now does the old write actually complete.
+    pendingSets.shift()();
+    await flushUntil(() => pendingRemoves.length === 1);
+    assert.deepEqual(calls, [
+      ["set-called", "run:54"],
+      ["set-applied", "run:54"],
+      ["remove-called", "run:54"],
+    ]);
+
+    pendingRemoves.shift()();
+    await cleanupSettled;
+
+    assert.equal(store.has("run:54"), false);
+    assert.ok(
+      !calls.some(([, key]) => key === "run:154"),
+      "the added tab identity must never be written or removed",
+    );
   } finally {
     delete globalThis.chrome;
   }
