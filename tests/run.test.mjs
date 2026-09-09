@@ -13,6 +13,7 @@ import {
   idleState,
   invalidateRun,
   isCurrentRun,
+  isNavigationBoundary,
   isValidExtractResult,
   keepServiceWorkerAlive,
   openPanelAndRun,
@@ -318,9 +319,14 @@ test("a run starts only after its side panel opens", async () => {
     },
   };
 
-  await openPanelAndRun({ id: 31, title: "A title" }, sidePanel, (id, title) => {
-    events.push(["started", { id, title }]);
-  });
+  await openPanelAndRun(
+    { id: 31, title: "A title" },
+    sidePanel,
+    (id, title, run) => {
+      events.push(["started", { id, title }]);
+      releaseRun(id, run);
+    },
+  );
 
   assert.deepEqual(events, [
     ["configured", { tabId: 31, path: "src/panel/panel.html", enabled: true }],
@@ -345,6 +351,7 @@ test("a run does not start when its side panel cannot open", async () => {
     /panel unavailable/,
   );
   assert.equal(started, false);
+  assert.equal(currentRun(32), undefined);
 });
 
 test("a run does not start when setOptions rejects, but open() is still called to preserve the user gesture", async () => {
@@ -367,6 +374,7 @@ test("a run does not start when setOptions rejects, but open() is still called t
   );
   assert.equal(openCalled, true);
   assert.equal(started, false);
+  assert.equal(currentRun(34), undefined);
 });
 
 test("open() is called before setOptions settles so the action user gesture is preserved", async () => {
@@ -391,9 +399,10 @@ test("open() is called before setOptions settles so the action user gesture is p
   const done = openPanelAndRun(
     { id: 33, title: "A title" },
     sidePanel,
-    (id, title) => {
+    (id, title, run) => {
       events.push(["started", { id, title }]);
       started = true;
+      releaseRun(id, run);
     },
   );
 
@@ -416,6 +425,134 @@ test("open() is called before setOptions settles so the action user gesture is p
     ["configured", { tabId: 33, path: "src/panel/panel.html", enabled: true }],
     ["started", { id: 33, title: "A title" }],
   ]);
+});
+
+test("navigation while panel setup is pending prevents that click from starting a run", async () => {
+  let resolveConfigure;
+  let started = false;
+  const tabId = 41;
+  const sidePanel = {
+    setOptions() {
+      return new Promise((resolve) => {
+        resolveConfigure = resolve;
+      });
+    },
+    async open() {},
+  };
+
+  const done = openPanelAndRun(
+    { id: tabId, title: "A title" },
+    sidePanel,
+    () => {
+      started = true;
+    },
+  );
+
+  const token = currentRun(tabId);
+  assert.notEqual(token, undefined);
+
+  invalidateRun(tabId);
+  resolveConfigure();
+  await done;
+
+  assert.equal(started, false);
+  assert.equal(isCurrentRun(tabId, token), false);
+});
+
+test("a duplicate click while panel setup is pending does not start a second run", async () => {
+  const tabId = 42;
+  const events = [];
+  let resolveFirstConfigure;
+  let firstStarted = 0;
+  let secondStarted = 0;
+
+  const firstSidePanel = {
+    setOptions(options) {
+      events.push(["first-configuring", options]);
+      return new Promise((resolve) => {
+        resolveFirstConfigure = () => {
+          events.push(["first-configured", options]);
+          resolve();
+        };
+      });
+    },
+    async open(options) {
+      events.push(["first-opened", options]);
+    },
+  };
+
+  const first = openPanelAndRun(
+    { id: tabId, title: "A title" },
+    firstSidePanel,
+    (id, title, run) => {
+      firstStarted += 1;
+      releaseRun(id, run);
+    },
+  );
+
+  const secondSidePanel = {
+    async setOptions(options) {
+      events.push(["second-configured", options]);
+    },
+    async open(options) {
+      events.push(["second-opened", options]);
+    },
+  };
+
+  await openPanelAndRun({ id: tabId, title: "A title" }, secondSidePanel, () => {
+    secondStarted += 1;
+  });
+
+  assert.equal(secondStarted, 0);
+  assert.deepEqual(
+    events.filter(([label]) => label.startsWith("second")),
+    [
+      ["second-configured", { tabId, path: "src/panel/panel.html", enabled: true }],
+      ["second-opened", { tabId }],
+    ],
+  );
+
+  resolveFirstConfigure();
+  await first;
+
+  assert.equal(firstStarted, 1);
+  assert.equal(secondStarted, 0);
+  assert.equal(currentRun(tabId), undefined);
+});
+
+test("tab navigation boundaries include loading and URL-change notification without reading the URL value", () => {
+  assert.equal(isNavigationBoundary({ status: "loading" }), true);
+  assert.equal(isNavigationBoundary({ status: "complete" }), false);
+  assert.equal(isNavigationBoundary({ title: "Changed" }), false);
+  assert.equal(isNavigationBoundary(null), false);
+
+  const changeInfo = { status: "complete" };
+  Object.defineProperty(changeInfo, "url", {
+    enumerable: true,
+    get() {
+      throw new Error("URL value must not be read");
+    },
+  });
+
+  assert.equal(isNavigationBoundary(changeInfo), true);
+});
+
+test("tab updates discard state only at the navigation boundary", async () => {
+  const worker = await readFile(
+    new URL("../src/background/service_worker.js", import.meta.url),
+    "utf8",
+  );
+  const listenerMatch = worker.match(
+    /chrome\.tabs\.onUpdated\.addListener\(\(tabId, changeInfo\) => \{([\s\S]*?)\n {2}\}\);/,
+  );
+  assert.ok(listenerMatch, "expected a chrome.tabs.onUpdated listener");
+  const body = listenerMatch[1];
+  assert.match(body, /isNavigationBoundary\(changeInfo\)/);
+  const invalidateIndex = body.indexOf("invalidateRun(tabId)");
+  const discardIndex = body.indexOf("startDiscard(");
+  assert.ok(invalidateIndex >= 0 && discardIndex >= 0);
+  assert.ok(invalidateIndex < discardIndex);
+  assert.doesNotMatch(body, /changeInfo\.url/);
 });
 
 test("service worker keepalive uses the documented 25 second interval", () => {
