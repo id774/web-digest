@@ -160,6 +160,13 @@ browser restart. It is where a run happens:
 **Every decision in a run is taken here**, so that there is one place to read
 when the question is what happened.
 
+The worker claims the tab's live run identity synchronously when the toolbar
+action is received, before it waits for either side-panel operation. That same
+identity is carried into the run after the panel is ready. Navigation, closure
+or tab replacement can therefore invalidate the reader's request even while
+the panel is still opening; an invalidated request never reaches extraction.
+The pending panel operation is not a fifth reader-visible state.
+
 A service worker can be terminated between events. The state of the last run is
 therefore kept where a restart does not lose it — see §14 — rather than in a
 variable the worker happens to still have.
@@ -783,11 +790,13 @@ another tab is showing.
   cleared when the browser closes. This survives the service worker being
   terminated mid-life, which Manifest V3 permits at any time, so the panel can
   be reopened and still show the last result.
-- **Stored state is discarded from the old tab identity** on closure, on
-  loading a different document, and on Chrome replacing that identity. A
-  replacement never moves or copies old state to the added identity; an added
-  identity with no state of its own is "not run yet", the same as any tab
-  never summarized.
+- **Stored state is discarded from the old page identity** on closure, when
+  Chrome reports either that the tab has started loading or that its URL has
+  changed, and on Chrome replacing the tab identity. A URL-change notification
+  is used only as a lifecycle signal: its value is never read, stored or
+  compared. A replacement never moves or copies old state to the added
+  identity; an added identity with no state of its own is "not run yet", the
+  same as any tab never summarized.
 - **No summary and no page text is written to disk by this design**, which is
   what §16 requires of it.
 
@@ -844,7 +853,7 @@ promissory:
 
 | Requirement | What makes it true |
 |---|---|
-| a page is read only when a summary is asked for | no declared content script; the tab-lifecycle housekeeping listeners for navigation, closure and replacement read no page, hold no URL and start no run — they only discard the old tab identity's stored work and state; injection happens on the click |
+| a page is read only when a summary is asked for | no declared content script; the tab-lifecycle housekeeping listeners for navigation, closure and replacement read no page, hold no URL and start no run — navigation is recognized from Chrome's loading or URL-change notification, without reading the URL value — and injection happens only after the click's still-current run identity reaches the run |
 | no page but the target is touched | the run reads one tab, the one `activeTab` was granted for |
 | no browsing history is collected | no `history` or `tabs` permission, and nothing records a URL beyond the state of the run |
 | no page text reaches a server of this project's | there is no such server; the only outbound origins are the three supported providers', one required and two optional, and the dispatcher sends to exactly the one selected |

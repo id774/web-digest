@@ -122,6 +122,18 @@ export function invalidateRun(tabId) {
   activeRuns.delete(tabId);
 }
 
+// True at the boundary Chrome uses to mark a tab's page as having changed —
+// either a `loading` status or the mere presence of a `url` field on the
+// update, never the value either one carries. `Object.hasOwn` proves the
+// property exists without reading it, so a navigation is recognized without
+// this predicate ever touching the URL string itself.
+export function isNavigationBoundary(changeInfo) {
+  return Boolean(
+    changeInfo &&
+      (changeInfo.status === "loading" || Object.hasOwn(changeInfo, "url")),
+  );
+}
+
 export function startDiscard(tabId, discard) {
   return enqueueStateMutation(tabId, discard);
 }
@@ -350,12 +362,13 @@ export async function fail(tabId, run, title, started, kind, detail, status) {
   });
 }
 
-// One run, in the order of the detailed design.
-async function runSummary(tabId, titleFromTab) {
-  // Track live work in memory so a stale stored running state left by worker
-  // termination cannot permanently block the reader from trying again.
-  if (!claimRun(tabId)) return;
-  const run = currentRun(tabId);
+// One run, in the order of the detailed design. The run identity is claimed
+// by openPanelAndRun before either side-panel operation, and is carried in
+// here as `run` rather than claimed anew, so a navigation that invalidates
+// the click while the panel is still opening is not missed by arriving too
+// early for a token to exist yet.
+async function runSummary(tabId, titleFromTab, run) {
+  if (!isCurrentRun(tabId, run)) return;
 
   const started = Date.now();
   let title = titleFromTab || "";
@@ -481,18 +494,31 @@ export async function openPanelAndRun(
 ) {
   if (!tab || typeof tab.id !== "number") return;
   const tabId = tab.id;
+
+  const claimed = claimRun(tabId);
+  const run = claimed ? currentRun(tabId) : undefined;
+
   // open() must be called while the action click's user gesture is still
   // active, so it is invoked before awaiting setOptions()'s completion.
-  // Both calls are issued here, then both Promises are awaited together.
-  // The run only starts once both operations have succeeded.
+  // A successfully claimed run identity already exists while both panel
+  // operations are pending, so navigation can invalidate this click before
+  // it reaches extraction.
   const configured = sidePanel.setOptions({
     tabId,
     path: PANEL_PATH,
     enabled: true,
   });
   const opened = sidePanel.open({ tabId });
-  await Promise.all([configured, opened]);
-  startRun(tabId, tab.title || "");
+
+  try {
+    await Promise.all([configured, opened]);
+  } catch (error) {
+    if (claimed) releaseRun(tabId, run);
+    throw error;
+  }
+
+  if (!claimed || !isCurrentRun(tabId, run)) return;
+  startRun(tabId, tab.title || "", run);
 }
 
 function registerListeners() {
@@ -543,7 +569,7 @@ function registerListeners() {
   });
 
   chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-    if (changeInfo && changeInfo.status === "loading") {
+    if (isNavigationBoundary(changeInfo)) {
       invalidateRun(tabId);
       startDiscard(tabId, () => discardState(tabId)).catch(() => {});
     }

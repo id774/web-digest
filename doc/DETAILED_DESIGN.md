@@ -247,10 +247,12 @@ needed to use them.
 ```text
   the reader clicks the toolbar action
           │
+          ├── claim this tab's live run identity
           ├── chrome.sidePanel.setOptions({ tabId, path, enabled: true })
           ├── chrome.sidePanel.open({ tabId })      ← called before any await
           ├── await both side-panel operations
-          └── the run starts for that tabId only after both have resolved
+          ├── stop if that identity was invalidated meanwhile
+          └── the run continues for that tabId with the same identity
 ```
 
 `chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false })` is set
@@ -262,8 +264,17 @@ fires, so the one click would open a panel and start nothing.
 action, so the worker invokes `setOptions()` and then invokes `open()` before
 awaiting either Promise. It then waits for both operations together. This
 preserves the click gesture for the `open()` call while still preventing the
-run from starting unless both panel operations succeed. A rejection from
-either operation ends the action path with no run.
+run from continuing unless both panel operations succeed. A rejection from
+either operation releases the identity claimed by this click and ends the
+action path with no run.
+
+The live run identity is claimed synchronously before either panel call and is
+the same identity the run uses after both calls succeed. Navigation, closure
+or replacement can therefore invalidate the click while the panel operations
+are pending. If that happens, their later success does not start extraction,
+write a failure state or transfer the request to whatever page the tab now
+contains. A duplicate click does not claim a second identity; it may still
+open the panel, but it starts no second run.
 
 ### 5.2 The whole of the reader's path
 
@@ -1626,18 +1637,22 @@ The four states of basic design §14, one per tab.
 - `running` is written before the first await of a run, so a worker terminated
   mid-run leaves a state that says what was happening rather than a state that
   says nothing did.
-- Live runs are also held in a per-worker set solely to reject a duplicate
-  click while work is actually in progress. Worker termination clears that
-  set, allowing a later click to recover from the stored `running` state.
-- A stored state is removed when its tab is closed, when its tab starts
-  loading a different document, and when Chrome replaces its tab identity —
-  so the panel returns to `idle` for a page that has not been summarized,
-  which basic design §7.2 requires. The listener that does this **starts
-  nothing, reads no page, records nothing and holds no URL**; discarding is
-  all it does. A replacement invalidates the removed identity's run first,
-  the same ordering closure and navigation already use, and never migrates
-  state to the added identity: the added identity's own state, if it later
-  gets one, starts from `idle` like any tab not yet summarized.
+- A run's live identity is held in the worker from the toolbar click itself,
+  before the worker waits for the side panel, until that run finishes or a
+  lifecycle event invalidates it. The same identity rejects a duplicate click
+  while the panel is opening and while work is actually in progress. It is
+  not a `RunState` field and creates no fifth phase. Worker termination clears
+  this in-memory identity, allowing a later click to recover from a stored
+  `running` state.
+- A stored state is removed when its tab is closed, when Chrome reports either
+  that the tab started loading or that its URL changed, and when Chrome
+  replaces its tab identity — so the panel returns to `idle` after a
+  navigation boundary and waits for a new toolbar action. The URL-change
+  notification is tested only for the presence of its `url` property; the URL
+  value itself is never read, stored, compared or logged. The listener that
+  performs this cleanup starts nothing, reads no page and holds no URL. A
+  replacement invalidates the removed identity's run first, the same ordering
+  closure and navigation use, and never migrates state to the added identity.
 - Every `chrome.storage.session` write or remove for a tab is queued behind
   whatever is already pending for that same tab, so a write already in flight
   when navigation, a tab close, or a tab replacement begins its cleanup is
@@ -1826,15 +1841,17 @@ What one run does with data, end to end.
 | the model name | the reader, on the options page | `storage.local`, and the request body, for the selected provider only | the same |
 | the page's URL | nowhere — it is never read, never returned by extraction, never stored and never sent |  |  |
 
-- **Only the page a summary was asked for is read**, at the moment it was asked
-  for. There is no declared content script, and no listener reads a page or
-  starts a summary run on navigation. Tab-lifecycle housekeeping listeners for
-  navigation, closure and replacement do exist: each invalidates the run in
-  progress, if any, and discards the old tab identity's stored session
-  state — none of them reads a page, holds a URL or starts a run, and none
-  transfers state from a removed tab identity to an added one. Every summary
-  target is the tab the toolbar action was clicked on, and no code path reads
-  a tab that was not the subject of that click.
+- **Only the page a summary was asked for is read**, from a toolbar click whose
+  live run identity is still current when extraction is reached. There is no
+  declared content script, and no listener reads a page or starts a summary run
+  on navigation. Tab-lifecycle housekeeping listeners for navigation, closure
+  and replacement only invalidate live work and discard session state. A
+  navigation is recognized when Chrome reports loading or the presence of a
+  URL-change field; the URL value itself is never read or retained. If such a
+  lifecycle event occurs while the side panel is still opening, that click is
+  stale and never reaches extraction. Every summary target is therefore the
+  tab identity the toolbar action claimed and kept current through the start of
+  the run.
 - **No browsing history is collected.** There is no `history` and no `tabs`
   permission, nothing records a URL, and the only trace of a run is a state
   keyed by tab id that the browser discards when it closes.
@@ -1860,7 +1877,10 @@ What one run does with data, end to end.
     │                   │                 │              │             │
     │ clicks ──────────>│                 │              │             │
     │                   │ ── onClicked ──>│              │             │
+    │                                     │ claim run identity         │
     │     panel opens <──────── open() ───┤              │             │
+    │                                     │ await panel operations     │
+    │                                     │ continue only if identity current
     │                                     │ state: running             │
     │                                     │              │             │
     │                                     │ read provider, credential, │
@@ -1882,35 +1902,42 @@ What one run does with data, end to end.
 The steps, at the granularity they are written at:
 
 1. **The reader asks.** `chrome.action.onClicked` fires with the tab (§5.3).
-2. **The panel is opened**, **and the
-   state is set to `running`** for that tab, and `stateChanged` is broadcast.
-   The title from the click's tab, when there is one, is put into the state so
-   the reader sees which page is being worked on.
-3. **The tab is the one the request named.** No search for an active tab, no
-   fallback to another window: a run has one tab id, from step 1.
-4. **The settings are read** (§13): the provider, that provider's own
+2. **The worker claims that tab's live run identity synchronously.** The
+   identity exists before either side-panel Promise is awaited and is the one
+   identity this run will use. A duplicate click cannot claim another one.
+3. **The panel is opened.** `setOptions()` and `open()` are both invoked before
+   either is awaited, with `open()` still inside the action's user gesture. If
+   either rejects, this click's identity is released and no run continues. If
+   both resolve but navigation, closure or replacement invalidated the identity
+   meanwhile, the action ends silently with no extraction and no failure state.
+   Only a still-current identity continues, writes `running` and enters the
+   existing run sequence for that same tab id.
+4. **The tab is the one the request named.** No search for an active tab, no
+   fallback to another window: the live identity belongs to the tab id from
+   step 1.
+5. **The settings are read** (§13): the provider, that provider's own
    credential and model, and the Japanese summary preference, all fixed for
    the rest of this run. No credential for the selected provider, or a blank
    one, ends the run here with `credential-missing`, before the tab is
    touched.
-5. **An optional-permission provider's permission is checked**, never
+6. **An optional-permission provider's permission is checked**, never
    requested (§12.2). Sakura needs no check. A permission since revoked ends
    the run here with `permission-missing`, before the tab is touched.
-6. **The prompt resource is read, and the instruction is composed** (§10.4)
+7. **The prompt resource is read, and the instruction is composed** (§10.4)
    from the prompt text and the Japanese summary preference. A prompt
    resource that cannot be read ends the run with `internal-error` — still
    before the tab is touched, so a run that cannot finish never reads a page.
-7. **The extraction pass is injected** into that tab and returns blocks (§7).
+8. **The extraction pass is injected** into that tab and returns blocks (§7).
    A rejection ends the run with `page-unreadable`.
-8. **The result is checked**: an object, with `blocks` an array and `title` a
+9. **The result is checked**: an object, with `blocks` an array and `title` a
    string, every block carrying a known `kind` and a string `text`. Anything
    else is `page-unreadable`.
-9. **Shaping produces the material** (§8).
-10. **The size is judged** (§9): `too-little-text` ends the run; material over
+10. **Shaping produces the material** (§8).
+11. **The size is judged** (§9): `too-little-text` ends the run; material over
     the per-request budget is structurally chunked.
-11. **The logical request is composed** for the page or for each chunk
+12. **The logical request is composed** for the page or for each chunk
     (§10.3), carrying the trusted instruction and the untrusted content.
-12. **Requests go to the one provider selected in step 4**, through the
+13. **Requests go to the one provider selected in step 5**, through the
     dispatcher and its one adapter, with that provider's own credential and
     configured model, each under one bounded wait common to every adapter
     (§11). Long-page chunk summaries are integrated, recursively when
@@ -1924,12 +1951,12 @@ The steps, at the granularity they are written at:
     success, failure, timeout or exception. The 120-second bounded wait per
     request stays with the transport, and the interval itself produces no
     provider result and no state transition.
-13. **Every answer is judged** by its adapter (§11.4, §11.6). Any failure
+14. **Every answer is judged** by its adapter (§11.4, §11.6). Any failure
     ends the whole run; nothing here calls a second provider.
-14. **The final integrated summary is taken** from the answer.
-15. **The state becomes `succeeded`**, carrying the title and the summary, and
+15. **The final integrated summary is taken** from the answer.
+16. **The state becomes `succeeded`**, carrying the title and the summary, and
     `stateChanged` is broadcast. The panel renders it as text.
-16. **Any step above may end the run instead.** Every way it can is a row of
+17. **Any step above may end the run instead.** Every way it can is a row of
     §18; the state becomes `failed` with that kind, `stateChanged` is
     broadcast, and the panel shows the message. Another run starts only when
     the reader clicks the toolbar action again; the panel itself has no retry
@@ -1937,7 +1964,7 @@ The steps, at the granularity they are written at:
 
 The whole of a run is in `service_worker.js`, so the question "what happened"
 has one file to read; which provider it used is answered by what was
-selected in settings at step 4, since no later step can change it.
+selected in settings at step 5, since no later step can change it.
 
 ## 23. Testability
 
@@ -1961,6 +1988,8 @@ specification would be written against.
 | the state machine (§17) | a phase and an event | the next phase and what it carries | an event that is not allowed in a phase leaves it unchanged |
 | error kinds (§18) | a kind, and a detail | one message string | a kind with no message is a fault of this repository |
 | the service-worker keepalive (§22) | an async operation function, a fake runtime API and fake interval functions, all passed as parameters | the operation's resolved value, or its rejection propagated unchanged | none of its own: the interval period is `SERVICE_WORKER_KEEPALIVE_INTERVAL_MS`, the pulse is one `getPlatformInfo` call, and the interval is cleared on resolve as on reject, all without a browser profile, a network or a real timer |
+| run ownership at panel start (§5.1, §22) | a tab id, deferred fake side-panel Promises and a fake run starter | exactly one live identity exists from the click; invalidating it before panel completion prevents the starter from being called | a panel rejection releases the claimed identity; a duplicate click claims none |
+| tab-update navigation boundary (§17) | a `changeInfo` object | true for `status: "loading"` or the presence of its own `url` property, false otherwise | the URL property's value is never read |
 
 Four properties make that possible, and each is a constraint on the
 implementation rather than an observation about it:
