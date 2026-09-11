@@ -15,9 +15,10 @@ test("Sakura needs no optional permission", () => {
   assert.equal(needsOptionalPermission(Provider.SAKURA), false);
 });
 
-test("OpenAI and Claude each need their own optional permission", () => {
+test("OpenAI, Claude and Kimi each need their own optional permission", () => {
   assert.equal(needsOptionalPermission(Provider.OPENAI), true);
   assert.equal(needsOptionalPermission(Provider.ANTHROPIC), true);
+  assert.equal(needsOptionalPermission(Provider.KIMI), true);
   assert.equal(
     PROVIDER_HOST_PERMISSION[Provider.OPENAI],
     "https://api.openai.com/*",
@@ -25,6 +26,10 @@ test("OpenAI and Claude each need their own optional permission", () => {
   assert.equal(
     PROVIDER_HOST_PERMISSION[Provider.ANTHROPIC],
     "https://api.anthropic.com/*",
+  );
+  assert.equal(
+    PROVIDER_HOST_PERMISSION[Provider.KIMI],
+    "https://api.moonshot.ai/*",
   );
 });
 
@@ -108,6 +113,48 @@ test("changeProvider does not save the provider when permission is denied", asyn
   });
   assert.deepEqual(result, { ok: false, provider: Provider.ANTHROPIC });
   assert.equal(saveCalls, 0);
+});
+
+test("Kimi's optional permission is checked with chrome.permissions.contains", async () => {
+  const seen = [];
+  const permissionsApi = {
+    contains: async (query) => {
+      seen.push(query);
+      return true;
+    },
+  };
+  const granted = await hasProviderPermission(Provider.KIMI, permissionsApi);
+  assert.equal(granted, true);
+  assert.deepEqual(seen, [{ origins: ["https://api.moonshot.ai/*"] }]);
+});
+
+test("requesting Kimi's optional permission calls chrome.permissions.request directly", async () => {
+  const requestCalls = [];
+  const permissionsApi = {
+    request: async (query) => {
+      requestCalls.push(query);
+      return true;
+    },
+  };
+  const granted = await requestProviderPermission(
+    Provider.KIMI,
+    permissionsApi,
+  );
+  assert.equal(granted, true);
+  assert.deepEqual(requestCalls, [{ origins: ["https://api.moonshot.ai/*"] }]);
+});
+
+test("changeProvider saves Kimi once permission is granted", async () => {
+  let saved = null;
+  const result = await changeProvider({
+    provider: Provider.KIMI,
+    requestPermission: async () => true,
+    save: async (provider) => {
+      saved = provider;
+    },
+  });
+  assert.deepEqual(result, { ok: true, provider: Provider.KIMI });
+  assert.equal(saved, Provider.KIMI);
 });
 
 test("changeProvider never requests a permission for Sakura", async () => {

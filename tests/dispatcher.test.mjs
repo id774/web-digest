@@ -72,6 +72,27 @@ test("anthropic is dispatched to the documented Messages endpoint", async () => 
   assert.deepEqual(result, { ok: true, summary: "ok" });
 });
 
+test("kimi is dispatched to the documented Kimi endpoint", async () => {
+  let seenUrl = null;
+  const result = await callProvider(
+    { provider: "kimi", ...LOGICAL_REQUEST },
+    {
+      fetchImpl: async (url) => {
+        seenUrl = url;
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            choices: [{ finish_reason: "stop", message: { content: "ok" } }],
+          }),
+        };
+      },
+    },
+  );
+  assert.equal(seenUrl, "https://api.moonshot.ai/v1/chat/completions");
+  assert.deepEqual(result, { ok: true, summary: "ok" });
+});
+
 test("an unsupported provider is internal-error rather than a guess", async () => {
   const result = await callProvider({ provider: "bogus", ...LOGICAL_REQUEST });
   assert.deepEqual(result, { ok: false, kind: "internal-error" });

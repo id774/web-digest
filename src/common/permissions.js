@@ -1,5 +1,6 @@
-// The optional host permissions OpenAI and Claude need, and nothing about the
-// Sakura AI Engine, whose host permission is required and always granted.
+// The optional host permissions OpenAI, Claude and Kimi need, and nothing
+// about the Sakura AI Engine, whose host permission is required and always
+// granted.
 //
 // Nothing here ever requests a permission on its own initiative: requesting
 // happens only from the reader's explicit action in the options page (see
@@ -10,10 +11,12 @@ import { Provider } from "./settings.js";
 export const PROVIDER_HOST_PERMISSION = {
   [Provider.OPENAI]: "https://api.openai.com/*",
   [Provider.ANTHROPIC]: "https://api.anthropic.com/*",
+  [Provider.KIMI]: "https://api.moonshot.ai/*",
 };
 
 // Sakura's host permission is required in the manifest and is always present;
-// OpenAI's and Claude's are optional and may or may not have been granted.
+// OpenAI's, Claude's and Kimi's are optional and may or may not have been
+// granted.
 export function needsOptionalPermission(provider) {
   return Object.prototype.hasOwnProperty.call(
     PROVIDER_HOST_PERMISSION,
@@ -35,8 +38,9 @@ export async function hasProviderPermission(
 
 // Calls chrome.permissions.request() directly, from within the caller's own
 // user gesture in the options page — selecting the provider, or clicking
-// "Grant or restore permission" for the selected one — for OpenAI and Claude.
-// Sakura's permission is required, not optional, so it is never requested.
+// "Grant or restore permission" for the selected one — for OpenAI, Claude and
+// Kimi. Sakura's permission is required, not optional, so it is never
+// requested.
 // This does not wait on hasProviderPermission() / permissions.contains()
 // first: Chrome itself resolves without a prompt when the permission already
 // holds, and an asynchronous pre-check here would only risk losing the user

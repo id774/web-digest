@@ -270,13 +270,13 @@ test("the options page offers an independent Japanese summary preference", async
   assert.match(script, /saveJapaneseSummary/);
 });
 
-test("the options page offers a provider selector with the three supported providers", async () => {
+test("the options page offers a provider selector with every supported provider", async () => {
   const html = await readFile(
     new URL("../src/options/options.html", import.meta.url),
     "utf8",
   );
   assert.match(html, /id="provider"/);
-  for (const value of ["sakura", "openai", "anthropic"]) {
+  for (const value of ["sakura", "openai", "anthropic", "kimi"]) {
     assert.match(html, new RegExp(`<option value="${value}">`));
   }
   assert.match(html, /Delete credential/);

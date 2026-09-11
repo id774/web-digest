@@ -9,6 +9,7 @@
 import {
   ANTHROPIC_DEFAULT_MODEL,
   DEFAULT_MODEL,
+  KIMI_DEFAULT_MODEL,
   OPENAI_DEFAULT_MODEL,
   PROVIDER_LABEL,
   Provider,
@@ -32,12 +33,14 @@ const CREDENTIAL_LABEL = {
   [Provider.SAKURA]: "Sakura AI Engine API token",
   [Provider.OPENAI]: "OpenAI API key",
   [Provider.ANTHROPIC]: "Claude API key",
+  [Provider.KIMI]: "Kimi API key",
 };
 
 const DEFAULT_MODEL_FOR = {
   [Provider.SAKURA]: DEFAULT_MODEL,
   [Provider.OPENAI]: OPENAI_DEFAULT_MODEL,
   [Provider.ANTHROPIC]: ANTHROPIC_DEFAULT_MODEL,
+  [Provider.KIMI]: KIMI_DEFAULT_MODEL,
 };
 
 // Saving with an empty credential field is refused rather than treated as a
@@ -64,8 +67,8 @@ export function validateModel(value) {
   return { ok: true, value: model };
 }
 
-// Switching to a provider whose host permission is optional (OpenAI, Claude)
-// requests that permission, through the reader's own action on this page,
+// Switching to a provider whose host permission is optional (OpenAI, Claude,
+// Kimi) requests that permission, through the reader's own action on this page,
 // before the provider selection is saved. Sakura needs none. Granting saves
 // the new selection; denying leaves the previous provider selected and
 // touches no credential or model of any provider.

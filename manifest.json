@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "web-digest",
   "version": "1.1.1",
-  "description": "Summarize the page you are reading, with your own Sakura AI Engine, OpenAI or Claude credential.",
+  "description": "Summarize the page you are reading, with your own Sakura AI Engine, OpenAI, Claude or Kimi credential.",
   "minimum_chrome_version": "116",
   "icons": {
     "16": "icons/icon-16.png",
@@ -14,7 +14,8 @@
   "host_permissions": ["https://api.ai.sakura.ad.jp/*"],
   "optional_host_permissions": [
     "https://api.openai.com/*",
-    "https://api.anthropic.com/*"
+    "https://api.anthropic.com/*",
+    "https://api.moonshot.ai/*"
   ],
   "background": {
     "service_worker": "src/background/service_worker.js",

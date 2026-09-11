@@ -29,13 +29,17 @@ test("Sakura's host permission stays required", async () => {
   ]);
 });
 
-test("OpenAI's and Claude's host permissions are optional, and no other one exists", async () => {
+test("OpenAI's, Claude's and Kimi's host permissions are optional, and no other one exists", async () => {
   const manifest = await readManifest();
   assert.deepEqual(
     new Set(manifest.optional_host_permissions),
-    new Set(["https://api.openai.com/*", "https://api.anthropic.com/*"]),
+    new Set([
+      "https://api.openai.com/*",
+      "https://api.anthropic.com/*",
+      "https://api.moonshot.ai/*",
+    ]),
   );
-  assert.equal(manifest.optional_host_permissions.length, 2);
+  assert.equal(manifest.optional_host_permissions.length, 3);
 });
 
 test("no unrelated permission was added", async () => {

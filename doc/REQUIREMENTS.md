@@ -256,7 +256,7 @@ changed.
 ## 14. The AI provider
 
 The summarization is performed by one AI provider the reader has selected:
-the Sakura AI Engine (さくらの AI Engine), OpenAI, or Claude. The extension
+the Sakura AI Engine (さくらの AI Engine), OpenAI, Claude, or Kimi. The extension
 prepares the material, asks for the summary and displays what comes back; the
 inference happens at the endpoint of whichever provider was selected.
 
@@ -283,10 +283,10 @@ inference happens at the endpoint of whichever provider was selected.
 
 ### 14.1 Supported providers
 
-The initial multi-provider version supports exactly three: the Sakura AI
-Engine, OpenAI, and Claude. A custom or reader-editable endpoint, a fourth
-provider, and an OpenAI-compatible, Azure OpenAI, Amazon Bedrock or Google
-Vertex AI provider are out of scope — see section 23.
+The multi-provider version supports exactly four: the Sakura AI Engine,
+OpenAI, Claude, and Kimi. A custom or reader-editable endpoint, a fifth
+provider, and a generic OpenAI-compatible, Azure OpenAI, Amazon Bedrock or
+Google Vertex AI provider are out of scope — see section 23.
 
 ## 15. The API credential
 
@@ -325,8 +325,8 @@ that page.** No other reading of a page is performed, and no page is read
 because it happened to be open.
 
 What is extracted is sent to the one AI provider the reader selected, to the
-extent the summary requires, and to nowhere else — not to the other two
-supported providers, whether or not the reader has configured a credential or
+extent the summary requires, and to nowhere else — not to any other
+supported provider, whether or not the reader has configured a credential or
 granted a permission for them.
 
 A server belonging to this project collects and stores none of the following:
@@ -380,7 +380,7 @@ differs: configure a credential, replace a credential, grant a permission,
 retry later, accept that this page cannot be extracted, or summarize a
 smaller page. One message covering all of them leaves them guessing. The
 messages name the selected provider generically — "the selected AI
-provider" — rather than assuming which of the three it is, since a run may
+provider" — rather than assuming which one it is, since a run may
 use any of them.
 
 An error message carries no API credential and no internal detail that the reader has
@@ -450,7 +450,7 @@ clear:
 - what the project is,
 - its main features,
 - how it is installed,
-- what is needed in order to use each of the three supported AI providers,
+- what is needed in order to use each of the four supported AI providers,
 - how a provider is selected and its API credential is configured,
 - how it is used,
 - the main limitations.
@@ -504,8 +504,8 @@ comes from another project, and no document here is completed by one.
 - a standalone translator, as distinct from the summary's own output language,
 - a choice of several summarization modes,
 - a large body of site-specific implementations,
-- a fourth AI provider, or an OpenAI-compatible, Azure OpenAI, Amazon Bedrock or
-  Google Vertex AI provider, beyond the three named in section 14,
+- a fifth AI provider, or a generic OpenAI-compatible, Azure OpenAI, Amazon
+  Bedrock or Google Vertex AI provider, beyond the four named in section 14,
 - a custom or reader-editable endpoint for any provider,
 - automatic fallback, a race, or a comparison between providers for one run,
 - fetching or maintaining a list of a provider's available models,
@@ -520,7 +520,7 @@ The initial version has met its purpose when all of the following hold:
 1. The extension can be loaded into Chrome from this repository as an unpacked
    extension.
 2. A reader can configure their own API credential for at least one of the
-   three supported providers, and can select which provider a run uses.
+   four supported providers, and can select which provider a run uses.
 3. A reader who configured only a Sakura AI Engine token before this
    repository supported more than one provider keeps summarizing exactly as
    before, with nothing to reconfigure.
@@ -540,5 +540,5 @@ The initial version has met its purpose when all of the following hold:
     or in anything distributed from it.
 13. Nothing in the design requires a backend server belonging to this project.
 14. What a reader needs in order to obtain, install, configure and use the
-    extension from GitHub, for any of the three supported providers, is written
+    extension from GitHub, for any of the four supported providers, is written
     down in this repository.
