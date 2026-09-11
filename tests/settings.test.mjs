@@ -6,11 +6,14 @@ import { readFile } from "node:fs/promises";
 import {
   ANTHROPIC_DEFAULT_MODEL,
   DEFAULT_MODEL,
+  KIMI_DEFAULT_MODEL,
   OPENAI_DEFAULT_MODEL,
   Provider,
   STORAGE_KEY_ANTHROPIC_KEY,
   STORAGE_KEY_ANTHROPIC_MODEL,
   STORAGE_KEY_JAPANESE_SUMMARY,
+  STORAGE_KEY_KIMI_KEY,
+  STORAGE_KEY_KIMI_MODEL,
   STORAGE_KEY_MODEL,
   STORAGE_KEY_OPENAI_KEY,
   STORAGE_KEY_OPENAI_MODEL,
@@ -48,6 +51,7 @@ test("an unknown, invalid or absent provider resolves to Sakura", () => {
   assert.equal(resolveProvider(Provider.SAKURA), Provider.SAKURA);
   assert.equal(resolveProvider(Provider.OPENAI), Provider.OPENAI);
   assert.equal(resolveProvider(Provider.ANTHROPIC), Provider.ANTHROPIC);
+  assert.equal(resolveProvider(Provider.KIMI), Provider.KIMI);
 });
 
 test("an unset model resolves to that provider's own default", () => {
@@ -57,6 +61,7 @@ test("an unset model resolves to that provider's own default", () => {
     resolveModelFor(Provider.ANTHROPIC, ""),
     ANTHROPIC_DEFAULT_MODEL,
   );
+  assert.equal(resolveModelFor(Provider.KIMI, ""), KIMI_DEFAULT_MODEL);
   assert.equal(
     resolveModelFor(Provider.OPENAI, "  another-model  "),
     "another-model",
@@ -70,12 +75,25 @@ test("the backward-compatible resolveModel resolves the Sakura default", () => {
   assert.equal(resolveModel("another-model"), "another-model");
 });
 
-test("the three default models are each one non-empty string", () => {
-  for (const model of [DEFAULT_MODEL, OPENAI_DEFAULT_MODEL, ANTHROPIC_DEFAULT_MODEL]) {
+test("the four default models are each one non-empty string", () => {
+  for (const model of [
+    DEFAULT_MODEL,
+    OPENAI_DEFAULT_MODEL,
+    ANTHROPIC_DEFAULT_MODEL,
+    KIMI_DEFAULT_MODEL,
+  ]) {
     assert.equal(typeof model, "string");
     assert.notEqual(model.trim(), "");
   }
-  assert.equal(new Set([DEFAULT_MODEL, OPENAI_DEFAULT_MODEL, ANTHROPIC_DEFAULT_MODEL]).size, 3);
+  assert.equal(
+    new Set([
+      DEFAULT_MODEL,
+      OPENAI_DEFAULT_MODEL,
+      ANTHROPIC_DEFAULT_MODEL,
+      KIMI_DEFAULT_MODEL,
+    ]).size,
+    4,
+  );
 });
 
 test("the storage keys are the ones the design fixed", () => {
@@ -86,6 +104,8 @@ test("the storage keys are the ones the design fixed", () => {
   assert.equal(STORAGE_KEY_OPENAI_MODEL, "openaiModel");
   assert.equal(STORAGE_KEY_ANTHROPIC_KEY, "anthropicApiKey");
   assert.equal(STORAGE_KEY_ANTHROPIC_MODEL, "anthropicModel");
+  assert.equal(STORAGE_KEY_KIMI_KEY, "kimiApiKey");
+  assert.equal(STORAGE_KEY_KIMI_MODEL, "kimiModel");
   assert.equal(STORAGE_KEY_JAPANESE_SUMMARY, "japaneseSummary");
 });
 
@@ -135,6 +155,8 @@ test("saving a provider's settings never writes another provider's storage key",
     "STORAGE_KEY_OPENAI_MODEL",
     "STORAGE_KEY_ANTHROPIC_KEY",
     "STORAGE_KEY_ANTHROPIC_MODEL",
+    "STORAGE_KEY_KIMI_KEY",
+    "STORAGE_KEY_KIMI_MODEL",
   ]) {
     assert.doesNotMatch(saveSettingsBody, new RegExp(literalKey));
   }
@@ -228,7 +250,7 @@ test("no credential and credential rejected stay distinguishable", () => {
 });
 
 test("messages are provider-neutral: no provider is named", () => {
-  const named = /\bSakura\b|\bOpenAI\b|\bClaude\b|\bAnthropic\b/i;
+  const named = /\bSakura\b|\bOpenAI\b|\bClaude\b|\bAnthropic\b|\bKimi\b/i;
   for (const kind of Object.values(ErrorKind)) {
     for (const detail of [undefined, ...Object.values(ProviderErrorDetail)]) {
       assert.ok(!named.test(messageFor(kind, detail)), `${kind}/${detail}`);

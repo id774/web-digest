@@ -73,7 +73,7 @@ These lines are not crossed by a setting or by an extension.
 - Do not read or record the URL of a page, and do not accumulate anything from
   which a browsing history could be reconstructed.
 - Do not add a backend belonging to this project, and do not send anything to
-  any host but one of the three supported AI providers' origins the manifest
+  any host but one of the supported AI providers' origins the manifest
   names — and, for one run, only the one origin belonging to the provider
   actually selected for it.
 - Do not supply an API credential for any provider, ship one, or arrange for a
@@ -83,7 +83,7 @@ These lines are not crossed by a setting or by an extension.
   the value of one authentication header or field, to that provider's own
   origin: not into the page, not into the injected pass, not into the panel,
   not into a URL, not into the log, not into a message the reader is shown,
-  and not to either of the other two supported providers.
+  and not to any other supported provider.
 - Do not let a run use more than one AI provider. Do not fall back from a
   failing provider to another one, race two providers, or compare their
   answers.
@@ -203,7 +203,7 @@ prompt, to extraction or to shaping is allowed to do.
   no response body, no request, and no part of the page.
 - **A message never carries an API credential**, and never carries the page's
   text or the summary in order to explain a failure. Nor does it name which
-  of the three providers was selected — every message speaks of "the selected
+  of the providers was selected — every message speaks of "the selected
   AI provider".
 - An unforeseen exception ends the run as a failure the reader is told about,
   rather than leaving the panel in a state that cannot be told from a run that
@@ -218,7 +218,7 @@ prompt, to extraction or to shaping is allowed to do.
 - **Never logged, at any level:** any provider's API credential and the
   header or field it travels in; the text of the page, whole or in part,
   including any block or excerpt; the page's title and its URL; the prompt;
-  the request body; the response body; the summary; which of the three
+  the request body; the response body; the summary; which of the
   providers a run used.
 - An exception object is never logged whole, because what it carries is not
   bounded by this design.
@@ -267,7 +267,7 @@ prompt, to extraction or to shaping is allowed to do.
   order in §1.2, and the wrong one is corrected as its own change.
 - **Do not document a feature, a setting or an operation that does not exist**,
   and do not write a document as though a planned change had been made.
-- Where a document must state something one of the three supported providers
+- Where a document must state something one of the supported providers
   owns — how a credential is obtained, which models exist — that provider's
   own official documentation is the authority and is referred to rather than
   restated.
@@ -467,16 +467,16 @@ that the requirements are incomplete, and that is where it is taken.
 - **Permissions are the minimum the design needs**, and each one earns its place
   by a use that exists in the code. `activeTab`, `scripting`, `storage` and
   `sidePanel` are the whole of the ordinary permissions.
-- **The host permissions name exactly the three supported AI providers'
+- **The host permissions name exactly the supported AI providers'
   origins and nothing else**, so that a request anywhere else is refused by
   Chrome rather than by this policy being obeyed. Sakura's stays `host
-  _permissions` (required, always present); OpenAI's and Claude's are
+  _permissions` (required, always present); OpenAI's, Claude's and Kimi's are
   `optional_host_permissions`.
 - **An optional host permission is requested only from the reader's own
   action in the options page**, never from a run and never speculatively:
-  either when they select OpenAI or Claude as the provider, or, for whichever
-  of the two is currently selected, by choosing `Grant or restore permission`
-  there. A denial or a rejected request leaves the currently selected
+  either when they select OpenAI, Claude or Kimi as the provider, or, for
+  whichever of the three is currently selected, by choosing `Grant or restore
+  permission` there. A denial or a rejected request leaves the currently selected
   provider in place and touches no stored credential or model; there is no
   fallback.
 - **No host permission for the sites the reader visits.** Access to a page comes
@@ -517,7 +517,7 @@ that the requirements are incomplete, and that is where it is taken.
 - **No provider SDK is used.** Every adapter speaks its provider's HTTP API
   directly with the browser's own `fetch`; a dependency for this is refused
   by §1.11.
-- The only `fetch` calls to a network origin are the three provider adapters',
+- The only `fetch` calls to a network origin are the provider adapters',
   one origin each, and the dispatcher calls exactly one of them per run. A
   `fetch` of a packaged resource through `chrome.runtime.getURL` is not a
   network request and is the only other one.
@@ -552,10 +552,11 @@ that the requirements are incomplete, and that is where it is taken.
   They neither reach into a page nor are reachable from one.
 
 ### 2.7 The AI Providers
-- **Exactly three providers are supported: the Sakura AI Engine, OpenAI and
-  Claude.** A fourth provider, a custom or reader-editable endpoint, and an
-  OpenAI-compatible, Azure OpenAI, Amazon Bedrock or Google Vertex AI
-  provider are out of scope; adding one changes the requirements first.
+- **Exactly four providers are supported: the Sakura AI Engine, OpenAI,
+  Claude and Kimi.** A fifth provider, a custom or reader-editable endpoint,
+  and a generic OpenAI-compatible, Azure OpenAI, Amazon Bedrock or Google
+  Vertex AI provider are out of scope; adding one changes the requirements
+  first.
 - **BYOK is maintained, per provider.** The reader's own API credential for
   the provider they selected is the only way a request is made, and no
   arrangement is added under which a page is summarized without one.
@@ -568,11 +569,14 @@ that the requirements are incomplete, and that is where it is taken.
   Engine.** This is what an existing reader's profile, which never wrote a
   provider selection, keeps resolving to — no migration script and no
   one-shot conversion exists or is added.
-- **Each provider's protocol is used natively.** Sakura's OpenAI-compatible
-  Chat Completions endpoint, OpenAI's own Responses API (`store: false`,
-  never Chat Completions or the Assistants API), and Claude's own Messages
-  API (never an OpenAI-compatible endpoint or a compatibility layer). No
-  wrapper protocol of this project's own is invented for any of them.
+- **Each provider's protocol is used natively.** Sakura's and Kimi's own
+  OpenAI-compatible Chat Completions endpoints, OpenAI's own Responses API
+  (`store: false`, never Chat Completions or the Assistants API), and
+  Claude's own Messages API (never an OpenAI-compatible endpoint or a
+  compatibility layer). No wrapper protocol of this project's own is
+  invented for any of them, and Kimi's own OpenAI-compatible protocol is not
+  a reason to fold it into another provider's adapter: each provider keeps
+  its own independent adapter, origin, credential and model.
 - **No credential for any provider is written into the source**, committed to
   this repository — not even as a sample value — or embedded in anything
   distributed.
@@ -581,7 +585,7 @@ that the requirements are incomplete, and that is where it is taken.
 - Each credential is held in the reader's own profile, in extension storage
   under its own provider's key, and travels only as the value of one
   authentication header or field to that provider's own origin — never to
-  either of the other two. It reaches no URL, no page, no document of this
+  any other. It reaches no URL, no page, no document of this
   extension other than the field it is entered in, no message shown to the
   reader and no log line.
 - The credential field is never prefilled from storage; whether a credential
@@ -604,7 +608,7 @@ that the requirements are incomplete, and that is where it is taken.
   model, and the Japanese summary preference**, and they live in
   `chrome.storage.local`. Nothing else is a setting.
 - Each provider's credential and model are held under their own storage key,
-  independent of the other two providers'. Selecting a different provider, or
+  independent of the other providers'. Selecting a different provider, or
   saving or deleting one provider's credential, never touches another
   provider's stored credential or model, and never requires re-entering one.
 - A boolean preference is saved on its own, independently of the provider
@@ -686,7 +690,7 @@ that the requirements are incomplete, and that is where it is taken.
     the header, the body, the shape of the answer and the mapping of a
     failure to an error kind — and nothing else knows any of them. The
     120-second timeout is implemented once, in a shared transport helper
-    every adapter sends its request through, rather than three times.
+    every adapter sends its request through, rather than once per adapter.
   - **The panel** renders the state. It decides nothing, holds no setting and
     no credential, performs no extraction and makes no request to any
     provider, and does not know which provider produced a summary.
@@ -761,7 +765,7 @@ that the requirements are incomplete, and that is where it is taken.
   profile or a real endpoint.** Every adapter takes its `fetch` and its
   timeout as parameters, through the shared transport helper, so that a stub
   answers without a network and a timeout is provable in milliseconds, for
-  all three providers alike. A permission check or request takes a fake
+  every provider alike. A permission check or request takes a fake
   `chrome.permissions` the same way.
 - The failure classification that crosses a boundary is the error kind and,
   for `provider-error`, its fixed `detail`, so a test of what happens

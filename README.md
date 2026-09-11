@@ -20,7 +20,7 @@
 
 ## Overview
 
-**web-digest** is a Chrome extension that takes the page you currently have open, extracts its main content, and produces a short summary of it with an AI provider of your choice: the Sakura AI Engine (さくらの AI Engine), OpenAI, or Claude.
+**web-digest** is a Chrome extension that takes the page you currently have open, extracts its main content, and produces a short summary of it with an AI provider of your choice: the Sakura AI Engine (さくらの AI Engine), OpenAI, Claude, or Kimi.
 
 **The task is semantic compression, not shortening.** A summary that is short and has lost the condition a claim depends on has failed; a summary that is long because the page carried little redundancy has not. What the summary keeps is the central claim, the main grounds for it, the causal relations that matter, the conclusion, and the conditions and reservations that could change it. What it removes is repetition, several examples of one proposition, rhetorical elaboration, introductory throat-clearing and digression.
 
@@ -48,7 +48,7 @@ the summary is shown in the side panel, beside the page
 
 - **General web pages**: there is no list of supported sites and no site-specific handling; the extraction is one generic strategy
 - **Only the page you asked about**: nothing runs until you click, no page is read because it happened to be open, and no run starts on a navigation or on a schedule
-- **A choice of AI provider**: Sakura AI Engine, OpenAI or Claude, selected in settings; one run uses exactly the one provider you selected, and never sends anything to the other two
+- **A choice of AI provider**: Sakura AI Engine, OpenAI, Claude or Kimi, selected in settings; one run uses exactly the one provider you selected, and never sends anything to the others
 - **Substance kept, redundancy dropped**: the central claim, the causal relations that matter, the conclusion and the conditions that qualify it survive the summary
 - **No target length**: the length that results from removing the redundancy of a particular page is the length that page gets
 - **Optional Japanese summary output**: off by default, the summary is written in the page's own language; turn on **Summarize in Japanese** in settings to have it written in Japanese instead, regardless of the page's language — this applies to every provider alike
@@ -69,8 +69,8 @@ Ordinary web pages whose main content is prose. There is no list of supported si
 ## Requirements
 
 - Google Chrome 116 or later. `chrome.sidePanel` itself arrived in 114, but the `sidePanel.open()` this extension calls needs 116, and the manifest states that so an older browser refuses the extension rather than failing at the first click.
-- An environment able to use at least one of the three supported AI providers, and an API credential of your own for it: the Sakura AI Engine, OpenAI, or Claude.
-- Outbound HTTPS access to the origin of whichever provider you select — `https://api.ai.sakura.ad.jp`, `https://api.openai.com` or `https://api.anthropic.com` — and nothing else.
+- An environment able to use at least one of the supported AI providers, and an API credential of your own for it: the Sakura AI Engine, OpenAI, Claude, or Kimi.
+- Outbound HTTPS access to the origin of whichever provider you select — `https://api.ai.sakura.ad.jp`, `https://api.openai.com`, `https://api.anthropic.com` or `https://api.moonshot.ai` — and nothing else.
 
 There is nothing to build and nothing to install alongside it. No bundler, no transpiler, no package manager and no third-party library: the files a browser is given are the files in the repository.
 
@@ -98,13 +98,14 @@ Nothing runs at this point. The extension does nothing until you click its toolb
 
 ## Preparing an AI provider
 
-Pick one of the three supported providers and obtain your own API credential for it. **This project holds no credential of its own and supplies none to anybody**, and there is no arrangement under which a page is summarized without a credential of yours.
+Pick one of the supported providers and obtain your own API credential for it. **This project holds no credential of its own and supplies none to anybody**, and there is no arrangement under which a page is summarized without a credential of yours.
 
 | Provider | Credential | Where to obtain it and its model names |
 | --- | --- | --- |
 | Sakura AI Engine | an API token | the Sakura AI Engine's own official documentation |
 | OpenAI | an API key | OpenAI's own official documentation |
 | Claude | an API key | Anthropic's own official documentation |
+| Kimi | an API key | Moonshot AI's own official documentation |
 
 **Each service's official documentation is the authority** for obtaining a credential and for the model names it currently offers, and this README deliberately does not restate a procedure or a model name that a service owns and can change.
 
@@ -118,7 +119,7 @@ in `chrome.storage.local` in your own Chrome profile.
 
 | Setting | Required | Default | What it decides |
 | --- | :---: | --- | --- |
-| AI provider | no | Sakura AI Engine | Which of the three providers a run uses. |
+| AI provider | no | Sakura AI Engine | Which of the four providers a run uses. |
 | API credential (per provider) | yes, for the selected provider | — | The credential the request to that provider is made with. |
 | Model (per provider) | no | a name recorded in `src/common/settings.js`, one default per provider | Which model the selected provider summarizes with. |
 | Summarize in Japanese | no | off | Off: the summary is written in the page's own language. On: the summary is written in Japanese, regardless of the page's language. Applies to every provider alike. |
@@ -136,10 +137,10 @@ After loading and pinning the extension, configure a provider:
 2. Find **web-digest** and open **Details**.
 3. Choose **Extension options** to open the settings page.
 4. Choose your **AI provider**. Leave it as **Sakura AI Engine** to keep the
-   previous default, or choose **OpenAI** or **Claude**. Choosing OpenAI or
-   Claude for the first time asks Chrome's own permission prompt for that
-   provider's API origin — grant it to continue, or the provider selection is
-   not changed.
+   previous default, or choose **OpenAI**, **Claude** or **Kimi**. Choosing
+   any of those three for the first time asks Chrome's own permission prompt
+   for that provider's API origin — grant it to continue, or the provider
+   selection is not changed.
 5. Enter your own API credential for the selected provider.
 6. To use a different model, enter its name in **Model**. Otherwise, leave it empty
    to use that provider's default.
@@ -157,10 +158,10 @@ model.
 
 The settings page carries:
 
-- **AI provider**, a selector for Sakura AI Engine, OpenAI or Claude. Selecting
-  OpenAI or Claude for the first time requests the browser permission that
-  provider needs; denying it leaves the previous provider selected and
-  changes no stored credential or model.
+- **AI provider**, a selector for Sakura AI Engine, OpenAI, Claude or Kimi.
+  Selecting OpenAI, Claude or Kimi for the first time requests the browser
+  permission that provider needs; denying it leaves the previous provider
+  selected and changes no stored credential or model.
 - **API credential**, a password field for the selected provider. It is **never
   prefilled**, whatever is stored; a line beside it says whether a credential is
   configured for that provider.
@@ -175,8 +176,8 @@ The settings page carries:
   its model, every other provider's settings, the provider selection and the Japanese
   summary preference alone. Saving with an empty credential field is refused rather
   than treated as a deletion, so an accidental save cannot clear a working credential.
-- **Grant or restore permission**, visible only when the selected provider is OpenAI
-  or Claude. It requests that provider's optional browser permission directly, without
+- **Grant or restore permission**, visible only when the selected provider is OpenAI,
+  Claude or Kimi. It requests that provider's optional browser permission directly, without
   changing the selected provider, its credential, its model or the Japanese summary
   preference — useful if that permission was later removed or revoked in Chrome.
   Sakura AI Engine's permission is required, so it does not need this control.
@@ -192,7 +193,7 @@ The endpoint, the timeout, the size budget and the summarization prompt are desi
 - **Your credential stays in your own browser profile**, in `chrome.storage.local`, until you delete it, and each provider's credential is stored under its own key, independent of the others.
 - It is used as the value of one authentication header or field, to one origin: the origin of the provider it belongs to, and no other.
 - **It is never sent to a backend belonging to this project**, because there is none. It reaches no log, no error message, no page and no part of the side panel.
-- Sakura AI Engine's host permission is required and is always present. OpenAI's and Claude's host permissions are optional, and Chrome asks for the one you need at the moment you select that provider in settings. If that permission is later removed or revoked in Chrome's own settings, use **Grant or restore permission** on the selected OpenAI or Claude provider to request it again — never when a run starts, and never for a provider you have not selected.
+- Sakura AI Engine's host permission is required and is always present. OpenAI's, Claude's and Kimi's host permissions are optional, and Chrome asks for the one you need at the moment you select that provider in settings. If that permission is later removed or revoked in Chrome's own settings, use **Grant or restore permission** on the selected OpenAI, Claude or Kimi provider to request it again — never when a run starts, and never for a provider you have not selected.
 
 One thing this does not promise: a credential held by a browser extension is not a secret kept from the person at the keyboard. Whoever controls the Chrome profile can read extension storage, and no arrangement inside an unpacked extension changes that.
 
@@ -250,13 +251,13 @@ How a summary is written is decided by `prompts/summarize.md`, outside the code,
 
 - **The content of a page is read only when you have asked for a summary of that page**, at the moment you asked. Nothing of this extension is loaded into a page that was not summarized, and no run reads a tab other than the one it was asked about.
 - **No browsing history is collected.** The extension holds no `history` and no `tabs` permission, and the page's URL is never read, never returned by extraction, never stored and never sent.
-- **The main content of the page you asked about is sent to your one selected AI provider**, together with the summarization instruction, because that is where the summary is produced. One run uses exactly one provider; nothing is sent to the other two, whether or not you have granted them permission. This is the point of the extension rather than an incidental transfer, and it is worth knowing before you install it.
+- **The main content of the page you asked about is sent to your one selected AI provider**, together with the summarization instruction, because that is where the summary is produced. One run uses exactly one provider; nothing is sent to the others, whether or not you have granted them permission. This is the point of the extension rather than an incidental transfer, and it is worth knowing before you install it.
 - **There is no backend belonging to this project**, so there is nowhere for a page, a summary, a credential or a history to be sent to or to accumulate in. That is a property of the design rather than a promise not to look.
 - **No page text and no summary is written to disk.** The result of the last run is held in session storage, per tab, and is gone when the browser closes, when the tab closes, or when the tab navigates elsewhere.
 - **Each credential reaches one origin**, as one header or field, and no other: the origin belonging to the provider it was entered for.
 - **This project does not control what your selected provider does with what it receives.** Its own data handling — retention, logging, training use — is that provider's own policy, stated in its own documentation; this project makes no claim about it beyond what it itself sends and stores, which is nothing.
 
-The permissions are the smallest set that allows this: `activeTab` for the tab you acted on and no longer, `scripting` to read it once, `storage` for the extension settings and the state of the last run, `sidePanel` for the display, one required host permission naming the Sakura AI Engine origin, and two optional host permissions — OpenAI's and Claude's — requested only from your own action in **Settings**, when you select that provider there or when you choose **Grant or restore permission** for the one already selected, never when a run starts. There is no host permission for any site you visit, so a request to anywhere else is refused by Chrome rather than by this design being obeyed.
+The permissions are the smallest set that allows this: `activeTab` for the tab you acted on and no longer, `scripting` to read it once, `storage` for the extension settings and the state of the last run, `sidePanel` for the display, one required host permission naming the Sakura AI Engine origin, and three optional host permissions — OpenAI's, Claude's and Kimi's — requested only from your own action in **Settings**, when you select that provider there or when you choose **Grant or restore permission** for the one already selected, never when a run starts. There is no host permission for any site you visit, so a request to anywhere else is refused by Chrome rather than by this design being obeyed.
 
 ## When something fails
 
@@ -272,7 +273,7 @@ For the most common problems:
   extension's options from `chrome://extensions`, and save a credential for the
   selected **AI provider**.
 - **The panel says a browser permission is missing:** Open **Settings** and choose
-  **Grant or restore permission** for the selected OpenAI or Claude provider.
+  **Grant or restore permission** for the selected OpenAI, Claude or Kimi provider.
 - **The page cannot be summarized:** Try an ordinary web page. Unusual page
   structures and pages where Chrome does not allow extension scripts — including
   Chrome internal pages — may not be readable.
@@ -294,7 +295,7 @@ For the most common problems:
 
 ## Not built
 
-Deliberately absent from this version, and not prepared for anywhere in the design: publication on the Chrome Web Store; official support for Firefox, Safari or Edge; a backend server belonging to this project; user accounts; billing; a shared API credential supplied to readers; collecting browsing history; storing summaries in the cloud; summarizing across several pages; web crawling; summarizing on a schedule; retrieval-augmented generation; a vector database; integration with web search; fact checking; judging whether a page is good, correct or machine-generated; a standalone translator, as distinct from the summary's own output-language setting; a custom or user-editable endpoint for any provider; a fourth AI provider, or an OpenAI-compatible, Azure OpenAI, Amazon Bedrock or Google Vertex AI provider; automatic fallback or a race between providers; and a large body of site-specific implementations.
+Deliberately absent from this version, and not prepared for anywhere in the design: publication on the Chrome Web Store; official support for Firefox, Safari or Edge; a backend server belonging to this project; user accounts; billing; a shared API credential supplied to readers; collecting browsing history; storing summaries in the cloud; summarizing across several pages; web crawling; summarizing on a schedule; retrieval-augmented generation; a vector database; integration with web search; fact checking; judging whether a page is good, correct or machine-generated; a standalone translator, as distinct from the summary's own output-language setting; a custom or user-editable endpoint for any provider; a fifth AI provider, or a generic OpenAI-compatible, Azure OpenAI, Amazon Bedrock or Google Vertex AI provider; automatic fallback or a race between providers; and a large body of site-specific implementations.
 
 None of these is a gap to be filled later. Should one become necessary, the requirements change first and the design follows.
 

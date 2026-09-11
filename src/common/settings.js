@@ -12,6 +12,7 @@ export const Provider = {
   SAKURA: "sakura",
   OPENAI: "openai",
   ANTHROPIC: "anthropic",
+  KIMI: "kimi",
 };
 
 const KNOWN_PROVIDERS = new Set(Object.values(Provider));
@@ -23,6 +24,8 @@ export const STORAGE_KEY_OPENAI_KEY = "openaiApiKey";
 export const STORAGE_KEY_OPENAI_MODEL = "openaiModel";
 export const STORAGE_KEY_ANTHROPIC_KEY = "anthropicApiKey";
 export const STORAGE_KEY_ANTHROPIC_MODEL = "anthropicModel";
+export const STORAGE_KEY_KIMI_KEY = "kimiApiKey";
+export const STORAGE_KEY_KIMI_MODEL = "kimiModel";
 export const STORAGE_KEY_JAPANESE_SUMMARY = "japaneseSummary";
 
 // The Sakura AI Engine credential and model keys keep the names they had
@@ -32,12 +35,14 @@ const CREDENTIAL_KEY = {
   [Provider.SAKURA]: STORAGE_KEY_TOKEN,
   [Provider.OPENAI]: STORAGE_KEY_OPENAI_KEY,
   [Provider.ANTHROPIC]: STORAGE_KEY_ANTHROPIC_KEY,
+  [Provider.KIMI]: STORAGE_KEY_KIMI_KEY,
 };
 
 const MODEL_KEY = {
   [Provider.SAKURA]: STORAGE_KEY_MODEL,
   [Provider.OPENAI]: STORAGE_KEY_OPENAI_MODEL,
   [Provider.ANTHROPIC]: STORAGE_KEY_ANTHROPIC_MODEL,
+  [Provider.KIMI]: STORAGE_KEY_KIMI_MODEL,
 };
 
 // A name from each provider's own published list of models, confirmed against
@@ -47,21 +52,24 @@ const MODEL_KEY = {
 export const DEFAULT_MODEL = "gpt-oss-120b";
 export const OPENAI_DEFAULT_MODEL = "gpt-5.6-terra";
 export const ANTHROPIC_DEFAULT_MODEL = "claude-sonnet-5";
+export const KIMI_DEFAULT_MODEL = "kimi-k3";
 
 const DEFAULT_MODEL_BY_PROVIDER = {
   [Provider.SAKURA]: DEFAULT_MODEL,
   [Provider.OPENAI]: OPENAI_DEFAULT_MODEL,
   [Provider.ANTHROPIC]: ANTHROPIC_DEFAULT_MODEL,
+  [Provider.KIMI]: KIMI_DEFAULT_MODEL,
 };
 
 export const PROVIDER_LABEL = {
   [Provider.SAKURA]: "Sakura AI Engine",
   [Provider.OPENAI]: "OpenAI",
   [Provider.ANTHROPIC]: "Claude",
+  [Provider.KIMI]: "Kimi",
 };
 
 // The provider is Sakura when the stored value is absent, is not a string, or
-// is not one of the three supported provider identifiers — never guessed from
+// is not one of the supported provider identifiers — never guessed from
 // a credential or from a page. This is what lets an existing Sakura user's
 // profile, which never wrote this key, keep working unchanged.
 export function resolveProvider(value) {
@@ -117,6 +125,8 @@ export async function readSettings() {
     STORAGE_KEY_OPENAI_MODEL,
     STORAGE_KEY_ANTHROPIC_KEY,
     STORAGE_KEY_ANTHROPIC_MODEL,
+    STORAGE_KEY_KIMI_KEY,
+    STORAGE_KEY_KIMI_MODEL,
     STORAGE_KEY_JAPANESE_SUMMARY,
   ]);
   const provider = resolveProvider(stored[STORAGE_KEY_PROVIDER]);

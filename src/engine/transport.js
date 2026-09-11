@@ -1,7 +1,7 @@
 // The one bounded-wait fetch every adapter sends its request through.
 //
 // This is what makes the 120-second timeout and the no-automatic-retry rule
-// identical across the three adapters without each of them reimplementing an
+// identical across every adapter without each of them reimplementing an
 // AbortController and a race against a timer. It knows nothing about any
 // provider's protocol: it returns a raw outcome, and each adapter maps that
 // outcome to its own error kinds and reads its own answer shape.

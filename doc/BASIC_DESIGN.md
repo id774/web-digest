@@ -46,11 +46,11 @@ Seven decisions shape everything below.
   time rather than a string embedded in a module, so improving the summaries
   is editing that one file.
 - **One provider client, one dispatcher, one adapter per provider.** The
-  reader selects exactly one of the three supported providers, and one run
+  reader selects exactly one of the four supported providers, and one run
   uses exactly that one. The provider client is a dispatcher that selects one
-  adapter — Sakura, OpenAI or Claude — and calls it; there is no fallback path
-  from one adapter to another, and nothing above the dispatcher knows any
-  adapter's protocol.
+  adapter — Sakura, OpenAI, Claude or Kimi — and calls it; there is no
+  fallback path from one adapter to another, and nothing above the dispatcher
+  knows any adapter's protocol.
 - **The prompt is data, not code.** It is a packaged resource read at run time,
   so improving how a summary is written is editing a text file, and it is the
   same file and the same instruction for every provider.
@@ -81,8 +81,9 @@ The extension separates into parts that each own one concern:
    in the tab       .local        prompt      selects one adapter
       │                           resource       │
       │ blocks                       │           ├─ Sakura adapter ──┐
-      v                              │           ├─ OpenAI adapter ──┤ HTTPS
-   shaping ─────── material ─────────┘           └─ Claude adapter ──┤
+      v                              │           ├─ OpenAI adapter ──┤
+   shaping ─────── material ─────────┤           ├─ Claude adapter ──┤ HTTPS
+                                      │           └─ Kimi adapter ────┤
                                                                       v
                                                        the one selected provider
                                                                       │
@@ -97,7 +98,7 @@ The extension separates into parts that each own one concern:
 The reader's browser is the only place any of this runs. **There is no server
 belonging to this project in the picture, and no arrow leaves it except the one
 to whichever single AI provider was selected for that run.** The dispatcher
-calls exactly one adapter per run; the other two adapters are never invoked.
+calls exactly one adapter per run; the other adapters are never invoked.
 
 ## 4. Repository layout
 
@@ -226,9 +227,9 @@ untouched, since the recheck resolves back to it.
 The provider, its credential and its model, and the Japanese summary
 preference, and nothing else (§13). It is opened from the panel and from
 Chrome's extension list, and it is the only place a credential is entered.
-Selecting a provider whose host permission is optional (OpenAI, Claude) asks
-Chrome's own permission prompt from here, before the selection is saved. When
-OpenAI or Claude is the selected provider, the page also offers a
+Selecting a provider whose host permission is optional (OpenAI, Claude, Kimi)
+asks Chrome's own permission prompt from here, before the selection is saved.
+When OpenAI, Claude or Kimi is the selected provider, the page also offers a
 `Grant or restore permission` action that requests that same permission again
 directly, without changing the provider selection, so a permission later
 revoked in Chrome can be restored from the reader's own action here.
@@ -249,16 +250,17 @@ Least privilege, and each entry earns its place:
 | the Sakura AI Engine API origin | required | the default provider, and the one an existing reader already depends on |
 | the OpenAI API origin | optional | requested from the reader's action in settings when OpenAI is selected, or restored there if later revoked |
 | the Claude (Anthropic) API origin | optional | requested from the reader's action in settings when Claude is selected, or restored there if later revoked |
+| the Kimi (Moonshot AI) API origin | optional | requested from the reader's action in settings when Kimi is selected, or restored there if later revoked |
 
 An optional host permission is requested only from the reader's own action in
-the options page, never when a run starts: either by selecting OpenAI or
-Claude as the provider, or, for whichever of the two is currently selected,
-by choosing the options page's `Grant or restore permission` action. A denied
-request leaves the previous provider selected; a permission later revoked in
-Chrome's own settings fails the next run for that provider, before the page
-is read, rather than falling back to another provider (§17), and can be
-requested again through that same restore action without changing the
-provider, its credential or its model.
+the options page, never when a run starts: either by selecting OpenAI,
+Claude or Kimi as the provider, or, for whichever of the three is currently
+selected, by choosing the options page's `Grant or restore permission`
+action. A denied request leaves the previous provider selected; a permission
+later revoked in Chrome's own settings fails the next run for that provider,
+before the page is read, rather than falling back to another provider (§17),
+and can be requested again through that same restore action without changing
+the provider, its credential or its model.
 
 **What is deliberately absent matters as much as what is present.**
 
@@ -271,7 +273,7 @@ provider, its credential or its model.
   them would be the machinery for watching a reader rather than answering one,
   and none is needed to summarize the page in front of them.
 
-The required and optional host permissions together name exactly the three
+The required and optional host permissions together name exactly the four
 supported providers' origins and nothing else, so **a request to anywhere
 else is refused by Chrome rather than by this design being obeyed.** Holding
 an optional permission for a provider the reader is not currently using
@@ -353,8 +355,8 @@ disk.
 
 A provider selector, the selected provider's credential and model fields, a
 save, a delete, and a statement of what a credential is used for and where it
-is kept. Choosing OpenAI or Claude requests that provider's optional host
-permission before the selection is saved (§6); choosing Sakura AI Engine
+is kept. Choosing OpenAI, Claude or Kimi requests that provider's optional
+host permission before the selection is saved (§6); choosing Sakura AI Engine
 requests nothing. Nothing is validated by contacting a provider: a credential
 that does not work is discovered by the first run that uses it, and reported
 as §17 requires.
@@ -576,15 +578,15 @@ rather than a hopeful sentence in a prompt.**
 `src/engine/` is where every detail of talking to a provider lives. No other
 part of the design knows an endpoint, a header, a body or an answer shape.
 
-### 11.1 One dispatcher, three adapters
+### 11.1 One dispatcher, four adapters
 
 The provider client is a dispatcher that receives a provider-neutral logical
 request — the trusted instruction, the untrusted material, the model, and the
-credential — and selects exactly one of three adapters by the selected
-provider identifier: Sakura, OpenAI or Claude. **There is no fallback path.**
-A failing adapter's result is returned to the caller exactly as it reported
-it; the dispatcher never calls a second adapter for the same logical request,
-never races two, and never compares their answers.
+credential — and selects exactly one of four adapters by the selected
+provider identifier: Sakura, OpenAI, Claude or Kimi. **There is no fallback
+path.** A failing adapter's result is returned to the caller exactly as it
+reported it; the dispatcher never calls a second adapter for the same
+logical request, never races two, and never compares their answers.
 
 ```text
   { provider, model, credential, instruction, material }
@@ -592,11 +594,11 @@ never races two, and never compares their answers.
                         v
                    dispatcher
                         │
-        ┌───────────────┼───────────────┐
-        v               v               v
-  Sakura adapter   OpenAI adapter   Claude adapter
-   (Chat            (Responses       (Messages
-   Completions)      API)             API)
+        ┌───────────────┼───────────────┬───────────────┐
+        v               v               v               v
+  Sakura adapter   OpenAI adapter   Claude adapter   Kimi adapter
+   (Chat            (Responses       (Messages        (Chat
+   Completions)      API)             API)             Completions)
 ```
 
 Each adapter owns its own protocol end to end — the endpoint, the request
@@ -604,24 +606,28 @@ shape, the timeout and the answer parsing — and returns the same normalized
 shape (§11.4) regardless of which provider produced it, so nothing above the
 dispatcher ever parses a provider's own response format.
 
-### 11.2 The three calls
+### 11.2 The four calls
 
 | Provider | Endpoint | Trusted instruction | Untrusted material |
 |---|---|---|---|
 | Sakura AI Engine | `POST <Sakura API base>/chat/completions`, OpenAI-compatible | a `system` message | a `user` message |
 | OpenAI | `POST https://api.openai.com/v1/responses`, native Responses API | `instructions` | `input` |
 | Claude | `POST https://api.anthropic.com/v1/messages`, native Messages API | the top-level `system` field | a `user` message |
+| Kimi | `POST https://api.moonshot.ai/v1/chat/completions`, OpenAI-compatible | a `system` message | a `user` message |
 
 - **Every base URL is a design constant in its own adapter**, and each
   service's official documentation is the authority for it. None of them is a
   setting (§13), which is what lets the manifest's required and optional host
-  permissions (§6) name exactly these three origins and no other.
+  permissions (§6) name exactly these four origins and no other.
 - **No wrapper protocol of this project's own is invented, and no
   compatibility layer stands in for a provider's native API.** OpenAI is
   called through its own Responses API, never Chat Completions or the
   Assistants API; Claude is called through Anthropic's own Messages API,
-  never an OpenAI-compatible endpoint. Every request is the documented one for
-  that provider, and every answer is read as documented.
+  never an OpenAI-compatible endpoint. Kimi's own documented protocol is
+  OpenAI-compatible Chat Completions, and its adapter calls exactly that —
+  the same shape Sakura's adapter already speaks, implemented as its own
+  independent adapter rather than shared with Sakura's. Every request is the
+  documented one for that provider, and every answer is read as documented.
 - **One request per run step, not streamed, for every provider.** The reader
   is told the run is in progress (§14) and each answer arrives whole.
 - **The OpenAI request always carries `store: false`.** No tool, no web or
@@ -641,8 +647,10 @@ dispatcher ever parses a provider's own response format.
 ### 11.3 The answer
 
 Each adapter reads its provider's own documented answer shape and reduces it
-to the one usable summary text, or to no usable summary. For Sakura, that is
-the generated text of the first returned choice. For OpenAI, it is the
+to the one usable summary text, or to no usable summary. For Sakura and for
+Kimi, that is the generated text of the first returned choice, once its
+`finish_reason` confirms `"stop"`; for Kimi, an accompanying
+`reasoning_content` field is never read into the summary. For OpenAI, it is the
 concatenated `output_text` of a `completed` response; an `incomplete` or
 otherwise not-completed response is not shown as a summary. For Claude, it is
 the concatenated text of the answer's text blocks; a response with
@@ -706,7 +714,7 @@ design has one place each provider's credential lives and one place it goes.
 
 **`chrome.storage.local`**, in the reader's own browser profile. Each
 provider's credential is stored under its own key (§13), independent of the
-other two.
+others.
 
 | Considered | Decision |
 |---|---|
@@ -721,7 +729,7 @@ build that provider's one authentication header or field, and dropped. It is
 **never** passed to the injected extraction pass, never sent into the panel or
 the page, never written into a URL, never logged, and never included in a
 message shown to the reader. It is sent only to that one provider's own
-origin, never to the other two, whether or not the reader has configured a
+origin, never to any other, whether or not the reader has configured a
 credential for them.
 
 The options page is the only document that shows a credential field at all,
@@ -747,10 +755,12 @@ guarantee, and is not part of this design.
 | the selected provider | `storage.local` | absent, non-string or unrecognized resolves to the Sakura AI Engine (§14) |
 | the Sakura AI Engine API token | `storage.local` | entered by the reader; no default |
 | the Sakura AI Engine model | `storage.local` | a documented default, so a reader who sets only a token can run |
-| the OpenAI API key | `storage.local` | entered by the reader; no default; independent of the other two providers' credentials |
+| the OpenAI API key | `storage.local` | entered by the reader; no default; independent of the other providers' credentials |
 | the OpenAI model | `storage.local` | a documented default of its own |
-| the Claude (Anthropic) API key | `storage.local` | entered by the reader; no default; independent of the other two providers' credentials |
+| the Claude (Anthropic) API key | `storage.local` | entered by the reader; no default; independent of the other providers' credentials |
 | the Claude model | `storage.local` | a documented default of its own |
+| the Kimi (Moonshot AI) API key | `storage.local` | entered by the reader; no default; independent of the other providers' credentials |
+| the Kimi model | `storage.local` | a documented default of its own |
 | the Japanese summary preference | `storage.local` | a boolean, off by default; shared by every provider; saved independently of the provider selection and of any provider's credential or model |
 
 Reading these stored values back when the options page opens is its own
@@ -856,7 +866,7 @@ promissory:
 | a page is read only when a summary is asked for | no declared content script; the tab-lifecycle housekeeping listeners for navigation, closure and replacement read no page, hold no URL and start no run — navigation is recognized from Chrome's loading or URL-change notification, without reading the URL value — and injection happens only after the click's still-current run identity reaches the run |
 | no page but the target is touched | the run reads one tab, the one `activeTab` was granted for |
 | no browsing history is collected | no `history` or `tabs` permission, and nothing records a URL beyond the state of the run |
-| no page text reaches a server of this project's | there is no such server; the only outbound origins are the three supported providers', one required and two optional, and the dispatcher sends to exactly the one selected |
+| no page text reaches a server of this project's | there is no such server; the only outbound origins are the four supported providers', one required and three optional, and the dispatcher sends to exactly the one selected |
 | no summary is stored in a cloud | the result lives in session state and is gone when the browser closes |
 | no credential reaches a server of this project's | each provider's credential is in one header or field, to that provider's one origin |
 
@@ -895,7 +905,7 @@ Two rules hold across the table.
 - **Distinguishable causes stay distinguishable** (requirements §18): "no
   credential" and "credential rejected" lead to different actions, so they are
   never merged into one message about the API. Every message names "the
-  selected AI provider" rather than assuming which of the three it is.
+  selected AI provider" rather than assuming which one it is.
 
 ## 18. Security design
 
@@ -904,7 +914,7 @@ Five measures, each in one place.
 - **Least privilege, structurally.** §6. The extension can reach the tab it was
   invoked on and, per run, the one API origin of the selected provider. There
   is no configuration that widens any of that, and no run ever sends to more
-  than one of the three origins.
+  than one of the four origins.
 - **The page's text is material.** It is quoted into the prompt as the thing
   being summarized and delimited from the instruction (§10.3), for every
   provider's adapter alike. A sentence in a page that addresses a model is
@@ -940,11 +950,12 @@ exception to the last two: it adds no translation result separate from the
 summary, and no mode besides the one summarization instruction the design
 already has — it only fixes which language that one instruction writes in.
 
-Nor is there a seam for a fourth provider, a custom or reader-editable
-endpoint, an OpenAI-compatible or cloud-vendor-specific provider beyond the
-three named in §11, a model-list fetch for any of them, or a fallback, race
-or comparison between providers. The dispatcher in §11.1 selects one adapter
-and calls it; there is no path from there to a second one.
+Nor is there a seam for a fifth provider, a custom or reader-editable
+endpoint, a generic OpenAI-compatible or cloud-vendor-specific provider
+beyond the four named in §11, a model-list fetch for any of them, or a
+fallback, race or comparison between providers. The dispatcher in §11.1
+selects one adapter and calls it; there is no path from there to a second
+one.
 
 Where a decision above could have left room for one of those and chose not to —
 the fixed set of origins in §6, the refusal rather than truncation in §9.3, the
@@ -961,7 +972,7 @@ session state in §14, the no-fallback rule in §11.1 — that is the reason.
 | §11 what a summary keeps | the prompt's principles in §10.1, applied without a classifier, §10.2 |
 | §12 semantic compression, no fixed length | §10.1, and the refusal to truncate in §9.3 |
 | §13 read beside the page | the side panel and the reasoning in §7.1 |
-| §14 three AI providers, one per run, model interchangeable | the dispatcher and adapters in §11, the model as a setting in §11.6 and §13 |
+| §14 four AI providers, one per run, model interchangeable | the dispatcher and adapters in §11, the model as a setting in §11.6 and §13 |
 | §15 the API credential, independent per provider | storage and travel in §12, its limits in §12.3, independence in §13 |
 | §16 privacy | the structural table in §16; no backend anywhere in §3 |
 | §17 the state of a run | the four states and their home in §14 |

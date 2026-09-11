@@ -1,0 +1,305 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  KIMI_BASE_URL,
+  buildRequest,
+  callKimi,
+  mapHttpFailure,
+  readAnswer,
+} from "../src/engine/kimi.js";
+
+const CALL = {
+  model: "a-model",
+  instruction: "instruction",
+  content: "material",
+  credential: "test-credential-value",
+};
+
+function answering(status, body, { json = true } = {}) {
+  return async () => ({
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => {
+      if (!json) throw new SyntaxError("not JSON");
+      return body;
+    },
+  });
+}
+
+// `finish_reason: "stop"` is the documented normal-completion marker: every
+// fixture built with this helper carries it, so a test using it to build a
+// success case is exercising the marker check, not skirting it.
+function summaryBody(content, extra = {}) {
+  return {
+    choices: [{ finish_reason: "stop", message: { content, ...extra } }],
+  };
+}
+
+test("the request is the documented one, to one origin", () => {
+  const request = buildRequest(CALL);
+  assert.equal(request.url, `${KIMI_BASE_URL}/chat/completions`);
+  assert.equal(request.method, "POST");
+  assert.equal(request.headers.Authorization, `Bearer ${CALL.credential}`);
+  assert.equal(request.headers["Content-Type"], "application/json");
+  assert.equal(request.headers.Accept, "application/json");
+});
+
+test("the instruction and material become a system and a user message", () => {
+  const body = JSON.parse(buildRequest(CALL).body);
+  assert.deepEqual(Object.keys(body).sort(), ["messages", "model"]);
+  assert.equal(body.model, CALL.model);
+  assert.deepEqual(body.messages, [
+    { role: "system", content: CALL.instruction },
+    { role: "user", content: CALL.content },
+  ]);
+});
+
+test("no sampling, reasoning or tool parameter is ever sent", () => {
+  const body = JSON.parse(buildRequest(CALL).body);
+  for (const forbidden of [
+    "temperature",
+    "top_p",
+    "n",
+    "presence_penalty",
+    "frequency_penalty",
+    "reasoning_effort",
+    "stream",
+    "tools",
+    "tool_choice",
+  ]) {
+    assert.equal(Object.prototype.hasOwnProperty.call(body, forbidden), false);
+  }
+});
+
+test("the credential never appears in the request body", () => {
+  const body = buildRequest(CALL).body;
+  assert.ok(!body.includes(CALL.credential));
+});
+
+test("the summary is the first choice's content, trimmed", () => {
+  const body = {
+    id: "x",
+    usage: { total_tokens: 9 },
+    choices: [
+      { finish_reason: "stop", message: { content: "  A summary.  " } },
+    ],
+  };
+  assert.deepEqual(readAnswer(body), {
+    ok: true,
+    summary: "A summary.",
+  });
+});
+
+test("reasoning_content is ignored and never reaches the summary", () => {
+  const body = summaryBody("The real answer.", {
+    reasoning_content: "internal chain of thought",
+  });
+  assert.deepEqual(readAnswer(body), {
+    ok: true,
+    summary: "The real answer.",
+  });
+});
+
+test("an answer with no usable content is not shown as a summary", () => {
+  for (const body of [
+    null,
+    {},
+    { choices: [] },
+    { choices: [{}] },
+    summaryBody(""),
+    summaryBody("   "),
+    summaryBody(null),
+  ]) {
+    assert.deepEqual(readAnswer(body), {
+      ok: false,
+      kind: "no-usable-summary",
+    });
+  }
+});
+
+test("a response cut off at the output limit is not shown as a summary", () => {
+  const body = {
+    choices: [{ finish_reason: "length", message: { content: "Cut short." } }],
+  };
+  assert.deepEqual(readAnswer(body), {
+    ok: false,
+    kind: "no-usable-summary",
+  });
+});
+
+// A missing, unknown, or otherwise non-"stop" finish_reason must not be
+// shown as a summary even when the choice carries non-empty content: success
+// requires positively confirming the documented normal-completion marker,
+// not just the absence of a recognized failure marker.
+test("a missing or unsupported finish_reason is not shown as a summary, even with usable content", () => {
+  for (const first of [
+    { message: { content: "Looks complete." } },
+    { finish_reason: "content_filter", message: { content: "Looks complete." } },
+    { finish_reason: "tool_calls", message: { content: "Looks complete." } },
+  ]) {
+    assert.deepEqual(
+      readAnswer({ choices: [first] }),
+      { ok: false, kind: "no-usable-summary" },
+      JSON.stringify(first),
+    );
+  }
+});
+
+test("a call-level 2xx response with a missing or unsupported finish_reason is not shown as a summary", async () => {
+  for (const body of [
+    { choices: [{ message: { content: "Looks complete." } }] },
+    {
+      choices: [
+        { finish_reason: "content_filter", message: { content: "Looks complete." } },
+      ],
+    },
+  ]) {
+    const result = await callKimi(CALL, { fetchImpl: answering(200, body) });
+    assert.deepEqual(
+      result,
+      { ok: false, kind: "no-usable-summary" },
+      JSON.stringify(body),
+    );
+  }
+});
+
+test("the failure mapping table", () => {
+  assert.equal(mapHttpFailure(401, null).kind, "credential-rejected");
+  assert.equal(mapHttpFailure(403, null).detail, "unspecified");
+  assert.equal(mapHttpFailure(404, null).detail, "unspecified");
+  assert.equal(mapHttpFailure(429, null).detail, "rate-limited");
+  assert.equal(mapHttpFailure(500, null).detail, "unavailable");
+  assert.equal(mapHttpFailure(503, null).detail, "unavailable");
+  assert.equal(mapHttpFailure(418, null).detail, "unspecified");
+  for (const status of [403, 404, 429, 500, 418]) {
+    assert.equal(mapHttpFailure(status, null).kind, "provider-error");
+  }
+});
+
+test("a refusal that names a length problem is the too-much-text kind", () => {
+  for (const status of [400, 413, 422]) {
+    for (const error of [
+      { code: "context_length_exceeded" },
+      { message: "This model's maximum context is 8192 tokens" },
+      { message: "input too long" },
+      { message: "Request TOO LARGE" },
+    ]) {
+      assert.equal(
+        mapHttpFailure(status, { error }).kind,
+        "too-much-text",
+        JSON.stringify(error),
+      );
+    }
+  }
+});
+
+test("a refusal worded otherwise falls through rather than being guessed at", () => {
+  const mapped = mapHttpFailure(400, { error: { message: "bad request" } });
+  assert.equal(mapped.kind, "provider-error");
+  assert.equal(mapped.detail, "unspecified");
+});
+
+test("an unrelated validation error naming 'too long' or 'too large' is not too-much-text", () => {
+  for (const status of [400, 413, 422]) {
+    for (const error of [
+      { message: "model name is too long" },
+      { message: "header value is too large" },
+      { message: "identifier is too long" },
+      { message: "parameter value is too large" },
+    ]) {
+      const mapped = mapHttpFailure(status, { error });
+      assert.notEqual(mapped.kind, "too-much-text", JSON.stringify(error));
+    }
+  }
+});
+
+test("a successful call returns the summary and no credential", async () => {
+  const result = await callKimi(CALL, {
+    fetchImpl: answering(200, summaryBody("A summary.")),
+  });
+  assert.deepEqual(result, { ok: true, summary: "A summary." });
+  assert.ok(!JSON.stringify(result).includes(CALL.credential));
+});
+
+test("the call sends what buildRequest built", async () => {
+  let seen = null;
+  await callKimi(CALL, {
+    fetchImpl: async (url, init) => {
+      seen = { url, init };
+      return (await answering(200, summaryBody("ok"))());
+    },
+  });
+  assert.equal(seen.url, `${KIMI_BASE_URL}/chat/completions`);
+  assert.equal(seen.init.method, "POST");
+  assert.equal(seen.init.headers.Authorization, `Bearer ${CALL.credential}`);
+  assert.ok(seen.init.signal);
+});
+
+test("HTTP failures reach the caller as their kind", async () => {
+  const cases = [
+    [401, "credential-rejected", undefined],
+    [429, "provider-error", "rate-limited"],
+    [500, "provider-error", "unavailable"],
+  ];
+  for (const [status, kind, detail] of cases) {
+    const result = await callKimi(CALL, {
+      fetchImpl: answering(status, { error: { message: "no" } }),
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.kind, kind);
+    if (detail) assert.equal(result.detail, detail);
+  }
+});
+
+test("a transport failure is provider-unreachable", async () => {
+  const result = await callKimi(CALL, {
+    fetchImpl: async () => {
+      throw new TypeError("network");
+    },
+  });
+  assert.deepEqual(result, { ok: false, kind: "provider-unreachable" });
+});
+
+test("the bounded wait ends the run as timeout", async () => {
+  const result = await callKimi(CALL, {
+    timeoutMs: 20,
+    fetchImpl: (url, init) =>
+      new Promise((_resolve, reject) => {
+        init.signal.addEventListener("abort", () =>
+          reject(new Error("aborted")),
+        );
+      }),
+  });
+  assert.deepEqual(result, { ok: false, kind: "timeout" });
+});
+
+test("the bounded wait does not depend on fetch honoring abort", async () => {
+  const result = await callKimi(CALL, {
+    timeoutMs: 20,
+    fetchImpl: () => new Promise(() => {}),
+  });
+  assert.deepEqual(result, { ok: false, kind: "timeout" });
+});
+
+test("a 2xx body that is not JSON is no-usable-summary", async () => {
+  const result = await callKimi(CALL, {
+    fetchImpl: answering(200, null, { json: false }),
+  });
+  assert.deepEqual(result, { ok: false, kind: "no-usable-summary" });
+});
+
+test("no exception text or response body crosses the boundary", async () => {
+  const result = await callKimi(CALL, {
+    fetchImpl: answering(500, {
+      error: { message: "stack trace and internals" },
+    }),
+  });
+  assert.deepEqual(Object.keys(result).sort(), [
+    "detail",
+    "kind",
+    "ok",
+    "status",
+  ]);
+  assert.ok(!JSON.stringify(result).includes("stack trace"));
+});

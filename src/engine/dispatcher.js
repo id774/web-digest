@@ -12,6 +12,7 @@ import { ErrorKind } from "../common/errors.js";
 import { callSakura } from "./sakura.js";
 import { callOpenAI } from "./openai.js";
 import { callClaude } from "./claude.js";
+import { callKimi } from "./kimi.js";
 import { REQUEST_TIMEOUT_MS } from "./transport.js";
 
 export { REQUEST_TIMEOUT_MS };
@@ -20,11 +21,12 @@ const ADAPTERS = {
   [Provider.SAKURA]: callSakura,
   [Provider.OPENAI]: callOpenAI,
   [Provider.ANTHROPIC]: callClaude,
+  [Provider.KIMI]: callKimi,
 };
 
 // { provider, model, credential, instruction, content } -> a normalized
 // result, exactly as the chosen adapter returned it. `provider` must be one
-// of the three supported identifiers; anything else is this repository's own
+// of the supported identifiers; anything else is this repository's own
 // fault, not a reader-facing case, and is reported as internal-error.
 export async function callProvider(
   { provider, model, credential, instruction, content },

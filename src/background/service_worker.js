@@ -389,8 +389,8 @@ async function runSummary(tabId, titleFromTab, run) {
       return;
     }
 
-    // A provider whose host permission is optional (OpenAI, Claude) may have
-    // had that permission revoked since it was granted. This is checked, not
+    // A provider whose host permission is optional (OpenAI, Claude, Kimi) may
+    // have had that permission revoked since it was granted. This is checked, not
     // requested: a run never prompts for a permission, and a missing one ends
     // the run here, before the page is read, the same as a missing credential.
     if (needsOptionalPermission(settings.provider)) {

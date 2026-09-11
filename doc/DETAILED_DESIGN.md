@@ -5,7 +5,7 @@
 This document takes [`BASIC_DESIGN.md`](BASIC_DESIGN.md) down to the level the
 extension is written at: which files exist, what the manifest declares, what
 each processing step is handed and what it returns, what the prompt says, what
-the request to each of the three supported AI providers looks like, which
+the request to each of the supported AI providers looks like, which
 errors exist and how a run moves between its states.
 
 Three documents, in this order of authority:
@@ -38,7 +38,7 @@ The words used below, fixed so that one concept has one name.
 | error kind | one of the values in §18, the only way a failure is identified |
 | the panel | the side panel document |
 | the worker | the service worker |
-| provider | one of the three supported AI providers: `sakura`, `openai`, `anthropic` (§13) |
+| provider | one of the supported AI providers: `sakura`, `openai`, `anthropic`, `kimi` (§13) |
 | the dispatcher | `src/engine/dispatcher.js`, which selects one adapter by provider (§11) |
 | adapter | the one module per provider that speaks that provider's protocol (§11); "the selected AI provider" in text shown to the reader |
 
@@ -103,11 +103,12 @@ of the repository but are outside this architectural view.
 | `src/background/service_worker.js` | the worker, an ES module | one run start to finish: the action click, settings, the permission check, injection, shaping, the prompt, the request, the state, telling the panel (§22); and the service-worker lifetime keepalive held only while the summarization operation runs (§22) | `shape.js`, `dispatcher.js`, `settings.js`, `permissions.js`, `errors.js`, `messages.js`, `prompts/summarize.md` |
 | `src/extract/extract.js` | the injected pass | reading one document into blocks (§7) | nothing |
 | `src/shape/shape.js` | a pure module | blocks in, material out; the two size verdicts (§8, §9) | nothing |
-| `src/engine/dispatcher.js` | a pure module of its own logic | selecting one adapter by provider and calling it; no fallback path (§11.1) | `sakura.js`, `openai.js`, `claude.js`, `transport.js`, `settings.js`, `errors.js` |
-| `src/engine/transport.js` | a pure module but for `fetch` | the one bounded-wait request every adapter sends through, shared rather than reimplemented three times (§11.5) | nothing |
+| `src/engine/dispatcher.js` | a pure module of its own logic | selecting one adapter by provider and calling it; no fallback path (§11.1) | `sakura.js`, `openai.js`, `claude.js`, `kimi.js`, `transport.js`, `settings.js`, `errors.js` |
+| `src/engine/transport.js` | a pure module but for `fetch` | the one bounded-wait request every adapter sends through, shared rather than reimplemented once per adapter (§11.5) | nothing |
 | `src/engine/sakura.js` | a pure module but for `fetch` (via `transport.js`) | the Sakura AI Engine request, reading the answer, mapping a failure to an error kind (§11.2, §11.3) | `errors.js`, `transport.js` |
 | `src/engine/openai.js` | a pure module but for `fetch` (via `transport.js`) | the OpenAI Responses request, reading the answer, mapping a failure to an error kind (§11.2, §11.3) | `errors.js`, `transport.js` |
 | `src/engine/claude.js` | a pure module but for `fetch` (via `transport.js`) | the Claude Messages request, reading the answer, mapping a failure to an error kind (§11.2, §11.3) | `errors.js`, `transport.js` |
+| `src/engine/kimi.js` | a pure module but for `fetch` (via `transport.js`) | the Kimi Chat Completions request, reading the answer, mapping a failure to an error kind (§11.2, §11.3) | `errors.js`, `transport.js` |
 | `src/panel/panel.html` | the panel document | the four state regions and the way to the options page | `panel.js`, `panel.css` |
 | `src/panel/panel.js` | the panel's script | asking for the state and rendering it (§16, §17) | `errors.js`, `messages.js` |
 | `src/panel/panel.css` | the panel's stylesheet | legibility of the result beside the page | nothing |
@@ -130,15 +131,16 @@ exchange there (§5.1, §5.3).
 ```text
    panel.js ─┐                    ┌─ shape.js
              ├─> common/*  <──────┤
-  options.js ┘                    └─ dispatcher.js ─┬─ sakura.js  ─┐
+  options.js ┘                    └─ dispatcher.js ─┬─ sakura.js ──┐
                                                      ├─ openai.js  ├─> transport.js
-                        service_worker.js ──────────┴─ claude.js  ┘
+                        service_worker.js ──────────┼─ claude.js  ┤
+                                                     └─ kimi.js   ─┘
 
   extract.js  — depends on nothing, and nothing imports it
 ```
 
 **No arrow points back.** `common/` imports nothing but `settings.js` from
-`permissions.js`; `shape.js` and the three adapters know only the shapes in
+`permissions.js`; `shape.js` and the adapters know only the shapes in
 §15; the dispatcher knows only which adapter a provider identifier selects;
 the worker is the only file that knows all of them. Adding or changing a
 provider touches its own adapter file and the settings; improving the prompt
@@ -170,7 +172,7 @@ needed to use them.
   "manifest_version": 3,
   "name": "web-digest",
   "version": "1.1.1",
-  "description": "Summarize the page you are reading, with your own Sakura AI Engine, OpenAI or Claude credential.",
+  "description": "Summarize the page you are reading, with your own Sakura AI Engine, OpenAI, Claude or Kimi credential.",
   "minimum_chrome_version": "116",
   "icons": {
     "16": "icons/icon-16.png",
@@ -182,7 +184,8 @@ needed to use them.
   "host_permissions": ["https://api.ai.sakura.ad.jp/*"],
   "optional_host_permissions": [
     "https://api.openai.com/*",
-    "https://api.anthropic.com/*"
+    "https://api.anthropic.com/*",
+    "https://api.moonshot.ai/*"
   ],
   "background": {
     "service_worker": "src/background/service_worker.js",
@@ -220,7 +223,7 @@ needed to use them.
 | `icons` | the packaged action and extension-list icons |
 | `permissions` | the four of basic design §6, and no fifth |
 | `host_permissions` | one required origin, Sakura's, so that an existing reader needs to grant nothing new. §11.2 |
-| `optional_host_permissions` | OpenAI's and Claude's origins, requested only from the options page when the reader selects that provider (§6.2 of the basic design, §12.2 below) |
+| `optional_host_permissions` | OpenAI's, Claude's and Kimi's origins, requested only from the options page when the reader selects that provider (§6.2 of the basic design, §12.2 below) |
 | `background` | one worker, as a module so it can import §3.2 |
 | `action` | a title and no `default_popup`. **Omitting the popup is what makes `chrome.action.onClicked` fire**, which is the single operation of basic design §7.2 |
 | `side_panel` | the panel document. The worker still calls `setOptions` per tab (§5.1) |
@@ -281,7 +284,7 @@ open the panel, but it starts no second run.
 | # | The reader does | What happens |
 |---|---|---|
 | 1 | installs the unpacked extension | nothing runs; the provider resolves to Sakura AI Engine, unset (§13, §14) |
-| 2 | opens the options page, optionally chooses a different provider, and saves its credential | the provider selection and that provider's credential are in `storage.local` (§12, §13); choosing OpenAI or Claude first asks Chrome's own permission prompt for that provider's origin |
+| 2 | opens the options page, optionally chooses a different provider, and saves its credential | the provider selection and that provider's credential are in `storage.local` (§12, §13); choosing OpenAI, Claude or Kimi first asks Chrome's own permission prompt for that provider's origin |
 | 3 | opens a page and clicks the action | the panel opens and one run starts, using the provider selected in step 2 (§22) |
 | 4 | waits | the panel shows the run is in progress |
 | 5 | reads the summary beside the page | the panel shows it as text |
@@ -436,9 +439,9 @@ the summary.
 
 | Element | Kind | Notes |
 |---|---|---|
-| AI provider | `<select>` | one of `sakura`, `openai`, `anthropic`; changing it may request an optional host permission (§12.2) before the selection is saved |
+| AI provider | `<select>` | one of `sakura`, `openai`, `anthropic`, `kimi`; changing it may request an optional host permission (§12.2) before the selection is saved |
 | provider status | text | the result of the last provider change or restore action, or why it was not made |
-| Grant or restore permission | button | visible for OpenAI or Claude; requests that selected provider's optional host permission without changing the provider or any stored credential/model |
+| Grant or restore permission | button | visible for OpenAI, Claude or Kimi; requests that selected provider's optional host permission without changing the provider or any stored credential/model |
 | API credential | `<input type="password">` | for the selected provider; **never prefilled**, whatever is stored |
 | credential status | text | "A credential is configured." or "No credential is configured.", for the selected provider |
 | Model | `<input type="text">` | for the selected provider; the placeholder is that provider's default of §13 |
@@ -524,7 +527,7 @@ its own already-resolved write or removal already settled.
 The `Grant or restore permission` button is a second, independent way to reach
 `requestProviderPermission`, for a permission Chrome has since revoked rather
 than one never granted. It is visible only while the selected provider is
-OpenAI or Claude, and hidden for Sakura. Clicking it calls
+OpenAI, Claude or Kimi, and hidden for Sakura. Clicking it calls
 `requestProviderPermission(currentProvider)` directly, without first awaiting
 `chrome.permissions.contains` — the click itself is the user gesture the
 request needs, and checking first would spend it. A grant leaves the selected
@@ -846,7 +849,7 @@ failure.
 
 ### 9.3 The provider's own refusal
 
-The model is configurable and its capacity is its own, whichever of the three
+The model is configurable and its capacity is its own, whichever of the
 providers is selected. A refusal for context length, from any adapter,
 remains `too-much-text` as a safety result for input the conservative local
 budget could not protect. It is not the normal path for a long page.
@@ -1046,22 +1049,22 @@ callProvider({ provider, model, credential, instruction, content }, options)
 ```
 
 `callProvider` looks up `provider` — one of `"sakura"`, `"openai"`,
-`"anthropic"` — in a fixed table of one adapter function per provider, and
-calls exactly that one adapter with the same arguments. **There is no other
-path through this function.** A `provider` outside the three known values is
-this repository's own fault, not a reader-facing case, and returns
+`"anthropic"`, `"kimi"` — in a fixed table of one adapter function per
+provider, and calls exactly that one adapter with the same arguments.
+**There is no other path through this function.** A `provider` outside the
+known values is this repository's own fault, not a reader-facing case, and returns
 `internal-error` rather than guessing an adapter. Whatever the chosen adapter
 returns is returned unchanged; the dispatcher never calls a second adapter,
 never races two, and never falls back from one to another.
 
-### 11.2 The three requests
+### 11.2 The four requests
 
 Each adapter owns one `buildRequest`, which turns
 `{ model, instruction, content, credential }` into a `{ url, method, headers,
 body }`, and reads its answer independently. The endpoint, the header naming
 the credential, and the mapping of instruction and content into that
 provider's own shape are each fixed in that adapter's own file, and the host
-permissions in §4 name exactly these three origins and no other.
+permissions in §4 name exactly these four origins and no other.
 
 **Sakura** (`src/engine/sakura.js`), OpenAI-compatible, unchanged from
 before this project supported more than one provider:
@@ -1136,6 +1139,33 @@ governs how long a summary actually is. No `tools`, no web search or fetch,
 no prompt caching, no service tier selection, no sampling parameter, and no
 `stream` is sent.
 
+**Kimi** (`src/engine/kimi.js`), Moonshot AI's own OpenAI-compatible Chat
+Completions endpoint — the same request shape Sakura's adapter speaks, but
+implemented as its own independent adapter with its own origin, credential
+and model:
+
+```text
+POST https://api.moonshot.ai/v1/chat/completions
+Authorization: Bearer <the reader's credential>
+Content-Type: application/json
+Accept: application/json
+
+{
+  "model": "<the configured model>",
+  "messages": [
+    { "role": "system", "content": "<instruction>" },
+    { "role": "user",   "content": "<content>" }
+  ]
+}
+```
+
+`model` and `messages` are the only members sent. Kimi K3's own documented
+fixed sampling parameters — `temperature`, `top_p`, `n`, `presence_penalty`,
+`frequency_penalty` — are not sent, and neither are `reasoning_effort`,
+`stream`, `tools` or `tool_choice`: none of them is a setting this design
+offers. Kimi's answer may carry a `reasoning_content` field alongside
+`message.content`; it is never read by this adapter (§11.4).
+
 No other header beyond what each table above lists is sent by any adapter. No
 `User-Agent` of this project's own, no request id, no telemetry.
 
@@ -1145,8 +1175,8 @@ One `AbortController` per request, aborted by a timer at
 `REQUEST_TIMEOUT_MS`, covering the whole request including reading the body.
 This is implemented once, in `src/engine/transport.js`, and every adapter
 sends its request through it — so the 120-second bound and the "no retry"
-rule below are identical across the three adapters by construction, not by
-three separate implementations happening to agree. An abort ends the run as
+rule below are identical across every adapter by construction, not by
+separate implementations happening to agree. An abort ends the run as
 `timeout`.
 
 **A failed run is never retried automatically.** One action click is one run,
@@ -1160,7 +1190,7 @@ against a different provider either (§11.1).
 Each adapter reduces its provider's own documented answer shape to the one
 normalized result of §11.5.
 
-An HTTP 2xx status alone is not success for any of the three: each adapter
+An HTTP 2xx status alone is not success for any provider: each adapter
 requires a **positive** confirmation of its provider's own documented
 normal-completion marker before it will accept any text at all. This is
 deliberately not "exclude the known failure markers and accept whatever is
@@ -1180,6 +1210,12 @@ because the text happens to be non-empty.
   and is not empty after trimming; missing or empty content is
   `no-usable-summary`. `usage`, `id` and everything else in the answer is
   ignored rather than interpreted.
+- **Kimi**: success requires the first choice's `finish_reason` to be exactly
+  `"stop"`, read and accepted the same way as Sakura's above, since Kimi's
+  documented answer shape is the same OpenAI-compatible Chat Completions
+  shape. A `reasoning_content` field on `data.choices[0].message`, when
+  present, is never read: only `message.content` is ever treated as the
+  answer, and only once `"stop"` is confirmed.
 - **OpenAI**: when the top-level `status` field is `"failed"`, the provider
   itself failed to produce a Response — a provider-side `provider-error`, not
   `no-usable-summary` — and no attempt is made to classify the accompanying
@@ -1232,8 +1268,8 @@ names which provider produced it — the caller already knows, from the
 
 ### 11.6 Mapping a failure
 
-The same table, applied independently by each of the three adapters to its
-own provider's status codes and error body:
+The same table, applied independently by each adapter to its own provider's
+status codes and error body:
 
 | What happened | Kind | `detail` |
 |---|---|---|
@@ -1243,9 +1279,9 @@ own provider's status codes and error body:
 | HTTP 400, 413 or 422 whose error names the context length or a maximum input | `too-much-text` | — |
 | HTTP 402 for Claude | `provider-error` | `account-limit` |
 | HTTP 403 for OpenAI or Claude | `provider-error` | `access-denied` |
-| HTTP 403 for Sakura | `provider-error` | `unspecified` |
+| HTTP 403 for Sakura or Kimi | `provider-error` | `unspecified` |
 | HTTP 404 for OpenAI or Claude | `provider-error` | `refused` |
-| HTTP 404 for Sakura | `provider-error` | `unspecified` |
+| HTTP 404 for Sakura or Kimi | `provider-error` | `unspecified` |
 | HTTP 429 for OpenAI whose error names a documented account-side limit | `provider-error` | `account-limit` |
 | HTTP 429, otherwise | `provider-error` | `rate-limited` |
 | HTTP 504 for Claude | `timeout` | — |
@@ -1267,8 +1303,8 @@ strings, a free-form message is a length refusal only when it names what is
 too long or too large — the word `context`, `input`, `prompt` or `request`
 appearing near `too long` or `too large` — so `"input too long"` reaches
 `too-much-text` but `"model name is too long"` does not: a bare `too long` /
-`too large` is deliberately not matched on its own, because OpenAI, Claude
-and Sakura all raise those same words for validation errors that have
+`too large` is deliberately not matched on its own, because OpenAI, Claude,
+Sakura and Kimi all raise those same words for validation errors that have
 nothing to do with size (an over-length model name, for one), and matching
 them there would misreport an unrelated refusal as this page being too
 large. **Every one of these is matched, not parsed**: an endpoint that words
@@ -1306,9 +1342,12 @@ read differently: the current official AI Engine Inference API documentation
 does not establish that either of them means provider-side access denial or
 the model name, so neither is specific enough to leave the generic mapping,
 and both keep the default `unspecified` mapping — which is this section's own
-rule against guessing at a status code's meaning, applied to Sakura. OpenAI's
-and Claude's HTTP 404 keeps its existing `refused` mapping. An undocumented
-response from one provider does not become a failure category of its own.
+rule against guessing at a status code's meaning, applied to Sakura. Kimi's
+current official documentation likewise does not establish a distinct
+meaning for either status, so Kimi's HTTP 403 and HTTP 404 keep the same
+`unspecified` mapping, by the same rule. OpenAI's and Claude's HTTP 404 keeps
+its existing `refused` mapping. An undocumented response from one provider
+does not become a failure category of its own.
 
 OpenAI's Responses API can also report failure without a non-2xx status: a
 top-level `status` of `"failed"` means the provider itself failed to produce
@@ -1331,13 +1370,13 @@ log (§19) and never the reader (§18).
 
 ## 12. The credential
 
-BYOK, as requirement §15 requires, for each of the three providers
+BYOK, as requirement §15 requires, for each of the four providers
 independently.
 
 | Question | Answer |
 |---|---|
 | where | `chrome.storage.local`, in the reader's own profile |
-| key | `apiToken` (Sakura), `openaiApiKey` (OpenAI), `anthropicApiKey` (Claude) |
+| key | `apiToken` (Sakura), `openaiApiKey` (OpenAI), `anthropicApiKey` (Claude), `kimiApiKey` (Kimi) |
 | written by | the options page, on Save, for the selected provider only |
 | deleted by | the options page, on Delete credential, with `storage.local.remove`, for the selected provider's own key only |
 | read by | the worker, at the start of every run, for the selected provider only |
@@ -1348,7 +1387,7 @@ independently.
 reader's Google account to every browser they are signed into, which is not
 this project's decision to make. `chrome.storage.session` is not used for a
 credential: it is cleared with the browser, and a reader would re-enter it
-daily. Each key is independent of the other two: writing or deleting one
+daily. Each key is independent of the others: writing or deleting one
 provider's credential never touches another's, and the provider selection
 (§13) decides only which one key is read for a run, never which keys exist.
 
@@ -1359,15 +1398,14 @@ not into the injected extraction pass, not into a message to the panel, not
 into the panel's document, not into a URL, not into the log, not into an error
 message, not into the summary, and not to any server but that credential's own
 provider's — because there is no other server in this design at all, and a
-provider's credential is never sent to either of the other two providers'
-origins.
+provider's credential is never sent to any other provider's origin.
 
 The options page is the only document with a field for a credential, and it
 is an extension document that no web page can read.
 
 ### 12.2 The optional-permission providers
 
-OpenAI's and Claude's host permissions are declared in `optional_host
+OpenAI's, Claude's and Kimi's host permissions are declared in `optional_host
 _permissions` (§4), not `host_permissions`, and Sakura's stays required. The
 permission helper `src/common/permissions.js` is the one place either fact is
 recorded:
@@ -1377,16 +1415,17 @@ recorded:
 PROVIDER_HOST_PERMISSION = {
   openai: "https://api.openai.com/*",
   anthropic: "https://api.anthropic.com/*",
+  kimi: "https://api.moonshot.ai/*",
 };
-needsOptionalPermission(provider)       // false for sakura, true for the other two
+needsOptionalPermission(provider)       // false for sakura, true for the others
 hasProviderPermission(provider)         // chrome.permissions.contains; always true for sakura
 requestProviderPermission(provider)     // chrome.permissions.request; always true for sakura
 ```
 
 `requestProviderPermission` is called only from the options page, from either
 of two reader gestures there and never from a run: changing the provider
-`<select>` to OpenAI or Claude (§6.2), or clicking `Grant or restore
-permission` while OpenAI or Claude is the selected provider (§6.2).
+`<select>` to OpenAI, Claude or Kimi (§6.2), or clicking `Grant or restore
+permission` while OpenAI, Claude or Kimi is the selected provider (§6.2).
 `hasProviderPermission` is called from the worker at the start of a run
 (§22) to check, never to request, an optional-permission provider's
 permission: if it has since been revoked in Chrome's own settings, the run
@@ -1411,7 +1450,7 @@ is ever sent anywhere but the one provider it belongs to.
 |---|---|
 | where | `chrome.storage.local`, key `provider` |
 | set by | the options page's provider `<select>`, after any optional permission it needs is granted (§12.2) |
-| unset when | the key is absent, its value is not a string, or it is not one of `"sakura"`, `"openai"`, `"anthropic"` |
+| unset when | the key is absent, its value is not a string, or it is not one of `"sakura"`, `"openai"`, `"anthropic"`, `"kimi"` |
 | when unset | `"sakura"` — never inferred from a credential or from a page |
 | read by | the worker, at the start of every run, fixing the provider (and its credential and model) for the whole of that run |
 
@@ -1421,10 +1460,10 @@ Sakura AI Engine exactly as before, with no migration.**
 
 | Question | Answer |
 |---|---|
-| where | `chrome.storage.local`, key `model` (Sakura), `openaiModel` (OpenAI), `anthropicModel` (Claude) |
+| where | `chrome.storage.local`, key `model` (Sakura), `openaiModel` (OpenAI), `anthropicModel` (Claude), `kimiModel` (Kimi) |
 | set by | the options page's model field, for the selected provider only |
 | unset when | the key is absent, its value is not a string, or it is empty after trimming |
-| when unset | that provider's own default: `DEFAULT_MODEL`, `OPENAI_DEFAULT_MODEL` or `ANTHROPIC_DEFAULT_MODEL`, each one constant in `src/common/settings.js` |
+| when unset | that provider's own default: `DEFAULT_MODEL`, `OPENAI_DEFAULT_MODEL`, `ANTHROPIC_DEFAULT_MODEL` or `KIMI_DEFAULT_MODEL`, each one constant in `src/common/settings.js` |
 | used by | that provider's own adapter (§11.2), as the `model` field of its request, and nowhere else |
 
 **No list of available models, for any provider, is held in this repository
@@ -1484,9 +1523,11 @@ choose, and each one exposed would be a second decision on a path requirement
 | `ANTHROPIC_BASE_URL` | `https://api.anthropic.com/v1` | `claude.js` | the Claude (Anthropic) origin (§11.2) |
 | `ANTHROPIC_VERSION` | `2023-06-01` | `claude.js` | the `anthropic-version` header every Claude request sends (§11.2) |
 | `MAX_OUTPUT_TOKENS` | 32768 | `claude.js` | this extension's own fixed request-level output limit for `max_tokens`, sent because the Messages API requires the field — not a reader-facing setting, not a target summary length, not the Messages API's own hard output ceiling, and not the selected Claude model's own maximum output capability (§11.2) |
+| `KIMI_BASE_URL` | `https://api.moonshot.ai/v1` | `kimi.js` | the Kimi (Moonshot AI) origin (§11.2) |
 | `DEFAULT_MODEL` | a name from Sakura's list | `settings.js` | what a reader who set only a Sakura credential runs with (§13) |
 | `OPENAI_DEFAULT_MODEL` | a name from OpenAI's list | `settings.js` | what a reader who set only an OpenAI credential runs with (§13) |
 | `ANTHROPIC_DEFAULT_MODEL` | a name from Anthropic's list | `settings.js` | what a reader who set only a Claude credential runs with (§13) |
+| `KIMI_DEFAULT_MODEL` | a name from Kimi's list | `settings.js` | what a reader who set only a Kimi credential runs with (§13) |
 
 Three values are worth their reasons. `MAX_REQUEST_MATERIAL_CHARS` is counted
 in characters because shaping has no model-specific tokenizer. Its 200000
@@ -1494,7 +1535,7 @@ characters are the one budget that lets large material stay on the one-request
 path, without assuming that a character equals a token. `REQUEST_TIMEOUT_MS` is two minutes
 because a non-streaming semantic-compression request is slow by nature, and a
 shorter limit could turn a succeeding summary into an error — the same reason
-holds for every provider, which is why the three adapters share the one
+holds for every provider, which is why every adapter shares the one
 constant rather than each choosing its own. `MAX_OUTPUT_TOKENS` is generous
 rather than tight, because it exists to satisfy a required field of the
 Messages API, not to cap a summary's length in practice, and it is not the
@@ -1555,7 +1596,7 @@ class, no id, no URL and no offset in the document.
 
 // the worker → dispatcher.js
 callProvider({
-  provider: "sakura",       // "sakura" | "openai" | "anthropic"
+  provider: "sakura",       // "sakura" | "openai" | "anthropic" | "kimi"
   model: "…",
   credential: "…",
   instruction: "…",
@@ -1691,7 +1732,7 @@ credential.**
 
 The kinds are constants in `src/common/errors.js`, which also holds the message
 for each. Nothing else composes a message, and every message names "the
-selected AI provider" rather than assuming which of the three it is.
+selected AI provider" rather than assuming which one it is.
 
 | Kind | Detected in | Internal handling | The reader is told | Needs a setting changed |
 |---|---|---|---|---|
@@ -1706,7 +1747,7 @@ selected AI provider" rather than assuming which of the three it is.
 | `provider-error` / `access-denied` | the selected provider's adapter, HTTP 403 for OpenAI or Claude | the status is logged | "The selected AI provider denied access for this request. Check the provider account's access to the selected project, workspace and model." | possibly, the provider account's own access settings — not this extension's |
 | `provider-error` / `provider-refusal` | the selected provider's adapter, explicit refusal content in an OpenAI answer or Claude's `stop_reason: "refusal"` (§11.4) | the answer is discarded, not shown | "The selected AI provider declined to generate a summary for this request." | no |
 | `provider-error` / `unavailable` | the selected provider's adapter, HTTP 5xx (529 for Claude, but not Claude's 504) | the status is logged | "The selected AI provider reported an error. Trying again later is reasonable." | no |
-| `provider-error` / `unspecified` | the selected provider's adapter, HTTP 403 for Sakura, HTTP 404 for Sakura, an OpenAI answer whose top-level `status` is `"failed"`, or any other non-2xx not mapped elsewhere in this table | the status is logged | "The selected AI provider reported an error." | no |
+| `provider-error` / `unspecified` | the selected provider's adapter, HTTP 403 for Sakura or Kimi, HTTP 404 for Sakura or Kimi, an OpenAI answer whose top-level `status` is `"failed"`, or any other non-2xx not mapped elsewhere in this table | the status is logged | "The selected AI provider reported an error." | no |
 | `page-unreadable` | the worker, from the injection failing or returning nothing usable (§7.5) | the rejection is not carried further | "The content of this page could not be obtained." | no |
 | `too-little-text` | `shape.js` (§9.1) | the run stops before a request | "This page has too little text to summarize." | no |
 | `too-much-text` | the staged summarizer safety bound, or an adapter from its provider's refusal (§9.3, §11.6) | the run stops | "This page is too large to process." | no |
@@ -1757,8 +1798,8 @@ web-digest run: phase=failed kind=provider-error detail=rate-limited status=429 
 though the panel never shows it: 401 is a credential to replace, 429 a rate
 limit, and 403 is mapped by what each adapter's provider documents (§11.6) —
 provider-side access denial for OpenAI and Claude, but still the generic
-provider error for Sakura, whose documentation does not establish the same
-meaning — so only the log, with the raw status, can say which provider and
+provider error for Sakura and Kimi, whose documentation does not establish
+the same meaning — so only the log, with the raw status, can say which provider and
 which status actually happened. `elapsed` is recorded on success too, because an answer that
 arrived in almost the whole of `REQUEST_TIMEOUT_MS` is next run's timeout,
 seen one run early. **Which provider was used is deliberately not logged**:
@@ -1784,18 +1825,19 @@ was refused.
 ## 20. Security
 
 - **Least privilege, structurally.** §4. The extension can reach the tab an
-  action click granted and, per run, one of the three declared API origins —
+  action click granted and, per run, one of the four declared API origins —
   the one belonging to the selected provider. No setting widens any of that,
   and no code path asks for a permission at run time (§22 step 5 only checks
   one already granted or not).
 - **A fixed, named set of outbound origins, one used per run.** The required
   and optional host permissions together name exactly
-  `https://api.ai.sakura.ad.jp`, `https://api.openai.com` and
-  `https://api.anthropic.com`, so a request anywhere else is refused by
-  Chrome rather than by this design being obeyed. `sakura.js`, `openai.js`
-  and `claude.js` are the only files that call `fetch` against a network
-  origin, one origin each; the dispatcher (§11.1) calls exactly one of them
-  per run. The only other `fetch` in the extension is
+  `https://api.ai.sakura.ad.jp`, `https://api.openai.com`,
+  `https://api.anthropic.com` and `https://api.moonshot.ai`, so a request
+  anywhere else is refused by Chrome rather than by this design being
+  obeyed. `sakura.js`, `openai.js`, `claude.js` and `kimi.js` are the only
+  files that call `fetch` against a network origin, one origin each; the
+  dispatcher (§11.1) calls exactly one of them per run. The only other
+  `fetch` in the extension is
   `chrome.runtime.getURL("prompts/summarize.md")`, which is a packaged file.
 - **The page's text is untrusted input.** It is quoted into the content field
   of the logical request as the thing being summarized (§10.3), mapped by
@@ -1821,11 +1863,11 @@ was refused.
   credential and no setting to leak.
 - **Each credential is handled as §12 says**, and the one origin it may be
   sent to is fixed in its own adapter rather than in a setting, so no
-  configuration can point it at another host — including the other two
-  supported providers'.
+  configuration can point it at another host — including any other
+  supported provider's.
 
 The measures are sized to what this is: a personal extension, loaded unpacked,
-holding up to three credentials, each owned by its own reader.
+holding up to four credentials, each owned by its own reader.
 
 ## 21. Privacy
 
@@ -1837,7 +1879,7 @@ What one run does with data, end to end.
 | the page's title | the same | the request, and the state the panel renders | until the browser closes, or the tab navigates or closes |
 | the summary | the selected provider's answer | the state, and the panel | the same |
 | the selected provider's credential | the reader, on the options page | `storage.local`, and that provider's one authentication header or field | until the reader deletes it |
-| the other two providers' credentials, if configured | the reader, on the options page | `storage.local` only — never sent, because that run never selects them | until the reader deletes each one |
+| the other providers' credentials, if configured | the reader, on the options page | `storage.local` only — never sent, because that run never selects them | until the reader deletes each one |
 | the model name | the reader, on the options page | `storage.local`, and the request body, for the selected provider only | the same |
 | the page's URL | nowhere — it is never read, never returned by extraction, never stored and never sent |  |  |
 
@@ -1858,8 +1900,8 @@ What one run does with data, end to end.
 - **The page's text is sent to the one AI provider selected for that run**,
   because that is where the summary is produced. This is the point of the
   extension, not an incidental transfer, and the README is where a reader
-  deciding whether to install it is told so plainly. It is never sent to the
-  other two supported providers, whether or not the reader has configured a
+  deciding whether to install it is told so plainly. It is never sent to any
+  other supported provider, whether or not the reader has configured a
   credential or granted a permission for them.
 - **There is no backend belonging to this project**, so there is nowhere for a
   page, a summary, a credential or a history to be sent to or accumulate in.
@@ -1979,7 +2021,7 @@ specification would be written against.
 | shaping (§8) | `ExtractResult` | `{ ok: true, material }` (§15.2) | `too-little-text` |
 | the size verdicts (§9.1) | a character count — the rendered body's `text.length`, never `charCount` | one of `judgeSize`'s two verdicts, `too-little-text` or `ok` | the `MIN_MATERIAL_CHARS` boundary, exactly; the per-request budget's boundary is a case for staged summarization / chunking, not for `judgeSize` |
 | logical request composition (§10.3) | the instruction text, a `Material` and a task label | `{ instruction, content }` | none; an empty title changes the content and is a case, not an error |
-| provider resolution (§13) | a stored value | one of the three providers, or Sakura for anything else | none: every input has a defined resolution |
+| provider resolution (§13) | a stored value | one of the four providers, or Sakura for anything else | none: every input has a defined resolution |
 | the dispatcher (§11.1) | `{ provider, model, credential, instruction, content }` | whatever the selected adapter returns, unchanged | `internal-error` for an unrecognized provider |
 | each adapter's request construction (§11.2) | model, instruction, content, credential | a URL, a header set and a JSON body, in that adapter's own shape | none |
 | each adapter's answer parsing (§11.4) | an HTTP status and a body | `{ ok: true, summary }` | `no-usable-summary` |
@@ -2001,7 +2043,7 @@ implementation rather than an observation about it:
 - **Every adapter takes `fetch` and the timeout as parameters**, through the
   shared `sendRequest` in `transport.js`, defaulting to the global and to
   `REQUEST_TIMEOUT_MS`, so a stub answers without a network and a timeout is
-  provable in milliseconds, identically for all three.
+  provable in milliseconds, identically for every provider.
 - **The classification that crosses a boundary on failure is the kind, and,
   for `provider-error`, its fixed `detail`.** A test asserts a kind and, where
   it applies, a detail; it never asserts a message fragment, a raw response
@@ -2011,7 +2053,7 @@ implementation rather than an observation about it:
 What is observable from the outside, for a later acceptance run: the state
 each run leaves, the message the panel shows, the single line the log
 writes, and the fact that every outbound request of a run was a POST to the
-selected provider's own origin — never to either of the other two. An
+selected provider's own origin — never to any other. An
 ordinary page makes exactly one such request; a staged long-page run makes
 the several chunk and integrate requests it needs, none of them a retry.
 
@@ -2038,8 +2080,8 @@ the several chunk and integrate requests it needs, none of them a retry.
 | §10 the prompt as data | §10, §10.1 |
 | §10.2 no classification step | §10.2 |
 | §10.3 instruction and material | §10.3, §10.4 |
-| §11.1 one dispatcher, three adapters | §11.1 |
-| §11.2 the three calls | §11.2 |
+| §11.1 one dispatcher, four adapters | §11.1 |
+| §11.2 the four calls | §11.2 |
 | §11.3 the answer | §11.4 |
 | §11.4 the normalized result | §11.5 |
 | §11.5 timeout, no retries | §11.3 |
