@@ -20,6 +20,7 @@ import {
   STORAGE_KEY_PROVIDER,
   STORAGE_KEY_TOKEN,
   isCredentialSet,
+  readSettings,
   resolveJapaneseSummary,
   resolveModel,
   resolveModelFor,
@@ -118,6 +119,131 @@ test("Japanese summary is off unless the stored value is exactly true", () => {
   assert.equal(resolveJapaneseSummary(1), false);
   assert.equal(resolveJapaneseSummary({}), false);
 });
+
+// A minimal fake of chrome.storage.local.get that records every key list it
+// is asked for, so a test can assert on exactly which keys a call read
+// without seeding or observing a real extension storage area.
+function makeFakeStorageLocal(seed) {
+  const store = new Map(Object.entries(seed));
+  const getCalls = [];
+  return {
+    calls: getCalls,
+    chrome: {
+      storage: {
+        local: {
+          get: (keys) => {
+            const keyList = Array.isArray(keys) ? keys : [keys];
+            getCalls.push(keyList);
+            const result = {};
+            for (const key of keyList) {
+              if (store.has(key)) result[key] = store.get(key);
+            }
+            return Promise.resolve(result);
+          },
+        },
+      },
+    },
+  };
+}
+
+const PROVIDER_SETTINGS_FIXTURE = [
+  {
+    provider: Provider.SAKURA,
+    credentialKey: STORAGE_KEY_TOKEN,
+    modelKey: STORAGE_KEY_MODEL,
+    otherKeys: [
+      STORAGE_KEY_OPENAI_KEY,
+      STORAGE_KEY_OPENAI_MODEL,
+      STORAGE_KEY_ANTHROPIC_KEY,
+      STORAGE_KEY_ANTHROPIC_MODEL,
+      STORAGE_KEY_KIMI_KEY,
+      STORAGE_KEY_KIMI_MODEL,
+    ],
+  },
+  {
+    provider: Provider.OPENAI,
+    credentialKey: STORAGE_KEY_OPENAI_KEY,
+    modelKey: STORAGE_KEY_OPENAI_MODEL,
+    otherKeys: [
+      STORAGE_KEY_TOKEN,
+      STORAGE_KEY_MODEL,
+      STORAGE_KEY_ANTHROPIC_KEY,
+      STORAGE_KEY_ANTHROPIC_MODEL,
+      STORAGE_KEY_KIMI_KEY,
+      STORAGE_KEY_KIMI_MODEL,
+    ],
+  },
+  {
+    provider: Provider.ANTHROPIC,
+    credentialKey: STORAGE_KEY_ANTHROPIC_KEY,
+    modelKey: STORAGE_KEY_ANTHROPIC_MODEL,
+    otherKeys: [
+      STORAGE_KEY_TOKEN,
+      STORAGE_KEY_MODEL,
+      STORAGE_KEY_OPENAI_KEY,
+      STORAGE_KEY_OPENAI_MODEL,
+      STORAGE_KEY_KIMI_KEY,
+      STORAGE_KEY_KIMI_MODEL,
+    ],
+  },
+  {
+    provider: Provider.KIMI,
+    credentialKey: STORAGE_KEY_KIMI_KEY,
+    modelKey: STORAGE_KEY_KIMI_MODEL,
+    otherKeys: [
+      STORAGE_KEY_TOKEN,
+      STORAGE_KEY_MODEL,
+      STORAGE_KEY_OPENAI_KEY,
+      STORAGE_KEY_OPENAI_MODEL,
+      STORAGE_KEY_ANTHROPIC_KEY,
+      STORAGE_KEY_ANTHROPIC_MODEL,
+    ],
+  },
+];
+
+for (const fixture of PROVIDER_SETTINGS_FIXTURE) {
+  test(`readSettings reads only the ${fixture.provider} provider's own credential and model`, async () => {
+    const seed = {
+      [STORAGE_KEY_PROVIDER]: fixture.provider,
+      [fixture.credentialKey]: `${fixture.provider}-credential`,
+      [fixture.modelKey]: `${fixture.provider}-model`,
+      [STORAGE_KEY_JAPANESE_SUMMARY]: true,
+    };
+    for (const otherKey of fixture.otherKeys) {
+      seed[otherKey] = "should-never-be-read";
+    }
+    const fake = makeFakeStorageLocal(seed);
+    const previousChrome = globalThis.chrome;
+    globalThis.chrome = fake.chrome;
+    try {
+      const settings = await readSettings();
+
+      assert.equal(fake.calls.length, 2);
+      assert.deepEqual(fake.calls[0], [STORAGE_KEY_PROVIDER]);
+
+      const secondCallKeys = new Set(fake.calls[1]);
+      assert.equal(secondCallKeys.size, 3);
+      assert.ok(secondCallKeys.has(fixture.credentialKey));
+      assert.ok(secondCallKeys.has(fixture.modelKey));
+      assert.ok(secondCallKeys.has(STORAGE_KEY_JAPANESE_SUMMARY));
+      for (const otherKey of fixture.otherKeys) {
+        assert.ok(
+          !secondCallKeys.has(otherKey),
+          `did not expect ${otherKey} to be read for ${fixture.provider}`,
+        );
+      }
+
+      assert.deepEqual(settings, {
+        provider: fixture.provider,
+        credential: `${fixture.provider}-credential`,
+        model: `${fixture.provider}-model`,
+        japaneseSummary: true,
+      });
+    } finally {
+      globalThis.chrome = previousChrome;
+    }
+  });
+}
 
 test("saving or deleting a provider's credential never touches the Japanese summary preference or the provider selection", async () => {
   const source = await readFile(
