@@ -520,6 +520,84 @@ test("a duplicate click while panel setup is pending does not start a second run
   assert.equal(currentRun(tabId), undefined);
 });
 
+test("a run does not start when setOptions() throws synchronously", async () => {
+  let started = false;
+  const sidePanel = {
+    setOptions() {
+      throw new Error("setOptions unavailable");
+    },
+    async open() {
+      throw new Error("open must not be reached in this test path");
+    },
+  };
+
+  await assert.rejects(
+    openPanelAndRun({ id: 51, title: "A title" }, sidePanel, () => {
+      started = true;
+    }),
+    /setOptions unavailable/,
+  );
+  assert.equal(started, false);
+  assert.equal(currentRun(51), undefined);
+});
+
+test("a run does not start when open() throws synchronously", async () => {
+  let started = false;
+  const sidePanel = {
+    async setOptions() {},
+    open() {
+      throw new Error("open unavailable");
+    },
+  };
+
+  await assert.rejects(
+    openPanelAndRun({ id: 52, title: "A title" }, sidePanel, () => {
+      started = true;
+    }),
+    /open unavailable/,
+  );
+  assert.equal(started, false);
+  assert.equal(currentRun(52), undefined);
+});
+
+test("open() throwing synchronously right after setOptions() returns a rejecting promise does not leave an unhandled rejection", async () => {
+  let started = false;
+  let configuredRejection;
+  const sidePanel = {
+    setOptions() {
+      const promise = Promise.reject(new Error("cannot configure panel"));
+      configuredRejection = promise;
+      return promise;
+    },
+    open() {
+      throw new Error("open unavailable");
+    },
+  };
+
+  const unhandledRejections = [];
+  const onUnhandledRejection = (reason) => unhandledRejections.push(reason);
+  process.on("unhandledRejection", onUnhandledRejection);
+
+  try {
+    await assert.rejects(
+      openPanelAndRun({ id: 53, title: "A title" }, sidePanel, () => {
+        started = true;
+      }),
+      /open unavailable/,
+    );
+    // Give the already-rejected setOptions() promise's rejection a chance to
+    // surface as an unhandled rejection if nothing observed it.
+    await configuredRejection.catch(() => {});
+    await new Promise((resolve) => setImmediate(resolve));
+  } finally {
+    process.off("unhandledRejection", onUnhandledRejection);
+  }
+
+  assert.equal(started, false);
+  assert.equal(currentRun(53), undefined);
+  assert.deepEqual(unhandledRejections, []);
+});
+
 test("tab navigation boundaries include loading and URL-change notification without reading the URL value", () => {
   assert.equal(isNavigationBoundary({ status: "loading" }), true);
   assert.equal(isNavigationBoundary({ status: "complete" }), false);

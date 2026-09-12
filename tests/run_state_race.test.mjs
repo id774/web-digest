@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { MessageType } from "../src/common/messages.js";
+
 // These tests reproduce the exact orderings described for the per-tab
 // RunState cleanup races: a chrome.storage.session write already in flight
 // when navigation or a tab close begins its cleanup, and a cleanup racing
@@ -17,6 +19,10 @@ function makeFakeChrome() {
   const calls = [];
   const pendingSets = [];
   const pendingRemoves = [];
+  // Kept separate from `calls`, which several existing tests assert on with
+  // exact-order equality covering only the session-storage set/remove calls
+  // those races are about.
+  const sentMessages = [];
 
   const chrome = {
     action: { onClicked: { addListener: (fn) => (listeners.clicked = fn) } },
@@ -24,7 +30,10 @@ function makeFakeChrome() {
       getURL: (path) => path,
       onInstalled: { addListener: () => {} },
       onMessage: { addListener: (fn) => (listeners.message = fn) },
-      sendMessage: () => Promise.resolve(),
+      sendMessage: (message) => {
+        sentMessages.push(message);
+        return Promise.resolve();
+      },
     },
     sidePanel: {
       setOptions: async () => {},
@@ -68,7 +77,15 @@ function makeFakeChrome() {
     },
   };
 
-  return { chrome, listeners, store, calls, pendingSets, pendingRemoves };
+  return {
+    chrome,
+    listeners,
+    store,
+    calls,
+    pendingSets,
+    pendingRemoves,
+    sentMessages,
+  };
 }
 
 async function loadWorker(chrome) {
@@ -263,6 +280,92 @@ test("a tab-replacement cleanup's remove is not issued until an in-flight write 
       !calls.some(([, key]) => key === "run:154"),
       "the added tab identity must never be written or removed",
     );
+  } finally {
+    delete globalThis.chrome;
+  }
+});
+
+test("a stale write's stateChanged broadcast is suppressed once navigation has invalidated the run that produced it", async () => {
+  const { chrome, listeners, calls, pendingSets, pendingRemoves, sentMessages } =
+    makeFakeChrome();
+  try {
+    const worker = await loadWorker(chrome);
+
+    listeners.clicked({ id: 61, title: "Old page" });
+    await flushUntil(() => pendingSets.length === 1);
+    assert.deepEqual(calls, [["set-called", "run:61"]]);
+
+    // Navigation invalidates the run while its own "running" write to
+    // storage.session is still in flight.
+    listeners.updated(61, { status: "loading" });
+
+    const cleanupSettled = worker.waitForDiscard(61);
+
+    // The old write completes only now, after invalidation.
+    pendingSets.shift()();
+    await flushUntil(() => pendingRemoves.length === 1);
+
+    // The write itself still landed in storage, but the running state it
+    // wrote must never be broadcast once the run that wrote it is stale.
+    assert.ok(
+      !sentMessages.some((message) => message.state?.phase === "running"),
+      "the invalidated run's running state must never be broadcast",
+    );
+
+    pendingRemoves.shift()();
+    await cleanupSettled;
+
+    // The queued cleanup's own idle broadcast still goes out as before.
+    assert.ok(
+      sentMessages.some((message) => message.state?.phase === "idle"),
+      "expected the cleanup's idle broadcast",
+    );
+  } finally {
+    delete globalThis.chrome;
+  }
+});
+
+test("a GET_STATE request that begins while a mutation is already queued waits for that queue before reading storage", async () => {
+  const { chrome, listeners, store, pendingSets, pendingRemoves } =
+    makeFakeChrome();
+  try {
+    await loadWorker(chrome);
+
+    listeners.clicked({ id: 62, title: "Old page" });
+    await flushUntil(() => pendingSets.length === 1);
+
+    // Navigation queues a cleanup behind the still-pending write.
+    listeners.updated(62, { status: "loading" });
+
+    let response;
+    const responded = new Promise((resolve) => {
+      const keepGoing = listeners.message(
+        { type: MessageType.GET_STATE, tabId: 62 },
+        {},
+        (value) => {
+          response = value;
+          resolve();
+        },
+      );
+      assert.equal(keepGoing, true);
+    });
+
+    // Give the response every chance to arrive before the write and its
+    // queued cleanup have actually settled.
+    await flushUntil(() => response !== undefined, 50);
+    assert.equal(
+      response,
+      undefined,
+      "getState must not resolve before the queued cleanup is done",
+    );
+
+    pendingSets.shift()();
+    await flushUntil(() => pendingRemoves.length === 1);
+    pendingRemoves.shift()();
+
+    await responded;
+    assert.equal(response.phase, "idle");
+    assert.equal(store.has("run:62"), false);
   } finally {
     delete globalThis.chrome;
   }
