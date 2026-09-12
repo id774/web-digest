@@ -267,9 +267,12 @@ fires, so the one click would open a panel and start nothing.
 action, so the worker invokes `setOptions()` and then invokes `open()` before
 awaiting either Promise. It then waits for both operations together. This
 preserves the click gesture for the `open()` call while still preventing the
-run from continuing unless both panel operations succeed. A rejection from
-either operation releases the identity claimed by this click and ends the
-action path with no run.
+run from continuing unless both panel operations succeed. A synchronous
+exception from either side-panel call, or a rejection from either returned
+operation, releases the identity claimed by this click and ends the action
+path with no run. `open()` is still invoked before any `await`; if `open()`
+throws after `setOptions()` has already returned a Promise, that earlier
+operation is observed so its later rejection cannot become unhandled.
 
 The live run identity is claimed synchronously before either panel call and is
 the same identity the run uses after both calls succeed. Navigation, closure
@@ -1702,7 +1705,14 @@ The four states of basic design §14, one per tab.
   being current is a no-op rather than a state that outlives the run it
   belonged to. Cleanups themselves are unconditional and always run in the
   order they were asked for, so a later run's own first write is never undone
-  by an earlier cleanup that was still queued behind it.
+  by an earlier cleanup that was still queued behind it. After a queued
+  `chrome.storage.session.set` resolves, the worker checks the same live run
+  identity again before broadcasting that state. If navigation, closure or
+  replacement invalidated the run while the write was in flight, the old
+  state is never broadcast. A `getState` request that begins while a
+  mutation for that tab is already queued waits for that queue before
+  reading session storage, so it does not return the state between an
+  invalidated write and the cleanup already queued behind it.
 - A `chrome.storage.session.set` failure is not mistaken for success: the run
   continues past it only if the write actually went through. Where that
   write was the run's own failure state — the outer catch of §22, or an
@@ -1949,11 +1959,12 @@ The steps, at the granularity they are written at:
    identity this run will use. A duplicate click cannot claim another one.
 3. **The panel is opened.** `setOptions()` and `open()` are both invoked before
    either is awaited, with `open()` still inside the action's user gesture. If
-   either rejects, this click's identity is released and no run continues. If
-   both resolve but navigation, closure or replacement invalidated the identity
-   meanwhile, the action ends silently with no extraction and no failure state.
-   Only a still-current identity continues, writes `running` and enters the
-   existing run sequence for that same tab id.
+   either call throws synchronously, or either returned operation rejects,
+   this click's identity is released and no run continues. If both resolve
+   but navigation, closure or replacement invalidated the identity meanwhile,
+   the action ends silently with no extraction and no failure state. Only a
+   still-current identity continues, writes `running` and enters the existing
+   run sequence for that same tab id.
 4. **The tab is the one the request named.** No search for an active tab, no
    fallback to another window: the live identity belongs to the tab id from
    step 1.
@@ -2030,7 +2041,7 @@ specification would be written against.
 | the state machine (§17) | a phase and an event | the next phase and what it carries | an event that is not allowed in a phase leaves it unchanged |
 | error kinds (§18) | a kind, and a detail | one message string | a kind with no message is a fault of this repository |
 | the service-worker keepalive (§22) | an async operation function, a fake runtime API and fake interval functions, all passed as parameters | the operation's resolved value, or its rejection propagated unchanged | none of its own: the interval period is `SERVICE_WORKER_KEEPALIVE_INTERVAL_MS`, the pulse is one `getPlatformInfo` call, and the interval is cleared on resolve as on reject, all without a browser profile, a network or a real timer |
-| run ownership at panel start (§5.1, §22) | a tab id, deferred fake side-panel Promises and a fake run starter | exactly one live identity exists from the click; invalidating it before panel completion prevents the starter from being called | a panel rejection releases the claimed identity; a duplicate click claims none |
+| run ownership at panel start (§5.1, §22) | a tab id, deferred fake side-panel Promises and a fake run starter | exactly one live identity exists from the click; invalidating it before panel completion prevents the starter from being called | a panel rejection releases the claimed identity; a synchronous exception from a panel operation releases it the same way; a duplicate click claims none |
 | tab-update navigation boundary (§17) | a `changeInfo` object | true for `status: "loading"` or the presence of its own `url` property, false otherwise | the URL property's value is never read |
 
 Four properties make that possible, and each is a constraint on the

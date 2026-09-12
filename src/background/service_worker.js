@@ -254,6 +254,11 @@ export async function keepServiceWorkerAlive(
 // meaning for.
 async function readState(tabId) {
   try {
+    // If a mutation for this tab is already queued when this read begins,
+    // wait for that queue to settle before reading storage, so this cannot
+    // return the state between an invalidated write and the cleanup already
+    // queued behind it.
+    await waitForDiscard(tabId);
     const stored = await chrome.storage.session.get(stateKey(tabId));
     return stored[stateKey(tabId)] || idleState();
   } catch {
@@ -269,6 +274,11 @@ async function writeState(tabId, state, run) {
   return enqueueStateMutation(tabId, async () => {
     if (!isCurrentRun(tabId, run)) return;
     await chrome.storage.session.set({ [stateKey(tabId)]: state });
+    // Checked again after the write settles: navigation, closure or
+    // replacement may have invalidated this run while the write was in
+    // flight, and the old state it just stored must never be broadcast once
+    // that has happened.
+    if (!isCurrentRun(tabId, run)) return;
     // A broadcast with no listener rejects, and that is ignored: the state is
     // already stored, and a panel that opens later reads it with getState.
     chrome.runtime
@@ -502,13 +512,32 @@ export async function openPanelAndRun(
   // active, so it is invoked before awaiting setOptions()'s completion.
   // A successfully claimed run identity already exists while both panel
   // operations are pending, so navigation can invalidate this click before
-  // it reaches extraction.
-  const configured = sidePanel.setOptions({
-    tabId,
-    path: PANEL_PATH,
-    enabled: true,
-  });
-  const opened = sidePanel.open({ tabId });
+  // it reaches extraction. A synchronous exception from either call is
+  // handled the same as a rejection from its returned operation: the
+  // claimed identity is released and the action path ends with no run.
+  let configured;
+  try {
+    configured = sidePanel.setOptions({
+      tabId,
+      path: PANEL_PATH,
+      enabled: true,
+    });
+  } catch (error) {
+    if (claimed) releaseRun(tabId, run);
+    throw error;
+  }
+
+  let opened;
+  try {
+    opened = sidePanel.open({ tabId });
+  } catch (error) {
+    // setOptions() already returned its own Promise; observe it right away
+    // so a later rejection from it cannot become an unhandled rejection now
+    // that nothing else is going to await it.
+    Promise.resolve(configured).catch(() => {});
+    if (claimed) releaseRun(tabId, run);
+    throw error;
+  }
 
   try {
     await Promise.all([configured, opened]);
