@@ -647,6 +647,108 @@ test("two overlapping Japanese summary toggles are serialized, so the later one 
   }
 });
 
+// A generation is assigned to each accepted toggle, and only the completion
+// belonging to the latest one may touch the checkbox or its status. A
+// successful write still always advances the last confirmed value, whatever
+// generation it belongs to — this is what lets the last of three queued
+// toggles win here even though the first of them fails.
+test("three queued Japanese summary toggles: the latest one's own outcome, not an earlier failure, decides the final checkbox and status", async () => {
+  const { chrome, store, pendingSets } = makeFakeChrome();
+  try {
+    const els = await loadOptionsPage(chrome);
+    assert.equal(els["japanese-summary"].checked, false);
+
+    els["japanese-summary"].checked = true;
+    const firstChange = fire(els["japanese-summary"], "change");
+    await flushUntil(() => pendingSets.length === 1);
+
+    els["japanese-summary"].checked = false;
+    const secondChange = fire(els["japanese-summary"], "change");
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(
+      pendingSets.length,
+      1,
+      "the second write must stay queued behind the first, not race it",
+    );
+
+    els["japanese-summary"].checked = true;
+    const thirdChange = fire(els["japanese-summary"], "change");
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(
+      pendingSets.length,
+      1,
+      "the third write must stay queued behind the first, not race it",
+    );
+
+    // The first (oldest) write fails.
+    pendingSets.shift().reject(new Error("storage unavailable"));
+    await firstChange;
+
+    // The second write succeeds, but it is not the latest generation either.
+    await flushUntil(() => pendingSets.length === 1);
+    pendingSets.shift().resolve();
+    await secondChange;
+
+    // The third (latest) write succeeds and is the one left standing.
+    await flushUntil(() => pendingSets.length === 1);
+    pendingSets.shift().resolve();
+    await thirdChange;
+
+    assert.equal(store.get(STORAGE_KEY_JAPANESE_SUMMARY), true);
+    assert.equal(els["japanese-summary"].checked, true);
+    assert.equal(els["japanese-summary-status"].textContent, "Saved.");
+  } finally {
+    cleanup();
+  }
+});
+
+// §7.6 of this fix: an older write's success must not force the checkbox
+// back to its own requested value once a newer toggle is already pending,
+// and when that newer write then fails, the checkbox falls back to the
+// value the older write actually confirmed in storage — not to whatever
+// the checkbox happened to be showing.
+test("a newer pending Japanese summary choice survives an older write's success, and falls back to the last confirmed value when it then fails", async () => {
+  const { chrome, pendingSets } = makeFakeChrome();
+  try {
+    const els = await loadOptionsPage(chrome);
+    assert.equal(els["japanese-summary"].checked, false);
+
+    els["japanese-summary"].checked = true;
+    const firstChange = fire(els["japanese-summary"], "change");
+    await flushUntil(() => pendingSets.length === 1);
+
+    // A second toggle is made before the first save has settled.
+    els["japanese-summary"].checked = false;
+    const secondChange = fire(els["japanese-summary"], "change");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // The first (older) write now succeeds. Its completion must not put the
+    // checkbox back to its own requested value now that a newer toggle is
+    // pending.
+    pendingSets.shift().resolve();
+    await firstChange;
+    assert.equal(els["japanese-summary"].checked, false);
+
+    // The second (latest) write now fails.
+    await flushUntil(() => pendingSets.length === 1);
+    pendingSets.shift().reject(new Error("storage unavailable"));
+    await secondChange;
+
+    // The checkbox falls back to the last value a write actually confirmed
+    // — the first toggle's true — not to whatever was showing beforehand.
+    assert.equal(els["japanese-summary"].checked, true);
+    assert.equal(
+      els["japanese-summary-status"].textContent,
+      "The Japanese summary preference could not be saved.",
+    );
+  } finally {
+    cleanup();
+  }
+});
+
 // §15.2 of the requirements this fixes: the initial read of the stored
 // provider is held open, and a provider change and a Save are both attempted
 // while it is still unresolved — before this page has any confirmed idea
