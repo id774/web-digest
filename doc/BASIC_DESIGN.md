@@ -23,7 +23,7 @@ for, not by the functions it will contain, and no code appears here.
 
 Seven decisions shape everything below.
 
-- **Nothing runs until the reader asks.** There is no content script declared
+- **No summary work runs until the reader asks.** There is no content script declared
   in the manifest, and no listener reads a page or starts a summary on
   navigation. The extraction pass is injected into a tab at the moment a
   summary is requested, and the extension has no standing presence in any

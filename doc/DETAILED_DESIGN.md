@@ -287,7 +287,7 @@ open the panel, but it starts no second run.
 
 | # | The reader does | What happens |
 |---|---|---|
-| 1 | installs the unpacked extension | nothing runs; the provider resolves to Sakura AI Engine, unset (§13, §14) |
+| 1 | installs the unpacked extension | the install hook configures the side-panel action behavior; no summary run starts and no page is read; an unset provider later resolves to Sakura AI Engine (§13, §14) |
 | 2 | opens the options page, optionally chooses a different provider, and saves its credential | the provider selection and that provider's credential are in `storage.local` (§12, §13); choosing OpenAI, Claude or Kimi first asks Chrome's own permission prompt for that provider's origin |
 | 3 | opens a page and clicks the action | the panel opens and one run starts, using the provider selected in step 2 (§22) |
 | 4 | waits | the panel shows the run is in progress |
@@ -2088,7 +2088,7 @@ the several chunk and integrate requests it needs, none of them a retry.
 
 | Basic design | Where it is detailed |
 |---|---|
-| §2 nothing runs until the reader asks | §4.2, §5, §7 |
+| §2 no summary work runs until the reader asks | §4.2, §5, §7 |
 | §4 repository layout, no build step | §3 |
 | §5.1 the worker owns a run | §22 |
 | §5.2 the injected pass | §7 |

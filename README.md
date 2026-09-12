@@ -47,7 +47,7 @@ the summary is shown in the side panel, beside the page
 ## Features
 
 - **General web pages**: there is no list of supported sites and no site-specific handling; the extraction is one generic strategy
-- **Only the page you asked about**: nothing runs until you click, no page is read because it happened to be open, and no run starts on a navigation or on a schedule
+- **Only the page you asked about**: no summary run starts and no page is read until you click, no page is read because it happened to be open, and no run starts on a navigation or on a schedule
 - **A choice of AI provider**: Sakura AI Engine, OpenAI, Claude or Kimi, selected in settings; one run uses exactly the one provider you selected, and never sends anything to the others
 - **Substance kept, redundancy dropped**: the central claim, the causal relations that matter, the conclusion and the conditions that qualify it survive the summary
 - **No target length**: the length that results from removing the redundancy of a particular page is the length that page gets
@@ -94,7 +94,7 @@ Then, in Chrome:
 6. Find **web-digest** and pin it.
 7. Confirm that the **web-digest** button appears on the Chrome toolbar.
 
-Nothing runs at this point. The extension does nothing until you click its toolbar action on a page.
+No summary run starts and no page is read at this point. The extension does not summarize a page until you click its toolbar action on that page.
 
 ## Preparing an AI provider
 
