@@ -1,7 +1,7 @@
 // The side panel: it asks for the state and renders it.
 //
 // The panel decides nothing. It holds no copy of a setting and no token, it
-// performs no extraction and it makes no request to the AI Engine.
+// performs no extraction and it makes no request to any AI provider.
 
 import { ErrorKind, messageFor } from "../common/errors.js";
 import { MessageType } from "../common/messages.js";

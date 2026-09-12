@@ -73,7 +73,8 @@ listing (basic design §4).
     │   ├── transport.js
     │   ├── sakura.js
     │   ├── openai.js
-    │   └── claude.js
+    │   ├── claude.js
+    │   └── kimi.js
     ├── panel/
     │   ├── panel.html
     │   ├── panel.js

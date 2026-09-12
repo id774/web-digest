@@ -3,8 +3,6 @@ web-digest Repository Version History
 
 v1.1.1 (Release Date: TBD)
 --------------------------
-- Add Kimi as a selectable AI provider with its own credential, model and
-  optional host permission.
 - Fixed side-panel opening and tab lifecycle races so runs and state stay
   with the current tab through navigation, closure, and replacement.
 - Fixed settings-page async races and storage read/write failures so provider
@@ -15,6 +13,8 @@ v1.1.1 (Release Date: TBD)
   failures cannot replace the active tab.
 - Fixed provider response handling so failures stay distinct and only complete
   responses are shown as summaries.
+- Added Kimi as a selectable AI provider with its own credential, model and
+  optional host permission.
 
 v1.1.0 (2026-08-31)
 -------------------
