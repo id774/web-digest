@@ -117,19 +117,15 @@ export function resolveJapaneseSummary(value) {
 // summary preference. A provider switch made after this call never affects
 // the run that already read it.
 export async function readSettings() {
-  const stored = await chrome.storage.local.get([
+  const providerStored = await chrome.storage.local.get(
     STORAGE_KEY_PROVIDER,
-    STORAGE_KEY_TOKEN,
-    STORAGE_KEY_MODEL,
-    STORAGE_KEY_OPENAI_KEY,
-    STORAGE_KEY_OPENAI_MODEL,
-    STORAGE_KEY_ANTHROPIC_KEY,
-    STORAGE_KEY_ANTHROPIC_MODEL,
-    STORAGE_KEY_KIMI_KEY,
-    STORAGE_KEY_KIMI_MODEL,
+  );
+  const provider = resolveProvider(providerStored[STORAGE_KEY_PROVIDER]);
+  const stored = await chrome.storage.local.get([
+    CREDENTIAL_KEY[provider],
+    MODEL_KEY[provider],
     STORAGE_KEY_JAPANESE_SUMMARY,
   ]);
-  const provider = resolveProvider(stored[STORAGE_KEY_PROVIDER]);
   const credential = stored[CREDENTIAL_KEY[provider]];
   return {
     provider,
