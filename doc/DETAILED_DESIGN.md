@@ -618,7 +618,7 @@ these holds:
 | Skipped | Test |
 |---|---|
 | it is inside dropped furniture | it has an ancestor matching `nav, header, footer, aside, form, dialog, [role="navigation"], [role="banner"], [role="contentinfo"], [role="complementary"], [role="search"], [role="form"]` |
-| it is not being displayed | `hidden`, `aria-hidden="true"`, or a computed `display: none` or `visibility: hidden` on it or an ancestor |
+| it is not being displayed | `hidden`, `aria-hidden="true"`, or a computed `display: none` or `visibility: hidden` or `visibility: collapse` on it or an ancestor |
 | it is not content | it is inside, or is, `script, style, noscript, template, iframe, svg, canvas, button, select, textarea, input, label` |
 
 Four of the six candidate tags — `li`, `blockquote`, `th`, `td` — are
@@ -640,6 +640,17 @@ block — and what lets `<blockquote><p>Quoted text</p></blockquote>` stay a
 instead of falling to plain `paragraph` semantics the moment a `p` sits
 inside them. No DOM text is ever emitted twice: a container's own text is
 exactly the text a nested independent candidate does not already claim.
+
+Container-owned text preserves the adjacency supplied by the DOM text nodes.
+Inline descendants do not gain a separator merely because they are elements;
+authored whitespace is preserved here and normalized later by shaping.
+Excluded subtrees and nested independent candidates contribute no text.
+
+`pre` preserves line breaks, but it does not bypass the visibility/content
+exclusions. Its text is collected recursively from visible content while
+preserving text-node whitespace and line breaks; raw `element.textContent`
+is not used for emission, so hidden, furniture or non-content descendants
+cannot leak into a code block.
 
 The kind of an emitted block comes from its own tag:
 

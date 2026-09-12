@@ -54,7 +54,12 @@ function webDigestExtract(doc) {
       }
       if (view && typeof view.getComputedStyle === "function") {
         const style = view.getComputedStyle(node);
-        if (style && (style.display === "none" || style.visibility === "hidden")) {
+        if (
+          style &&
+          (style.display === "none" ||
+            style.visibility === "hidden" ||
+            style.visibility === "collapse")
+        ) {
           return true;
         }
       }
@@ -180,6 +185,14 @@ function webDigestExtract(doc) {
   // nothing here; it is collected separately, as its own block, keeping the
   // outer container's kind and direct text intact rather than losing them to
   // the descendant's presence.
+  //
+  // Text nodes are concatenated in DOM order with no separator inserted
+  // between them: an inline element boundary is not by itself a reason for a
+  // space to appear, so `前<strong>後</strong>。` stays `前後。` and
+  // `<a>docs</a>.` stays `docs.` rather than gaining artificial spaces. Any
+  // whitespace an author actually wrote is preserved here and left to later
+  // shaping to normalize; only the two edges of the whole returned text are
+  // trimmed.
   function ownedContent(element) {
     let text = "";
     let linkChars = 0;
@@ -187,9 +200,9 @@ function webDigestExtract(doc) {
     function walk(node, insideAnchor) {
       for (const child of node.childNodes) {
         if (child.nodeType === 3) {
-          const segment = child.textContent.trim();
+          const segment = child.textContent;
           if (segment.length === 0) continue;
-          text += (text.length > 0 ? " " : "") + segment;
+          text += segment;
           if (insideAnchor) linkChars += segment.length;
           continue;
         }
@@ -202,7 +215,7 @@ function webDigestExtract(doc) {
     }
 
     walk(element, false);
-    return { text, linkChars };
+    return { text: text.trim(), linkChars };
   }
 
   const root = chooseRoot();
@@ -243,10 +256,30 @@ function webDigestExtract(doc) {
     blocks.push(blockFor(element, tag, text, rows));
   }
 
+  // `pre`'s own verbatim collection: every text node's content is kept
+  // exactly, including line breaks and indentation, but a descendant element
+  // is still subject to the same exclusion `isExcluded` applies everywhere
+  // else, so a hidden, aria-hidden, furniture or non-content descendant
+  // cannot leak into a code block the way raw `element.textContent` would
+  // let it. Internal whitespace is never normalized here; only the
+  // block-edge trim below still applies to the result.
+  function codeText(element) {
+    if (isExcluded(element)) return "";
+    let text = "";
+    for (const child of element.childNodes) {
+      if (child.nodeType === 3) {
+        text += child.textContent;
+      } else if (child.nodeType === 1) {
+        text += codeText(child);
+      }
+    }
+    return text;
+  }
+
   function tryEmitLeaf(element, tag) {
     if (element === titleElement) return;
     if (tag === "pre") {
-      const text = (element.textContent || "").replace(/^\n+|\s+$/g, "");
+      const text = codeText(element).replace(/^\n+|\s+$/g, "");
       tryEmit(element, tag, text, 0);
       return;
     }

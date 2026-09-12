@@ -368,6 +368,94 @@ test("a hidden h1 is never the title: document.title is preferred over it when n
   assert.doesNotMatch(serialized, /Hidden skip-link heading/);
 });
 
+test("adjacent inline CJK text is not split by an artificial space", () => {
+  const doc = page([
+    el("li", {}, ["前", el("strong", {}, ["後"]), "。"]),
+  ]);
+
+  const result = runExtract(doc);
+  const items = result.blocks.filter((b) => b.kind === "list-item");
+
+  assert.equal(items.length, 1);
+  assert.equal(items[0].text, "前後。");
+});
+
+test("an inline link followed directly by punctuation is not split by an artificial space", () => {
+  const doc = page([
+    el("li", {}, ["See ", el("a", { href: "/docs" }, ["docs"]), "."]),
+  ]);
+
+  const result = runExtract(doc);
+  const items = result.blocks.filter((b) => b.kind === "list-item");
+
+  assert.equal(items.length, 1);
+  assert.equal(items[0].text, "See docs.");
+});
+
+test("a hidden descendant inside a pre does not leak into the code block, and visible line breaks are kept", () => {
+  const doc = page([
+    el("pre", {}, [
+      "line one\n",
+      el("span", { hidden: true }, ["secret line\n"]),
+      "line two\n",
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+  const code = result.blocks.find((b) => b.kind === "code");
+
+  assert.equal(code.text, "line one\nline two");
+  assert.doesNotMatch(code.text, /secret line/);
+});
+
+test("a non-content descendant inside a pre does not leak into the code block", () => {
+  const doc = page([
+    el("pre", {}, [
+      "const x = 1;\n",
+      el("script", {}, ["trackEvent('code viewed');"]),
+      el("button", {}, ["Copy"]),
+      "const y = 2;",
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+  const code = result.blocks.find((b) => b.kind === "code");
+
+  assert.equal(code.text, "const x = 1;\nconst y = 2;");
+  assert.doesNotMatch(code.text, /trackEvent/);
+  assert.doesNotMatch(code.text, /Copy/);
+});
+
+test("visibility: collapse is treated as not displayed, the same as visibility: hidden", () => {
+  const doc = page([
+    el("p", {}, [
+      "Visible lead-in. ",
+      el("span", { style: { visibility: "collapse" } }, ["Collapsed aside."]),
+      " Visible close.",
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+  const paragraphs = result.blocks.filter((b) => b.kind === "paragraph");
+
+  assert.equal(paragraphs.length, 1);
+  assert.match(paragraphs[0].text, /Visible lead-in\./);
+  assert.match(paragraphs[0].text, /Visible close\./);
+  assert.doesNotMatch(paragraphs[0].text, /Collapsed aside/);
+});
+
+test("a candidate that is itself visibility: collapse contributes no block", () => {
+  const doc = page([
+    el("p", { style: { visibility: "collapse" } }, ["Entirely collapsed text."]),
+    el("p", {}, ["Ordinary visible paragraph."]),
+  ]);
+
+  const result = runExtract(doc);
+
+  assert.equal(result.blocks.length, 1);
+  assert.equal(result.blocks[0].text, "Ordinary visible paragraph.");
+});
+
 test("no URL is ever returned", () => {
   const doc = page([
     el("h2", {}, [el("a", { href: "/section" }, ["Installation"])]),
