@@ -7,8 +7,8 @@
 // body, no exception, no stack and no credential, and nothing is
 // interpolated into it from the page, the answer or the settings.
 //
-// The kinds are provider-neutral: a run may use the Sakura AI Engine, OpenAI
-// or Claude, and the reader is told about "the selected AI provider" rather
+// The kinds are provider-neutral: a run may use the Sakura AI Engine, OpenAI,
+// Claude or Kimi, and the reader is told about "the selected AI provider" rather
 // than about one of them by name, whichever one was actually chosen.
 
 export const ErrorKind = {
