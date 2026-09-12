@@ -542,12 +542,16 @@ provider selector entirely: it is read on load and written the moment it
 changes (§13.1), so turning it on or off never requires a credential to be
 re-entered and never touches a credential or a model, for the selected
 provider or any other. It is not part of the provider transaction's lock —
-toggling it while a provider change is in flight is allowed — but its own
-saves are queued behind one another, so a second toggle before the first has
-reached storage is written only once the first has, and never races it
-there. A write failure reverts the checkbox to the last value confirmed
-saved and shows "The Japanese summary preference could not be saved."
-rather than "Saved.".
+toggling it while a provider change is in flight is allowed. The preference
+saves remain serialized. Each accepted toggle also receives a private
+monotonically increasing generation. A successful queued write always
+advances the last confirmed saved value, but a completion changes the
+checkbox and its status only when it belongs to the latest requested
+generation. An older success therefore cannot overwrite a newer pending
+choice, and an older failure cannot revert it. If the latest write fails,
+the checkbox returns to the last successfully confirmed value and shows
+"The Japanese summary preference could not be saved."; if the latest write
+succeeds, the checkbox is set to that confirmed value and shows "Saved.".
 
 The page also states, as fixed text, where a credential is kept and what it is
 used for — the substance of §12, in one short paragraph, because the reader

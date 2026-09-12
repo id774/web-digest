@@ -168,6 +168,15 @@ function wire() {
   // one left standing.
   let japaneseSummaryQueue = Promise.resolve();
 
+  // A private counter, not stored anywhere: each accepted toggle captures
+  // the generation current at that moment, and a completed queue item only
+  // touches the checkbox and its status when its own generation still
+  // matches the latest one. This is what stops an older completion —
+  // success or failure — from overwriting a newer pending choice, while the
+  // storage write it produced still always advances the last confirmed
+  // value below.
+  let japaneseSummaryGeneration = 0;
+
   function say(text) {
     fields.status.textContent = text;
   }
@@ -393,18 +402,32 @@ function wire() {
       return;
     }
     const requested = fields.japaneseSummary.checked;
+    japaneseSummaryGeneration += 1;
+    const generation = japaneseSummaryGeneration;
     japaneseSummaryQueue = japaneseSummaryQueue.catch(() => {}).then(async () => {
       try {
         await saveJapaneseSummary(requested);
       } catch {
-        fields.japaneseSummary.checked = confirmedJapaneseSummary;
-        sayJapaneseSummary(
-          "The Japanese summary preference could not be saved.",
-        );
+        // The stored value, and any newer pending choice, are untouched by
+        // an older failure: the checkbox and status are only reverted here
+        // when this completion still belongs to the latest generation.
+        if (generation === japaneseSummaryGeneration) {
+          fields.japaneseSummary.checked = confirmedJapaneseSummary;
+          sayJapaneseSummary(
+            "The Japanese summary preference could not be saved.",
+          );
+        }
         return;
       }
+      // The write above already resolved, so the storage-backed confirmed
+      // value always advances — even for an older generation — but the
+      // checkbox and status only follow it when this is still the latest
+      // requested toggle.
       confirmedJapaneseSummary = requested;
-      sayJapaneseSummary("Saved.");
+      if (generation === japaneseSummaryGeneration) {
+        fields.japaneseSummary.checked = confirmedJapaneseSummary;
+        sayJapaneseSummary("Saved.");
+      }
     });
     return japaneseSummaryQueue;
   });
