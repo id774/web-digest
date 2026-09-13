@@ -344,3 +344,7 @@ Prompt wording is not embedded in a JavaScript module. `prompts/summarize.md` is
 REQUIREMENTS states what the extension must satisfy. BASIC_DESIGN states the architecture and the responsibility of each component. DETAILED_DESIGN states the concrete behavior and interfaces. POLICY states the implementation and maintenance policy. VERSIONS is the release history.
 
 Each of them stands on its own. What this repository needs is written in this repository, and no document here is completed by one kept somewhere else. Where a document and this README disagree, the documents are right and this README is the one to correct.
+
+This repository uses `master` as its primary branch name.
+
+The name is used solely as a technical identifier, following the long-standing convention historically used by Git. It does not express or imply any association with racism, slavery, discrimination, or any political or social ideology.
