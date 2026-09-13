@@ -17,6 +17,7 @@
 13. [Not built](#not-built)
 14. [Repository structure](#repository-structure)
 15. [Documents](#documents)
+16. [Branch Naming](#branch-naming)
 
 ## Overview
 
@@ -344,6 +345,8 @@ Prompt wording is not embedded in a JavaScript module. `prompts/summarize.md` is
 REQUIREMENTS states what the extension must satisfy. BASIC_DESIGN states the architecture and the responsibility of each component. DETAILED_DESIGN states the concrete behavior and interfaces. POLICY states the implementation and maintenance policy. VERSIONS is the release history.
 
 Each of them stands on its own. What this repository needs is written in this repository, and no document here is completed by one kept somewhere else. Where a document and this README disagree, the documents are right and this README is the one to correct.
+
+## Branch Naming
 
 This repository uses `master` as its primary branch name.
 
