@@ -190,6 +190,13 @@ prompt, to extraction or to shaping is allowed to do.
 ### 1.9 Errors
 - No failure is silent. Every failure ends the run, sets the failed state and
   shows the reader one message.
+- Classify what happened, decide whether the run may continue, and decide what
+  the reader or log needs to be told as separate questions. In this repository
+  the established answer for an actual failure remains fail-fast for that run;
+  this rule does not introduce partial continuation inside one reader action.
+- A normal no-op, guard, or branch that is inapplicable by design is not a
+  failure and does not need a reader-facing message merely because it performed
+  no work.
 - A cause the reader can act on is shown in terms they can act on: what happened
   and what would address it.
 - Causes that lead to different actions stay apart. "No credential configured"
@@ -212,6 +219,10 @@ prompt, to extraction or to shaping is allowed to do.
 ### 1.10 Logging
 - Keep the log to the minimum that makes a run explicable: one line at the end
   of a run, written with `console` in the service worker.
+- Do not add a log line merely to record an ordinary control-flow decision.
+  Logging exists to make a run explicable, not to prove that every branch was
+  visited. Keep actionable failure information from being buried by normal
+  branch messages.
 - What may be recorded is the shape of the run — the phase, the error kind and
   its detail, the HTTP status of a failure, the number of blocks, the character
   count and the elapsed time.
