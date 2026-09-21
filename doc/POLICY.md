@@ -351,6 +351,14 @@ finally intended, and merges as if it had been written that way.
 - **Do not split one release into finely divided versions.** Changes that belong
   to the same release belong to the same entry, however many commits produced
   them.
+- **The repository has at most one version number per calendar date.** This
+  rule has no exception: independent release items, separate commits, pull
+  requests, features, bug fixes, security fixes, compatibility changes or
+  breaking changes made on the same date do not permit a second version. A
+  same-date change joins that day's single entry as its own bullet;
+  independence decides bullet grouping, never a second version number.
+- A correction to a version already released today is prepared but released
+  under a new version only on a later calendar date.
 - **A documentation-only change does not become a version of its own**, and
   takes no entry unless its scale makes it worth one line saying so. Wording,
   formatting and comment changes with no effect on behaviour are not releases.
