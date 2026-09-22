@@ -239,7 +239,13 @@ function webDigestExtract(doc) {
   // whitespace an author actually wrote is preserved here and left to later
   // shaping to normalize; only the two edges of the whole returned text are
   // trimmed.
-  function ownedContent(element) {
+  //
+  // `insideAnchor` seeds whether `element` itself is already inside an
+  // anchor's link text: `collectBlocks` below calls this directly on an
+  // inline element that may itself be the `<a>`, whose own direct text the
+  // internal walk would otherwise miss, since the walk only turns the flag
+  // on for a descendant tagged `a`, never for the element it starts from.
+  function ownedContent(element, insideAnchor = false) {
     let text = "";
     let linkChars = 0;
 
@@ -266,8 +272,24 @@ function webDigestExtract(doc) {
       }
     }
 
-    walk(element, false);
+    walk(element, insideAnchor);
     return { text: text.trim(), linkChars };
+  }
+
+  // True when `element` renders inline, by its own computed style: the
+  // ordinary case for `strong`, `em`, `span`, `a`, and the rest of the
+  // elements HTML mixes into a line of prose rather than stacks as blocks.
+  // This is a rendering fact the page already carries, not a tag this design
+  // enumerates: nothing here is special-cased by name, and no table of
+  // "known inline tags" is maintained.
+  function isInlineDisplay(element) {
+    if (!view || typeof view.getComputedStyle !== "function") return false;
+    const style = view.getComputedStyle(element);
+    return (
+      !!style &&
+      typeof style.display === "string" &&
+      style.display.startsWith("inline")
+    );
   }
 
   const root = chooseRoot();
@@ -356,30 +378,46 @@ function webDigestExtract(doc) {
   // independent units, never re-emitted as paragraphs of their own, and any
   // loose text directly inside that subtree is likewise already part of the
   // container's own text (`ownedContent` merges it), never buffered again
-  // here. `insideAnchor` marks that every character currently being
-  // buffered sits inside an `<a>`, so a run of text that is entirely link
-  // text is scored that way, the same as `ownedContent` scores one.
+  // here. `insideAnchor` marks that this call's own buffered text (not a
+  // nested wrapper's) sits inside an `<a>` — true when `collectBlocks`
+  // itself was entered on a block-display anchor — so `bufferLinkChars`
+  // below can count it as link text the same way `ownedContent` would.
   //
-  // A non-candidate, non-container element visited here — a `dl`, a `dt`, a
-  // `figcaption`, or any other wrapper the candidate list does not name — is
-  // not itself a text-owning unit the way a container is: it is walked by
-  // this same function, one level deeper, so its own direct text is buffered
-  // and emitted as a `paragraph` at exactly the point it is encountered, in
-  // document order, and its candidate/container descendants are still found
-  // and emitted as their own blocks, never folded into the wrapper's text.
+  // A non-candidate, non-container element visited here is one of two
+  // things. An element that renders inline — `strong`, `em`, `span`, `a`,
+  // and the rest of what a page mixes into a run of prose rather than
+  // stacks as blocks (`isInlineDisplay`) — contributes its own owned
+  // content (by the same rule `ownedContent` already applies inside a
+  // container) straight into the buffer this same prose run is being
+  // collected into, so `Hello <strong>world</strong>!` stays one paragraph
+  // and an inline `<a>` contributes its own share of `bufferLinkChars`
+  // rather than standing alone as a 100%-link paragraph. Anything else — a
+  // `dl`, a `dt`, a `figcaption`, or any other wrapper that renders as a
+  // block of its own — is not itself a text-owning unit the way a container
+  // is: it is walked by this same function, one level deeper, so its own
+  // direct text is buffered and emitted as a `paragraph` at exactly the
+  // point it is encountered, in document order, and its candidate/container
+  // descendants are still found and emitted as their own blocks, never
+  // folded into the wrapper's text.
   function collectBlocks(node, absorbingP, insideAnchor) {
     let buffer = "";
+    let bufferLinkChars = 0;
 
     function flush() {
       const text = buffer.trim();
+      const linkChars = bufferLinkChars;
       buffer = "";
+      bufferLinkChars = 0;
       if (text.length === 0) return;
-      tryEmit(node, "p", text, insideAnchor ? 1 : 0);
+      tryEmit(node, "p", text, linkChars / text.length);
     }
 
     for (const child of node.childNodes) {
       if (child.nodeType === 3) {
-        if (!absorbingP) buffer += child.textContent;
+        if (!absorbingP) {
+          buffer += child.textContent;
+          if (insideAnchor) bufferLinkChars += child.textContent.length;
+        }
         continue;
       }
       if (child.nodeType !== 1) continue;
@@ -389,6 +427,13 @@ function webDigestExtract(doc) {
 
       if (tag === "br") {
         if (!absorbingP) buffer += "\n";
+        continue;
+      }
+
+      if (!absorbingP && !CANDIDATE_TAGS.has(tag) && isInlineDisplay(child)) {
+        const owned = ownedContent(child, insideAnchor || tag === "a");
+        buffer += owned.text;
+        bufferLinkChars += owned.linkChars;
         continue;
       }
 

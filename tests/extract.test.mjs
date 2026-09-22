@@ -587,6 +587,98 @@ test("a hidden descendant inside a non-candidate wrapper is excluded from its bu
   assert.doesNotMatch(paragraphs[0].text, /Hidden middle/);
 });
 
+// `style: { display: "inline" }` stands in for the browser's own default
+// rendering of `strong`/`em`/`span`/`a`: the fixture has no UA stylesheet,
+// so an inline element is marked explicitly here the way a real page's
+// `getComputedStyle` would already report it without any style attribute.
+test("an inline element inside a non-candidate wrapper stays part of the surrounding prose", () => {
+  const doc = page([
+    el("div", {}, [
+      "Hello ",
+      el("strong", { style: { display: "inline" } }, ["world"]),
+      "!",
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+
+  assert.deepEqual(
+    result.blocks.map((b) => [b.kind, b.text]),
+    [["paragraph", "Hello world!"]],
+  );
+});
+
+test("an inline link surrounded by prose in a non-candidate wrapper is kept, not dropped as link-dense", () => {
+  const doc = page([
+    el("div", {}, [
+      "Read ",
+      el("a", { href: "/docs", style: { display: "inline" } }, ["docs"]),
+      ".",
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+  const paragraphs = result.blocks.filter((b) => b.kind === "paragraph");
+
+  assert.equal(paragraphs.length, 1);
+  assert.equal(paragraphs[0].text, "Read docs.");
+});
+
+test("a non-candidate wrapper that is nothing but inline links is still dropped by link density", () => {
+  const doc = page([
+    el("div", {}, [
+      el("a", { href: "/a", style: { display: "inline" } }, ["Home"]),
+      " ",
+      el("a", { href: "/b", style: { display: "inline" } }, ["About"]),
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+
+  assert.equal(result.blocks.length, 0);
+});
+
+test("a hidden inline descendant inside a non-candidate wrapper is still excluded", () => {
+  const doc = page([
+    el("div", {}, [
+      "Visible before ",
+      el("strong", { style: { display: "inline" }, hidden: true }, ["Hidden"]),
+      "visible after.",
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+  const paragraphs = result.blocks.filter((b) => b.kind === "paragraph");
+
+  assert.equal(paragraphs.length, 1);
+  assert.match(paragraphs[0].text, /Visible before/);
+  assert.match(paragraphs[0].text, /visible after\./);
+  assert.doesNotMatch(paragraphs[0].text, /Hidden/);
+});
+
+test("an inline element does not split a non-candidate wrapper's prose from a following nested heading", () => {
+  const doc = page([
+    el("div", {}, [
+      "Intro ",
+      el("strong", { style: { display: "inline" } }, ["bold"]),
+      " text.",
+      el("h2", {}, ["Section Heading"]),
+      "Trailing text.",
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+
+  assert.deepEqual(
+    result.blocks.map((b) => [b.kind, b.text]),
+    [
+      ["paragraph", "Intro bold text."],
+      ["heading", "Section Heading"],
+      ["paragraph", "Trailing text."],
+    ],
+  );
+});
+
 test("no URL is ever returned", () => {
   const doc = page([
     el("h2", {}, [el("a", { href: "/section" }, ["Installation"])]),
