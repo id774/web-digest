@@ -729,6 +729,144 @@ test("adjacent inline CJK text absorbed into surrounding prose gains no artifici
   );
 });
 
+test("a candidate paragraph's inline child keeps its own leading whitespace", () => {
+  const doc = page([el("p", {}, ["Hello", el("strong", {}, [" world"]), "!"])]);
+
+  const result = runExtract(doc);
+  const paragraphs = result.blocks.filter((b) => b.kind === "paragraph");
+
+  assert.equal(paragraphs.length, 1);
+  assert.equal(paragraphs[0].text, "Hello world!");
+});
+
+test("a candidate paragraph's inline child keeps its own trailing whitespace", () => {
+  const doc = page([
+    el("p", {}, [el("span", {}, ["Hello "]), el("em", {}, ["world"])]),
+  ]);
+
+  const result = runExtract(doc);
+  const paragraphs = result.blocks.filter((b) => b.kind === "paragraph");
+
+  assert.equal(paragraphs.length, 1);
+  assert.equal(paragraphs[0].text, "Hello world");
+});
+
+test("adjacent inline CJK text inside a candidate paragraph gains no artificial space", () => {
+  const doc = page([el("p", {}, ["前", el("strong", {}, ["後"]), "。"])]);
+
+  const result = runExtract(doc);
+  const paragraphs = result.blocks.filter((b) => b.kind === "paragraph");
+
+  assert.equal(paragraphs.length, 1);
+  assert.equal(paragraphs[0].text, "前後。");
+});
+
+test("the title candidate keeps an inline child's own leading whitespace, the same rule eligibleText applies elsewhere", () => {
+  const doc = page([
+    el("h1", {}, ["Hello", el("strong", {}, [" world"]), "!"]),
+    el("p", {}, ["Body text, long enough to not matter here."]),
+  ]);
+
+  const result = runExtract(doc);
+
+  assert.equal(result.title, "Hello world!");
+});
+
+test("a visible <br> inside a pre becomes a line break in the code text", () => {
+  const doc = page([el("pre", {}, ["foo", el("br", {}), "bar"])]);
+
+  const result = runExtract(doc);
+  const code = result.blocks.find((b) => b.kind === "code");
+
+  assert.equal(code.text, "foo\nbar");
+});
+
+test("an ancestor's visibility:hidden does not exclude a descendant with its own effective visibility:visible", () => {
+  const doc = page([
+    el("div", { style: { visibility: "hidden" } }, [
+      el("p", { style: { visibility: "visible" } }, [
+        "Overridden back to visible.",
+      ]),
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+
+  assert.ok(
+    result.blocks.some((b) => b.text.includes("Overridden back to visible")),
+  );
+});
+
+test("a descendant that inherits an ancestor's visibility:hidden without its own override is still excluded", () => {
+  const doc = page([
+    el("div", { style: { visibility: "hidden" } }, [
+      el("p", { style: { visibility: "hidden" } }, ["Still hidden text."]),
+    ]),
+    el("p", {}, ["Ordinary visible paragraph. ".repeat(3)]),
+  ]);
+
+  const result = runExtract(doc);
+
+  assert.ok(!result.blocks.some((b) => b.text.includes("Still hidden text")));
+  assert.ok(
+    result.blocks.some((b) => b.text.includes("Ordinary visible paragraph")),
+  );
+});
+
+test("an ancestor's display:none excludes a descendant regardless of the descendant's own visibility", () => {
+  const doc = page([
+    el("div", { style: { display: "none" } }, [
+      el("p", { style: { visibility: "visible" } }, ["Should stay hidden."]),
+    ]),
+    el("p", {}, ["Ordinary visible paragraph."]),
+  ]);
+
+  const result = runExtract(doc);
+
+  assert.equal(result.blocks.length, 1);
+  assert.equal(result.blocks[0].text, "Ordinary visible paragraph.");
+});
+
+test("a display:contents wrapper does not split the surrounding prose into separate paragraphs", () => {
+  const doc = page([
+    el("div", {}, [
+      "Hello ",
+      el("span", { style: { display: "contents" } }, ["middle"]),
+      " world",
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+
+  assert.deepEqual(
+    result.blocks.map((b) => [b.kind, b.text]),
+    [["paragraph", "Hello middle world"]],
+  );
+});
+
+test("a nested heading inside a display:contents wrapper is still its own independent block", () => {
+  const doc = page([
+    el("div", {}, [
+      "Intro text.",
+      el("span", { style: { display: "contents" } }, [
+        el("h2", {}, ["Nested Heading"]),
+      ]),
+      "Trailing text.",
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+
+  assert.deepEqual(
+    result.blocks.map((b) => [b.kind, b.text]),
+    [
+      ["paragraph", "Intro text."],
+      ["heading", "Nested Heading"],
+      ["paragraph", "Trailing text."],
+    ],
+  );
+});
+
 test("no URL is ever returned", () => {
   const doc = page([
     el("h2", {}, [el("a", { href: "/section" }, ["Installation"])]),

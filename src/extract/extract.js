@@ -59,27 +59,6 @@ function webDigestExtract(doc) {
 
   const view = doc.defaultView;
 
-  function isHidden(element) {
-    for (let node = element; node && node.nodeType === 1; node = node.parentElement) {
-      if (node.hidden === true) return true;
-      if (node.getAttribute && node.getAttribute("aria-hidden") === "true") {
-        return true;
-      }
-      if (view && typeof view.getComputedStyle === "function") {
-        const style = view.getComputedStyle(node);
-        if (
-          style &&
-          (style.display === "none" ||
-            style.visibility === "hidden" ||
-            style.visibility === "collapse")
-        ) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
   // True for a `header` with no `article`/`aside`/`main`/`nav`/`section`
   // ancestor: HTML's own implicit-"banner" case, and the only `header` this
   // extraction treats as site-common furniture.
@@ -104,17 +83,49 @@ function webDigestExtract(doc) {
     return null;
   }
 
-  // Furniture, non-content, or not displayed: the same three reasons a
-  // candidate is dropped from block collection, now also the reason a
-  // subtree is skipped when measuring how much content a root candidate — or
-  // a semantic container's own text — actually holds.
-  function isExcluded(element) {
+  // Every reason a subtree is skipped *whole* — nothing inside it is ever
+  // examined once one of these holds, because nothing inside can undo it.
+  // `hidden`, `aria-hidden` and a computed `display: none` are structural
+  // this way; so is being furniture, non-content, or a page-banner header,
+  // since no CSS a descendant carries lets it stop being any of those.
+  function isStructurallyExcluded(element) {
+    for (let node = element; node && node.nodeType === 1; node = node.parentElement) {
+      if (node.hidden === true) return true;
+      if (node.getAttribute && node.getAttribute("aria-hidden") === "true") {
+        return true;
+      }
+      if (view && typeof view.getComputedStyle === "function") {
+        const style = view.getComputedStyle(node);
+        if (style && style.display === "none") return true;
+      }
+    }
     return (
-      isHidden(element) ||
       !!element.closest(FURNITURE) ||
       !!element.closest(NON_CONTENT) ||
       !!bannerHeaderAncestor(element)
     );
+  }
+
+  // Unlike the structural reasons above, `visibility` inherits, but a
+  // descendant can set its own `visibility: visible` to override an
+  // ancestor's `hidden`/`collapse`. The browser's own computed style for
+  // `element` already resolves that cascade, so only `element`'s own
+  // value is read here, on `element` alone — never walked up the ancestor
+  // chain, and never used to stop a caller from continuing to look at
+  // `element`'s own children, since one of them may be the override.
+  function isVisibilityHidden(element) {
+    if (!view || typeof view.getComputedStyle !== "function") return false;
+    const style = view.getComputedStyle(element);
+    return !!style && (style.visibility === "hidden" || style.visibility === "collapse");
+  }
+
+  // Whether `element`'s own content should be counted at all: structurally
+  // excluded, or hidden by its own effective visibility. Recursion into an
+  // element's children never uses this — only `isStructurallyExcluded` —
+  // because a visibility-hidden element's own content is excluded without
+  // that stopping a nested override from being found underneath it.
+  function isExcluded(element) {
+    return isStructurallyExcluded(element) || isVisibilityHidden(element);
   }
 
   // The text inside `element` that a reader would actually see: hidden,
@@ -125,25 +136,44 @@ function webDigestExtract(doc) {
   // that is itself excluded — hidden outright, or holding direct text with
   // no element of its own to carry the check — must measure as empty, the
   // same as if none of its content existed.
+  //
+  // The recursive walk (`rawEligibleText`) never trims: an inner call's
+  // result is a fragment being concatenated into its parent's text, not a
+  // standalone value, so trimming it there would drop authored whitespace
+  // sitting at exactly a descendant's own boundary — `Hello<strong>
+  // world</strong>` losing `strong`'s own leading space, the same defect
+  // `ownedContent` was fixed for. Only the outermost call, `eligibleText`
+  // itself, trims — once, at the two edges of the whole result.
   function eligibleText(element) {
-    if (isExcluded(element)) return "";
+    return rawEligibleText(element).trim();
+  }
+
+  // Recursion into a child element happens unconditionally here — never
+  // gated by `element`'s own visibility — because the child gets its own
+  // independent `isStructurallyExcluded`/`isVisibilityHidden` check the
+  // moment this function is called on it; only `element`'s own direct text
+  // nodes, which carry no style of their own, borrow `element`'s effective
+  // visibility to decide whether they count.
+  function rawEligibleText(element) {
+    if (isStructurallyExcluded(element)) return "";
+    const ownContentHidden = isVisibilityHidden(element);
     let text = "";
     for (const child of element.childNodes) {
       if (child.nodeType === 3) {
-        text += child.textContent;
+        if (!ownContentHidden) text += child.textContent;
       } else if (child.nodeType === 1) {
         // A visible line break is a text boundary an author actually wrote:
         // `foo<br>bar` must not read as `foobar` once these two runs are
         // concatenated. Later shaping is free to fold this into a space with
         // every other line break; only the boundary must survive here.
         if (child.tagName.toLowerCase() === "br") {
-          if (!isExcluded(child)) text += "\n";
+          if (!ownContentHidden && !isExcluded(child)) text += "\n";
           continue;
         }
-        text += eligibleText(child);
+        text += rawEligibleText(child);
       }
     }
-    return text.trim();
+    return text;
   }
 
   // The same eligible/excluded distinction, applied to the anchors inside
@@ -257,9 +287,16 @@ function webDigestExtract(doc) {
     let text = "";
     let linkChars = 0;
 
-    function walk(node, insideAnchor) {
+    // `hiddenBySelf` is `node`'s own effective visibility: it gates only
+    // `node`'s direct text-node children, which carry no style of their
+    // own. Recursion into a child element is never gated by it — the
+    // child's own visibility is checked independently below, so a
+    // descendant that overrides `node`'s `visibility: hidden` back to
+    // visible is still found and kept.
+    function walk(node, insideAnchor, hiddenBySelf) {
       for (const child of node.childNodes) {
         if (child.nodeType === 3) {
+          if (hiddenBySelf) continue;
           const segment = child.textContent;
           if (segment.length === 0) continue;
           text += segment;
@@ -267,20 +304,21 @@ function webDigestExtract(doc) {
           continue;
         }
         if (child.nodeType !== 1) continue;
-        if (isExcluded(child)) continue;
+        if (isStructurallyExcluded(child)) continue;
         const tag = child.tagName.toLowerCase();
+        const childHidden = isVisibilityHidden(child);
         // Same visible-boundary rule as eligibleText: a `<br>` must not let
         // two authored text runs merge into one word.
         if (tag === "br") {
-          text += "\n";
+          if (!hiddenBySelf && !childHidden) text += "\n";
           continue;
         }
         if (INDEPENDENT_UNIT_TAGS.has(tag)) continue;
-        walk(child, insideAnchor || tag === "a");
+        walk(child, insideAnchor || tag === "a", childHidden);
       }
     }
 
-    walk(element, insideAnchor);
+    walk(element, insideAnchor, isVisibilityHidden(element));
     return { text, linkChars };
   }
 
@@ -298,6 +336,17 @@ function webDigestExtract(doc) {
       typeof style.display === "string" &&
       style.display.startsWith("inline")
     );
+  }
+
+  // True when `element` generates no box of its own: its children render as
+  // if they sat directly in its parent, so the wrapper itself is not a
+  // paragraph boundary either — collectBlocks below processes its children
+  // in the same buffer as if the wrapper were not there at all, rather than
+  // flushing before it and starting a new one.
+  function isContentsDisplay(element) {
+    if (!view || typeof view.getComputedStyle !== "function") return false;
+    const style = view.getComputedStyle(element);
+    return !!style && style.display === "contents";
   }
 
   const root = chooseRoot();
@@ -344,14 +393,22 @@ function webDigestExtract(doc) {
   // else, so a hidden, aria-hidden, furniture or non-content descendant
   // cannot leak into a code block the way raw `element.textContent` would
   // let it. Internal whitespace is never normalized here; only the
-  // block-edge trim below still applies to the result.
+  // block-edge trim below still applies to the result. A visible `<br>` is
+  // the same authored line-break boundary it is in ordinary prose — code
+  // keeps line breaks as meaningful content, so `<pre>foo<br>bar</pre>` is
+  // `foo\nbar`, never `foobar`.
   function codeText(element) {
-    if (isExcluded(element)) return "";
+    if (isStructurallyExcluded(element)) return "";
+    const ownContentHidden = isVisibilityHidden(element);
     let text = "";
     for (const child of element.childNodes) {
       if (child.nodeType === 3) {
-        text += child.textContent;
+        if (!ownContentHidden) text += child.textContent;
       } else if (child.nodeType === 1) {
+        if (child.tagName.toLowerCase() === "br") {
+          if (!ownContentHidden && !isExcluded(child)) text += "\n";
+          continue;
+        }
         text += codeText(child);
       }
     }
@@ -394,7 +451,7 @@ function webDigestExtract(doc) {
   // itself was entered on a block-display anchor — so `bufferLinkChars`
   // below can count it as link text the same way `ownedContent` would.
   //
-  // A non-candidate, non-container element visited here is one of two
+  // A non-candidate, non-container element visited here is one of three
   // things. An element that renders inline — `strong`, `em`, `span`, `a`,
   // and the rest of what a page mixes into a run of prose rather than
   // stacks as blocks (`isInlineDisplay`) — contributes its own owned
@@ -402,12 +459,19 @@ function webDigestExtract(doc) {
   // container) straight into the buffer this same prose run is being
   // collected into, so `Hello <strong>world</strong>!` stays one paragraph
   // and an inline `<a>` contributes its own share of `bufferLinkChars`
-  // rather than standing alone as a 100%-link paragraph. Anything else — a
-  // `dl`, a `dt`, a `figcaption`, or any other wrapper that renders as a
-  // block of its own — is not itself a text-owning unit the way a container
-  // is: it is walked by this same function, one level deeper, so its own
-  // direct text is buffered and emitted as a `paragraph` at exactly the
-  // point it is encountered, in document order, and its candidate/container
+  // rather than standing alone as a 100%-link paragraph. An element that
+  // generates no box of its own (`isContentsDisplay`, `display: contents`)
+  // is not a boundary at all: `processChildren` below is called again on
+  // it directly, in this same buffer, so its children are collected exactly
+  // as if the wrapper were not there — a `<span style="display:contents">`
+  // around plain text never flushes the run in two around itself, while a
+  // heading or other independent unit inside it is still found and emitted
+  // on its own, by the same recursive call. Anything else — a `dl`, a `dt`,
+  // a `figcaption`, or any other wrapper that renders as a block of its own
+  // — is not itself a text-owning unit the way a container is: it is
+  // walked by this same function, one level deeper, so its own direct text
+  // is buffered and emitted as a `paragraph` at exactly the point it is
+  // encountered, in document order, and its candidate/container
   // descendants are still found and emitted as their own blocks, never
   // folded into the wrapper's text.
   function collectBlocks(node, absorbingP, insideAnchor) {
@@ -423,53 +487,73 @@ function webDigestExtract(doc) {
       tryEmit(node, "p", text, linkChars / text.length);
     }
 
-    for (const child of node.childNodes) {
-      if (child.nodeType === 3) {
-        if (!absorbingP) {
-          buffer += child.textContent;
-          if (insideAnchor) bufferLinkChars += child.textContent.length;
+    // `parentHidden` is `parent`'s own effective visibility: it gates only
+    // `parent`'s direct text nodes and a direct `<br>`, which carry no
+    // style of their own. The loop gates recursion by
+    // `isStructurallyExcluded` alone, never by visibility, so a `display:
+    // contents` child's own visibility override (passed back in below) or
+    // a candidate/container's own visibility (resolved independently by
+    // `tryEmitLeaf`/`tryEmitContainer` through `eligibleText`/
+    // `ownedContent`) is still found rather than assumed hidden along with
+    // an ancestor.
+    function processChildren(parent, parentHidden) {
+      for (const child of parent.childNodes) {
+        if (child.nodeType === 3) {
+          if (!absorbingP && !parentHidden) {
+            buffer += child.textContent;
+            if (insideAnchor) bufferLinkChars += child.textContent.length;
+          }
+          continue;
         }
-        continue;
-      }
-      if (child.nodeType !== 1) continue;
-      if (isExcluded(child)) continue;
+        if (child.nodeType !== 1) continue;
+        if (isStructurallyExcluded(child)) continue;
 
-      const tag = child.tagName.toLowerCase();
+        const tag = child.tagName.toLowerCase();
 
-      if (tag === "br") {
-        if (!absorbingP) buffer += "\n";
-        continue;
-      }
+        if (tag === "br") {
+          if (!absorbingP && !parentHidden && !isVisibilityHidden(child)) {
+            buffer += "\n";
+          }
+          continue;
+        }
 
-      if (!absorbingP && !CANDIDATE_TAGS.has(tag) && isInlineDisplay(child)) {
-        const owned = ownedContent(child, insideAnchor || tag === "a");
-        buffer += owned.text;
-        bufferLinkChars += owned.linkChars;
-        continue;
-      }
+        if (!absorbingP && !CANDIDATE_TAGS.has(tag)) {
+          if (isInlineDisplay(child)) {
+            const owned = ownedContent(child, insideAnchor || tag === "a");
+            buffer += owned.text;
+            bufferLinkChars += owned.linkChars;
+            continue;
+          }
+          if (isContentsDisplay(child)) {
+            processChildren(child, isVisibilityHidden(child));
+            continue;
+          }
+        }
 
-      flush();
+        flush();
 
-      if (tag === "p") {
-        if (absorbingP) {
+        if (tag === "p") {
+          if (absorbingP) {
+            collectBlocks(child, true, false);
+          } else {
+            tryEmitLeaf(child, tag);
+          }
+          continue;
+        }
+        if (CONTAINER_TAGS.has(tag)) {
+          tryEmitContainer(child, tag);
           collectBlocks(child, true, false);
-        } else {
-          tryEmitLeaf(child, tag);
+          continue;
         }
-        continue;
+        if (CANDIDATE_TAGS.has(tag)) {
+          tryEmitLeaf(child, tag);
+          continue;
+        }
+        collectBlocks(child, absorbingP, insideAnchor || tag === "a");
       }
-      if (CONTAINER_TAGS.has(tag)) {
-        tryEmitContainer(child, tag);
-        collectBlocks(child, true, false);
-        continue;
-      }
-      if (CANDIDATE_TAGS.has(tag)) {
-        tryEmitLeaf(child, tag);
-        continue;
-      }
-      collectBlocks(child, absorbingP, insideAnchor || tag === "a");
     }
 
+    processChildren(node, isVisibilityHidden(node));
     flush();
   }
 

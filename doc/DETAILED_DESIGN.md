@@ -593,7 +593,11 @@ hidden, furniture, or non-content by the same three tests §7.2 skips a
 candidate for. An element that is itself hidden, furniture or non-content
 measures as empty text, not as whatever it happens to contain — a `main` with
 a lot of hidden text is not mistaken for a `main` with a lot of content, and
-raw `textContent` is never used for this measurement.
+raw `textContent` is never used for this measurement. The recursive walk that
+gathers it never trims a descendant's own contribution before concatenating
+it into its parent's — only the whole result, at the end, is trimmed once —
+so an inline descendant's own leading or trailing whitespace, exactly as in
+container-owned text below, is not lost at its own boundary.
 
 Rung 2 scores every element matching `article, section, div` that contains at
 least one `p`:
@@ -626,7 +630,7 @@ these holds:
 | Skipped | Test |
 |---|---|
 | it is inside dropped furniture | it has an ancestor matching `nav, footer, aside, form, dialog, [role="navigation"], [role="banner"], [role="contentinfo"], [role="complementary"], [role="search"], [role="form"]`, or an ancestor `header` with no `article`, `aside`, `main`, `nav` or `section` ancestor of its own — the page-banner landmark HTML gives such a `header` implicitly, never a content-local one such as an `article`'s own title-and-byline `header` |
-| it is not being displayed | `hidden`, `aria-hidden="true"`, or a computed `display: none` or `visibility: hidden` or `visibility: collapse` on it or an ancestor |
+| it is not being displayed | `hidden`, `aria-hidden="true"`, or a computed `display: none`, on it or an ancestor — none of these three can be undone by anything inside — or its own computed `visibility: hidden` or `visibility: collapse`. `visibility` inherits, but a descendant can override an ancestor's `hidden`/`collapse` back to `visible`, so only the element's own resolved value decides this, never an ancestor's independently: an ancestor's `visibility: hidden` does not, by itself, exclude a descendant that has overridden it |
 | it is not content | it is inside, or is, `script, style, noscript, template, iframe, svg, canvas, button, select, textarea, input, label` |
 
 Four of the candidate tags — `li`, `blockquote`, `th`, `td` — are
@@ -693,7 +697,19 @@ again by an ancestor.
 exclusions. Its text is collected recursively from visible content while
 preserving text-node whitespace and line breaks; raw `element.textContent`
 is not used for emission, so hidden, furniture or non-content descendants
-cannot leak into a code block.
+cannot leak into a code block. A visible `<br>` is the same authored
+boundary here it is in ordinary prose: it contributes a line break to the
+code text, so `<pre>foo<br>bar</pre>` is `foo\nbar`, never `foobar`.
+
+An element with a computed `display: contents` generates no box of its own,
+so it is not a paragraph boundary either: its children are collected as if
+the wrapper itself were not there, in the very same prose run its parent is
+already collecting, rather than flushing that run and starting a fresh one
+around it. A `display: contents` wrapper holding plain text does not split
+surrounding prose into two paragraphs around itself; a candidate or
+container nested inside one is still found and emitted as its own
+independent block, by the same top-down walk, exactly as if the wrapper
+were absent.
 
 The kind of an emitted block comes from its own tag:
 
