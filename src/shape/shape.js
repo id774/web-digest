@@ -52,6 +52,17 @@ function carriesNothing(text) {
   return text === "" || text.length < 2 || NOTHING_BUT_MARKS.test(text);
 }
 
+// At least three backticks, and one longer than the longest run already in
+// the text, so the fence can never be mistaken for a run of backticks that
+// is part of the code itself.
+function codeFence(text) {
+  let longest = 0;
+  for (const run of String(text).match(/`+/g) || []) {
+    if (run.length > longest) longest = run.length;
+  }
+  return "`".repeat(Math.max(3, longest + 1));
+}
+
 function renderBlock(block) {
   switch (block.kind) {
     case "heading":
@@ -62,8 +73,10 @@ function renderBlock(block) {
       return `- ${block.text}`;
     case "quote":
       return `> ${block.text}`;
-    case "code":
-      return "```\n" + block.text + "\n```";
+    case "code": {
+      const fence = codeFence(block.text);
+      return `${fence}\n${block.text}\n${fence}`;
+    }
     default:
       return block.text;
   }
@@ -191,28 +204,43 @@ function headingContextBefore(blocks, end) {
 }
 
 // Split at major headings first, then lower headings, then ordinary block
-// boundaries. Only a block that cannot fit alone is split within its text.
+// boundaries. Only a block that cannot fit alone is split within its text —
+// except a heading, which is always kept as one block: fragmenting a
+// heading's text across several heading blocks would corrupt the very
+// hierarchy the dedupe step and the heading context below both rely on. A
+// heading too large to fit alone, like any other block that cannot fit, is
+// left for the existing safety check below to fail the whole call closed.
 // Every chunk this returns satisfies chunk.charCount <= limit. Title,
 // heading context and block text are never truncated, dropped or sampled to
 // reach that bound: when no safe partition exists — the title alone leaves
-// no room for body text, or heading-context overhead pushes some chunk past
-// the limit — the whole call fails closed with [] rather than returning a
-// partial result.
+// no room for body text, a single heading cannot fit alone, or
+// heading-context overhead pushes some chunk past the limit — the whole
+// call fails closed with [] rather than returning a partial result.
 export function chunkMaterial(material, limit = MAX_REQUEST_MATERIAL_CHARS) {
   const source = material.blocks || [{ kind: "paragraph", text: material.text }];
   // A block is only split here when it could not fit even alone, in an
   // otherwise-empty chunk carrying just the title and this block's own
   // rendering wrapper (the code fence, the heading `#`s, the list marker,
-  // …, measured directly by rendering the block with empty text). The
-  // actual per-position overhead of heading context (§10.3) is not
-  // guessed at on top of that, with a fixed reserve or otherwise, since
-  // that guess is what let a block that truly fit fine get split
-  // needlessly. A block that genuinely cannot fit once its real heading
-  // context is added still meets the existing safety check below
+  // …, measured directly by rendering the block with empty text). A code
+  // block's fence length depends on its own text — a longer backtick run
+  // inside it demands a longer fence — so its overhead is measured from the
+  // fence the *whole, unsplit* block's text actually requires, never from
+  // an empty-text stand-in; splitting only ever cuts a backtick run
+  // shorter, never longer, so every split piece's own, independently
+  // computed fence is never longer than the one this reserve already
+  // accounted for. The actual per-position overhead of heading context
+  // (§10.3) is not guessed at on top of that, with a fixed reserve or
+  // otherwise, since that guess is what let a block that truly fit fine
+  // get split needlessly. A block that genuinely cannot fit once its real
+  // heading context is added still meets the existing safety check below
   // (`candidate.charCount > limit`) and still fails the whole call closed,
   // exactly as before.
   const expanded = source.flatMap((block) => {
-    const overhead = material.title.length + renderBlock({ ...block, text: "" }).length;
+    if (block.kind === "heading") return [block];
+    const overhead =
+      block.kind === "code"
+        ? material.title.length + codeFence(block.text).length * 2 + 2
+        : material.title.length + renderBlock({ ...block, text: "" }).length;
     const blockLimit = Math.max(1, limit - overhead);
     return splitBlock(block, blockLimit);
   });
