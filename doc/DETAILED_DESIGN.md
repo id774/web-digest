@@ -1824,8 +1824,10 @@ another run only by clicking the toolbar action again (§6.1, §22).
 Three rules hold across the table.
 
 - **A message names the cause, not the internals.** The reader is told what to
-  do next; the status code, the wording of the endpoint's error and the
-  exception stay in the log (§19).
+  do next. Of what the reader is not told, only the status code — for an
+  HTTP-originated failure — reaches the log (§19); the wording of the
+  endpoint's error and the exception itself go no further than deciding the
+  kind and detail above, and are not themselves recorded anywhere.
 - **Distinguishable causes stay distinguishable** (requirement §18). "No
   credential" and "credential rejected" lead to different actions and are
   never merged; "no credential" and "permission missing" are two separate
@@ -1862,9 +1864,10 @@ though the panel never shows it: 401 is a credential to replace, 429 a rate
 limit, and 403 is mapped by what each adapter's provider documents (§11.6) —
 provider-side access denial for OpenAI and Claude, but still the generic
 provider error for Sakura and Kimi, whose documentation does not establish
-the same meaning — so only the log, with the raw status, can say which provider and
-which status actually happened. `elapsed` is recorded on success too, because an answer that
-arrived in almost the whole of `REQUEST_TIMEOUT_MS` is next run's timeout,
+the same meaning — so only the log, with the raw status, can say which status
+actually happened, for whichever provider was selected. `elapsed` is
+recorded on success too, because an answer that arrived in almost the whole
+of `REQUEST_TIMEOUT_MS` is next run's timeout,
 seen one run early. **Which provider was used is deliberately not logged**:
 the log's purpose is diagnosing a run, and the reader who reads their own
 DevTools console already knows which provider they selected.

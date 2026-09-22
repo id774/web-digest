@@ -63,8 +63,11 @@ function namesALengthProblem(data) {
   );
 }
 
-// A non-2xx answer, mapped to the kind that describes it. The status and the
-// endpoint's wording are read here and go no further than the log.
+// A non-2xx answer, mapped to the kind that describes it. The status
+// travels with the mapped result, an HTTP-originated failure's own
+// diagnostic metadata for the worker to log; the endpoint's wording is read
+// only to choose that mapping and goes no further than here — it is never
+// itself returned, and never itself reaches the log.
 export function mapHttpFailure(status, data) {
   if (status === 401) {
     return { ok: false, kind: ErrorKind.CREDENTIAL_REJECTED, status };
