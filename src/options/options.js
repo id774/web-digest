@@ -155,8 +155,9 @@ function wire() {
   // all read or write the selected provider's own fields, so at most one of
   // them runs at a time: starting one while another is still in flight is
   // exactly how a stale completion could overwrite a provider confirmed
-  // after it started (§6.6 of the requirements this fixes). Japanese summary
-  // is provider-independent and is not gated by this lock.
+  // after it started — the provider transaction below (§6.2 of the detailed
+  // design) is what prevents it. Japanese summary is provider-independent
+  // and is not gated by this lock.
   let providerBusy = false;
 
   // Serializes this preference's own saves so two overlapping toggles can
@@ -207,7 +208,7 @@ function wire() {
   // Reads a provider's own model and credential-presence together, without
   // touching the DOM or the stored provider selection — the pre-commit
   // snapshot a provider change needs before it may commit that selection
-  // (§7.2 of the detailed design), and also what the initial load applies
+  // (§6.2 of the detailed design), and also what the initial load applies
   // for the provider it finds already stored.
   async function readProviderSnapshot(provider) {
     const [model, credentialPresent] = await Promise.all([
@@ -285,15 +286,17 @@ function wire() {
       }
       currentProvider = requested;
       // Restated rather than assumed: an ignored, conflicting change during
-      // this same transaction (§7.3) reverts the control to the provider
-      // confirmed at that moment, which by then is the *previous* one — so
-      // the control has to be put back to this transaction's own result
-      // explicitly once it wins, not left to whatever the DOM still shows.
+      // this same transaction (§6.2 of the detailed design) reverts the
+      // control to the provider confirmed at that moment, which by then is
+      // the *previous* one — so the control has to be put back to this
+      // transaction's own result explicitly once it wins, not left to
+      // whatever the DOM still shows.
       fields.provider.value = currentProvider;
       // The snapshot was already read before the provider selection was
-      // committed to storage (§7.2), so applying it here is a pure DOM
-      // update — no further, fallible storage read stands between a
-      // committed selection and the fields the reader sees for it.
+      // committed to storage (§6.2 of the detailed design), so applying it
+      // here is a pure DOM update — no further, fallible storage read
+      // stands between a committed selection and the fields the reader
+      // sees for it.
       applyProviderSnapshot(currentProvider, result.snapshot);
       sayProvider(`Now using ${PROVIDER_LABEL[currentProvider]}.`);
     } finally {

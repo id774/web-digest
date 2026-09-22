@@ -1885,12 +1885,20 @@ diagnosed.
 log file, no log framework, no log level setting, and nothing written to
 storage or sent anywhere.**
 
-One line at the end of every run:
+One line when a run reaches a terminal outcome — `succeeded` or `failed` —
+of its own:
 
 ```text
 web-digest run: phase=succeeded blocks=42 chars=1234 elapsed=3.1s
 web-digest run: phase=failed kind=provider-error detail=rate-limited status=429 elapsed=0.4s
 ```
+
+A run that navigation, tab close or tab replacement invalidates first (§17)
+is abandoned before either outcome: the same `isCurrentRun` check that stops
+it from writing a stale `RunState` (§17) also stops it from reaching this
+log, so an abandoned run writes no line here, succeeded or failed. This is
+the same lifecycle cleanup as the state it never writes, not a gap in
+logging — no new phase or log line is added for it.
 
 `status` appears only on a failure that had one. It is worth recording even
 though the panel never shows it: 401 is a credential to replace, 429 a rate
