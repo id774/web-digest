@@ -1294,14 +1294,19 @@ protocol are both worse than being told the run failed.
 
 ```js
 { ok: true,  summary: "..." }
-{ ok: false, kind: "provider-error", detail: "rate-limited" }
+{ ok: false, kind: "provider-error", detail: "rate-limited", status: 429 }
 ```
 
 The same shape for every adapter. `detail` is present only for
-`provider-error` and is one of seven fixed values. No status line, no response
-body and no exception text crosses this boundary (§18), and nothing in it
-names which provider produced it — the caller already knows, from the
-`provider` it passed to the dispatcher.
+`provider-error` and is one of seven fixed values. `status` is present only
+for an HTTP-originated failure: the numeric status code from the provider's
+own response, carried through unchanged as internal diagnostic metadata for
+the worker to log (§19) — never shown to the reader (§18), and never part
+of the reader-facing message built from `kind`/`detail` alone. The response
+body, the wording of the provider's own error, and any exception text go no
+further than the classification below; none of them crosses this boundary,
+and nothing in the returned shape names which provider produced it — the
+caller already knows, from the `provider` it passed to the dispatcher.
 
 ### 11.6 Mapping a failure
 
@@ -1402,8 +1407,10 @@ content is read before any output text, and a `"failed"` status before either,
 so a response that happens to carry both a refusal and other content is still
 classified as refusal, never as a partial success.
 
-The status code and the wording are read here and go no further. They reach the
-log (§19) and never the reader (§18).
+The status code, once mapped through this table, travels with the result as
+`status` (§11.5) — reaching the log (§19), never the reader (§18). The
+wording of the provider's own error goes no further than deciding that
+mapping: it is not itself carried anywhere beyond it.
 
 ## 12. The credential
 

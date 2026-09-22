@@ -675,7 +675,10 @@ Whichever adapter is called, the caller receives one of two shapes:
 
 `kind` is one of the provider-neutral kinds of §17, chosen by the adapter from
 what actually happened; nothing above the dispatcher ever sees a provider's
-own status code or response body.
+own response body or the wording of its error. An HTTP-originated failure's
+numeric status code is the one exception: it travels with the result as
+internal diagnostic metadata, for the worker to record — never shown to the
+reader, and never itself a response body or wording.
 
 ### 11.5 Timeout and retries
 
