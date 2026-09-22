@@ -39,10 +39,23 @@ function webDigestExtract(doc) {
     "table-cell",
   ]);
 
+  // `header` is deliberately not in this list: HTML gives a `header` the
+  // implicit "banner" landmark role only when it has no `article`, `aside`,
+  // `main`, `nav` or `section` ancestor — the site-common page banner, not a
+  // content-local one. `bannerHeaderAncestor` below excludes exactly that
+  // landmark case, so an `article`- or `section`-local `header` (a title and
+  // introduction, say) is not thrown out just for sharing the tag name.
   const FURNITURE =
-    'nav, header, footer, aside, form, dialog, [role="navigation"], [role="banner"], [role="contentinfo"], [role="complementary"], [role="search"], [role="form"]';
+    'nav, footer, aside, form, dialog, [role="navigation"], [role="banner"], [role="contentinfo"], [role="complementary"], [role="search"], [role="form"]';
   const NON_CONTENT =
     "script, style, noscript, template, iframe, svg, canvas, button, select, textarea, input, label";
+  const BANNER_SUPPRESSING_ANCESTORS = new Set([
+    "article",
+    "aside",
+    "main",
+    "nav",
+    "section",
+  ]);
 
   const view = doc.defaultView;
 
@@ -67,6 +80,30 @@ function webDigestExtract(doc) {
     return false;
   }
 
+  // True for a `header` with no `article`/`aside`/`main`/`nav`/`section`
+  // ancestor: HTML's own implicit-"banner" case, and the only `header` this
+  // extraction treats as site-common furniture.
+  function isBannerHeader(element) {
+    if (!element.tagName || element.tagName.toLowerCase() !== "header") {
+      return false;
+    }
+    for (let node = element.parentElement; node; node = node.parentElement) {
+      const tag = node.tagName && node.tagName.toLowerCase();
+      if (tag && BANNER_SUPPRESSING_ANCESTORS.has(tag)) return false;
+    }
+    return true;
+  }
+
+  // The same ancestor walk `element.closest(FURNITURE)` performs for the
+  // ordinary furniture list, but for the one furniture case — the page-banner
+  // `header` — that a plain tag-name selector cannot express.
+  function bannerHeaderAncestor(element) {
+    for (let node = element; node; node = node.parentElement) {
+      if (isBannerHeader(node)) return node;
+    }
+    return null;
+  }
+
   // Furniture, non-content, or not displayed: the same three reasons a
   // candidate is dropped from block collection, now also the reason a
   // subtree is skipped when measuring how much content a root candidate — or
@@ -75,7 +112,8 @@ function webDigestExtract(doc) {
     return (
       isHidden(element) ||
       !!element.closest(FURNITURE) ||
-      !!element.closest(NON_CONTENT)
+      !!element.closest(NON_CONTENT) ||
+      !!bannerHeaderAncestor(element)
     );
   }
 
@@ -94,6 +132,14 @@ function webDigestExtract(doc) {
       if (child.nodeType === 3) {
         text += child.textContent;
       } else if (child.nodeType === 1) {
+        // A visible line break is a text boundary an author actually wrote:
+        // `foo<br>bar` must not read as `foobar` once these two runs are
+        // concatenated. Later shaping is free to fold this into a space with
+        // every other line break; only the boundary must survive here.
+        if (child.tagName.toLowerCase() === "br") {
+          if (!isExcluded(child)) text += "\n";
+          continue;
+        }
         text += eligibleText(child);
       }
     }
@@ -209,6 +255,12 @@ function webDigestExtract(doc) {
         if (child.nodeType !== 1) continue;
         if (isExcluded(child)) continue;
         const tag = child.tagName.toLowerCase();
+        // Same visible-boundary rule as eligibleText: a `<br>` must not let
+        // two authored text runs merge into one word.
+        if (tag === "br") {
+          text += "\n";
+          continue;
+        }
         if (INDEPENDENT_UNIT_TAGS.has(tag)) continue;
         walk(child, insideAnchor || tag === "a");
       }
@@ -301,15 +353,50 @@ function webDigestExtract(doc) {
   // The accepted root, walked top-down in document order. `absorbingP` is
   // true once inside a semantic container whose own block already owns every
   // ordinary `p` beneath it — so those `p`s are searched for nested
-  // independent units, never re-emitted as paragraphs of their own.
-  function collectBlocks(node, absorbingP) {
-    for (const child of node.children) {
+  // independent units, never re-emitted as paragraphs of their own, and any
+  // loose text directly inside that subtree is likewise already part of the
+  // container's own text (`ownedContent` merges it), never buffered again
+  // here. `insideAnchor` marks that every character currently being
+  // buffered sits inside an `<a>`, so a run of text that is entirely link
+  // text is scored that way, the same as `ownedContent` scores one.
+  //
+  // A non-candidate, non-container element visited here — a `dl`, a `dt`, a
+  // `figcaption`, or any other wrapper the candidate list does not name — is
+  // not itself a text-owning unit the way a container is: it is walked by
+  // this same function, one level deeper, so its own direct text is buffered
+  // and emitted as a `paragraph` at exactly the point it is encountered, in
+  // document order, and its candidate/container descendants are still found
+  // and emitted as their own blocks, never folded into the wrapper's text.
+  function collectBlocks(node, absorbingP, insideAnchor) {
+    let buffer = "";
+
+    function flush() {
+      const text = buffer.trim();
+      buffer = "";
+      if (text.length === 0) return;
+      tryEmit(node, "p", text, insideAnchor ? 1 : 0);
+    }
+
+    for (const child of node.childNodes) {
+      if (child.nodeType === 3) {
+        if (!absorbingP) buffer += child.textContent;
+        continue;
+      }
+      if (child.nodeType !== 1) continue;
       if (isExcluded(child)) continue;
+
       const tag = child.tagName.toLowerCase();
+
+      if (tag === "br") {
+        if (!absorbingP) buffer += "\n";
+        continue;
+      }
+
+      flush();
 
       if (tag === "p") {
         if (absorbingP) {
-          collectBlocks(child, true);
+          collectBlocks(child, true, false);
         } else {
           tryEmitLeaf(child, tag);
         }
@@ -317,18 +404,20 @@ function webDigestExtract(doc) {
       }
       if (CONTAINER_TAGS.has(tag)) {
         tryEmitContainer(child, tag);
-        collectBlocks(child, true);
+        collectBlocks(child, true, false);
         continue;
       }
       if (CANDIDATE_TAGS.has(tag)) {
         tryEmitLeaf(child, tag);
         continue;
       }
-      collectBlocks(child, absorbingP);
+      collectBlocks(child, absorbingP, insideAnchor || tag === "a");
     }
+
+    flush();
   }
 
-  collectBlocks(root, false);
+  collectBlocks(root, false, false);
 
   return { title, blocks };
 }

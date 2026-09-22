@@ -602,9 +602,11 @@ logical request, never races two, and never compares their answers.
 ```
 
 Each adapter owns its own protocol end to end — the endpoint, the request
-shape, the timeout and the answer parsing — and returns the same normalized
-shape (§11.4) regardless of which provider produced it, so nothing above the
-dispatcher ever parses a provider's own response format.
+shape and the answer parsing — and returns the same normalized shape (§11.4)
+regardless of which provider produced it, so nothing above the dispatcher
+ever parses a provider's own response format. The bounded wait every
+adapter's request goes through is common transport responsibility, not part
+of what an adapter owns — see §11.5.
 
 ### 11.2 The four calls
 
