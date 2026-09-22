@@ -658,19 +658,31 @@ one merged word once concatenated — shaping is free to fold that break into
 a space with every other line break (§8.1). Excluded subtrees and nested
 independent candidates contribute no text.
 
-An element that is neither a candidate nor a container — a `dl`, a `dt`, a
-`dd`, a `figcaption`, a `div`, or any other tag the candidate list does not
-name — is walked by this same top-down pass, one level deeper. Its own
-direct text, by the adjacency rule above, is emitted as a `paragraph` block
-at the point the walk reaches it, in document order; the walk then continues
-into its children to find and emit whatever candidate or container is
-nested inside. Such a `paragraph` is link-density-skipped by the same rule
-as any other (below), so an isolated link inside such a wrapper is treated
-as link text, not prose. This is what keeps a `dl`'s `dt` and `dd` texts,
-and a bare `figcaption`'s own caption, from being lost to a tag the
-candidate list simply does not name — and, because a wrapper's own text is
-read only from its direct children, a nested container's or a nested
-wrapper's already-claimed text is never read again by an ancestor.
+An element that is neither a candidate nor a container is one of two things,
+told apart by its own computed `display`, not by its tag name. One that
+renders inline — `strong`, `em`, `span`, `a`, and whatever else a page mixes
+into a line of prose rather than stacks as a block of its own — contributes
+its own owned content (the same adjacency rule a container's owned content
+above already uses) straight into the prose run currently being collected,
+so `Hello <strong>world</strong>!` stays the one paragraph `Hello world!`
+rather than three, and an inline anchor's text is counted into that
+paragraph's own link/text ratio rather than standing alone as a 100%-link
+paragraph the density rule (below) would then drop. Nothing here is
+special-cased by tag name, and no table of "known inline tags" is kept:
+`isInlineDisplay` reads the one fact the page's own layout already carries.
+
+Anything else — a `dl`, a `dt`, a `dd`, a `figcaption`, a `div`, or any
+other tag that renders as a block of its own — is walked by this same
+top-down pass, one level deeper. Its own direct text, by the adjacency rule
+above, is emitted as a `paragraph` block at the point the walk reaches it,
+in document order; the walk then continues into its children to find and
+emit whatever candidate or container is nested inside. Such a `paragraph`
+is link-density-skipped by the same rule as any other (below). This is what
+keeps a `dl`'s `dt` and `dd` texts, and a bare `figcaption`'s own caption,
+from being lost to a tag the candidate list simply does not name — and,
+because a wrapper's own text is read only from its direct children, a
+nested container's or a nested wrapper's already-claimed text is never read
+again by an ancestor.
 
 `pre` preserves line breaks, but it does not bypass the visibility/content
 exclusions. Its text is collected recursively from visible content while
