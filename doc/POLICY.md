@@ -121,14 +121,19 @@ A decision that cannot be settled by reading this list is settled by the
 requirements, and recorded here once it has been.
 
 ### 1.6 The Scope of a Change
-- One change serves one purpose. A change to extraction, a change to the prompt
-  and a change to the panel are three changes, even when one was noticed while
-  another was being made.
+- One change serves one purpose. The implementation work for that purpose may
+  touch more than one concern when the purpose itself is cross-cutting, but
+  each edit stays inside the responsibility of the concern that owns it.
+- The concern boundary is an implementation-responsibility boundary, not a
+  branch or pull-request boundary. Extraction, shaping, the prompt, a provider
+  client and the display remain separate responsibilities even when one
+  approved change requires coordinated edits to more than one of them.
 - Tidying, renaming and reformatting that the change does not require are a
   change of their own.
-- A change states which of the four concerns it touches, and touches no other.
-  Where it appears to belong to two, the boundary is wrong and is corrected,
-  rather than the code being written across it.
+- An individual code or document edit belongs to the concern that owns that
+  responsibility and does not take responsibility from another concern. Where
+  one edit appears to belong to two, the boundary is wrong and is corrected,
+  rather than the implementation being written across it.
 - Work that cannot stand without the change is not a second purpose: its
   `doc/VERSIONS` entry, the test that fails without it, and the README or design
   line a change of behaviour requires belong to the change that requires them.
@@ -290,6 +295,9 @@ way through a review, the branch is rewritten so that it reads as the change
 finally intended, and merges as if it had been written that way.
 
 #### 1.13.1 One Purpose to a Pull Request
+- The concern separation in §§1.3, 1.5 and 1.6 does not divide pull requests.
+  It keeps implementation responsibilities separate inside whatever coherent
+  change §1.13 groups for review and acceptance.
 - "Purpose" means the higher-level reason the pull request exists, not an
   individual finding, issue, file, function, or review comment. Several
   findings may belong to one purpose when they are part of the same
