@@ -456,6 +456,137 @@ test("a candidate that is itself visibility: collapse contributes no block", () 
   assert.equal(result.blocks[0].text, "Ordinary visible paragraph.");
 });
 
+test("an article-local header's title and introduction are kept, not thrown out as furniture", () => {
+  const doc = page([
+    el("article", {}, [
+      el("header", {}, [
+        el("h1", {}, ["Article Title"]),
+        el(
+          "p",
+          {},
+          ["Important introduction to the article, long enough to read. ".repeat(3)],
+        ),
+      ]),
+      el("p", {}, ["Body paragraph text, also long enough on its own. ".repeat(6)]),
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+
+  assert.equal(result.title, "Article Title");
+  assert.ok(
+    result.blocks.some((b) => b.text.includes("Important introduction")),
+    "the header's own introduction should have been extracted",
+  );
+  assert.ok(result.blocks.some((b) => b.text.includes("Body paragraph text")));
+  assert.equal(
+    result.blocks.filter((b) => b.kind === "heading").length,
+    0,
+    "the title's own h1 must not also be emitted as a heading block",
+  );
+});
+
+test("a page-level header outside any article/main/section is still excluded as furniture", () => {
+  const doc = page([
+    el("header", {}, [
+      el("p", {}, ["Site navigation text that must never reach the body content."]),
+    ]),
+    el("p", {}, ["Real page content, long enough to stand as the body. ".repeat(5)]),
+  ]);
+
+  const result = runExtract(doc);
+
+  assert.ok(result.blocks.some((b) => b.text.includes("Real page content")));
+  for (const block of result.blocks) {
+    assert.doesNotMatch(block.text, /Site navigation/);
+  }
+});
+
+test("a <br> inside a paragraph is kept as a visible text boundary, not merged away", () => {
+  const doc = page([el("p", {}, ["foo", el("br", {}), "bar"])]);
+
+  const result = runExtract(doc);
+  const paragraphs = result.blocks.filter((b) => b.kind === "paragraph");
+
+  assert.equal(paragraphs.length, 1);
+  assert.notEqual(paragraphs[0].text, "foobar");
+  assert.match(paragraphs[0].text, /foo/);
+  assert.match(paragraphs[0].text, /bar/);
+});
+
+test("a definition list's dt/dd direct text is preserved, in order, without duplication", () => {
+  const doc = page([
+    el("dl", {}, [
+      el("dt", {}, ["Term"]),
+      el("dd", {}, ["Definition of the term."]),
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+  const paragraphs = result.blocks.filter((b) => b.kind === "paragraph");
+
+  assert.deepEqual(
+    paragraphs.map((b) => b.text),
+    ["Term", "Definition of the term."],
+  );
+});
+
+test("a figcaption's direct text is preserved as visible main content", () => {
+  const doc = page([
+    el("figure", {}, [
+      el("img", { src: "photo.jpg" }),
+      el("figcaption", {}, ["A caption describing the photo."]),
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+  const paragraphs = result.blocks.filter((b) => b.kind === "paragraph");
+
+  assert.deepEqual(
+    paragraphs.map((b) => b.text),
+    ["A caption describing the photo."],
+  );
+});
+
+test("a generic wrapper's own direct text and a nested heading are both kept once, in DOM order", () => {
+  const doc = page([
+    el("div", {}, [
+      "Intro text before the heading.",
+      el("h2", {}, ["Section Heading"]),
+      "Trailing text after the heading.",
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+
+  assert.deepEqual(
+    result.blocks.map((b) => [b.kind, b.text]),
+    [
+      ["paragraph", "Intro text before the heading."],
+      ["heading", "Section Heading"],
+      ["paragraph", "Trailing text after the heading."],
+    ],
+  );
+});
+
+test("a hidden descendant inside a non-candidate wrapper is excluded from its buffered direct text", () => {
+  const doc = page([
+    el("div", {}, [
+      "Visible before.",
+      el("span", { hidden: true }, ["Hidden middle."]),
+      "Visible after.",
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+  const paragraphs = result.blocks.filter((b) => b.kind === "paragraph");
+
+  assert.equal(paragraphs.length, 1);
+  assert.match(paragraphs[0].text, /Visible before\./);
+  assert.match(paragraphs[0].text, /Visible after\./);
+  assert.doesNotMatch(paragraphs[0].text, /Hidden middle/);
+});
+
 test("no URL is ever returned", () => {
   const doc = page([
     el("h2", {}, [el("a", { href: "/section" }, ["Installation"])]),

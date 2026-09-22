@@ -625,11 +625,11 @@ these holds:
 
 | Skipped | Test |
 |---|---|
-| it is inside dropped furniture | it has an ancestor matching `nav, header, footer, aside, form, dialog, [role="navigation"], [role="banner"], [role="contentinfo"], [role="complementary"], [role="search"], [role="form"]` |
+| it is inside dropped furniture | it has an ancestor matching `nav, footer, aside, form, dialog, [role="navigation"], [role="banner"], [role="contentinfo"], [role="complementary"], [role="search"], [role="form"]`, or an ancestor `header` with no `article`, `aside`, `main`, `nav` or `section` ancestor of its own — the page-banner landmark HTML gives such a `header` implicitly, never a content-local one such as an `article`'s own title-and-byline `header` |
 | it is not being displayed | `hidden`, `aria-hidden="true"`, or a computed `display: none` or `visibility: hidden` or `visibility: collapse` on it or an ancestor |
 | it is not content | it is inside, or is, `script, style, noscript, template, iframe, svg, canvas, button, select, textarea, input, label` |
 
-Four of the six candidate tags — `li`, `blockquote`, `th`, `td` — are
+Four of the candidate tags — `li`, `blockquote`, `th`, `td` — are
 **containers**: their own emitted block owns every bit of ordinary prose
 inside them, including a `p` wrapping it, so that kind is never lost to a
 prose wrapper placed inside a list item, a quote or a table cell. A nested
@@ -651,8 +651,26 @@ exactly the text a nested independent candidate does not already claim.
 
 Container-owned text preserves the adjacency supplied by the DOM text nodes.
 Inline descendants do not gain a separator merely because they are elements;
-authored whitespace is preserved here and normalized later by shaping.
-Excluded subtrees and nested independent candidates contribute no text.
+authored whitespace is preserved here and normalized later by shaping. A
+`<br>` is the one element that does insert a boundary: it contributes a line
+break to the owned text, so the two text runs it separates are never read as
+one merged word once concatenated — shaping is free to fold that break into
+a space with every other line break (§8.1). Excluded subtrees and nested
+independent candidates contribute no text.
+
+An element that is neither a candidate nor a container — a `dl`, a `dt`, a
+`dd`, a `figcaption`, a `div`, or any other tag the candidate list does not
+name — is walked by this same top-down pass, one level deeper. Its own
+direct text, by the adjacency rule above, is emitted as a `paragraph` block
+at the point the walk reaches it, in document order; the walk then continues
+into its children to find and emit whatever candidate or container is
+nested inside. Such a `paragraph` is link-density-skipped by the same rule
+as any other (below), so an isolated link inside such a wrapper is treated
+as link text, not prose. This is what keeps a `dl`'s `dt` and `dd` texts,
+and a bare `figcaption`'s own caption, from being lost to a tag the
+candidate list simply does not name — and, because a wrapper's own text is
+read only from its direct children, a nested container's or a nested
+wrapper's already-claimed text is never read again by an ancestor.
 
 `pre` preserves line breaks, but it does not bypass the visibility/content
 exclusions. Its text is collected recursively from visible content while
@@ -1424,10 +1442,10 @@ is an extension document that no web page can read.
 
 ### 12.2 The optional-permission providers
 
-OpenAI's, Claude's and Kimi's host permissions are declared in `optional_host
-_permissions` (§4), not `host_permissions`, and Sakura's stays required. The
-permission helper `src/common/permissions.js` is the one place either fact is
-recorded:
+OpenAI's, Claude's and Kimi's host permissions are declared in
+`optional_host_permissions` (§4), not `host_permissions`, and Sakura's stays
+required. The permission helper `src/common/permissions.js` is the one place
+either fact is recorded:
 
 ```js
 // src/common/permissions.js

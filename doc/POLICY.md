@@ -488,9 +488,9 @@ that the requirements are incomplete, and that is where it is taken.
   `sidePanel` are the whole of the ordinary permissions.
 - **The host permissions name exactly the supported AI providers'
   origins and nothing else**, so that a request anywhere else is refused by
-  Chrome rather than by this policy being obeyed. Sakura's stays `host
-  _permissions` (required, always present); OpenAI's, Claude's and Kimi's are
-  `optional_host_permissions`.
+  Chrome rather than by this policy being obeyed. Sakura's stays
+  `host_permissions` (required, always present); OpenAI's, Claude's and
+  Kimi's are `optional_host_permissions`.
 - **An optional host permission is requested only from the reader's own
   action in the options page**, never from a run and never speculatively:
   either when they select OpenAI, Claude or Kimi as the provider, or, for
@@ -733,12 +733,18 @@ that the requirements are incomplete, and that is where it is taken.
   name of the provider that was used.
 
 ### 3.3 State and Side Effects
-- **Do not grow global state.** A run is contained in the call that performs it;
-  what has to outlive the call goes to the state the design provides, keyed by
-  tab.
-- Module-level bindings are constants — a key, a limit, a pattern, a table. A
-  module-level mutable variable is a fact two runs can see, and is not
-  introduced.
+- **Do not grow durable global state.** A run's own persisted result is
+  contained in the call that performs it; what has to outlive the call, or be
+  read back after the worker restarts, goes to the state the design provides,
+  keyed by tab, never to a module variable.
+- Module-level bindings are constants by default — a key, a limit, a pattern, a
+  table. The one exception is non-durable concurrency coordination that is
+  scoped to run or tab identity and needed only for the lifetime of the
+  service worker that holds it — such as which run currently owns a tab, or
+  the per-tab ordering of queued `chrome.storage.session` writes — never
+  treated as surviving worker termination, and never a stand-in for the
+  persisted state above. Nothing else becomes a module-level mutable
+  variable.
 - A module's import must have no side effect that a test cannot tolerate. A file
   that wires listeners or a document does so behind a guard, so that importing
   it in Node registers nothing.
