@@ -200,9 +200,22 @@ function headingContextBefore(blocks, end) {
 // partial result.
 export function chunkMaterial(material, limit = MAX_REQUEST_MATERIAL_CHARS) {
   const source = material.blocks || [{ kind: "paragraph", text: material.text }];
-  const reserve = Math.min(500, Math.floor(limit / 4));
-  const blockLimit = Math.max(1, limit - material.title.length - reserve);
-  const expanded = source.flatMap((block) => splitBlock(block, blockLimit));
+  // A block is only split here when it could not fit even alone, in an
+  // otherwise-empty chunk carrying just the title and this block's own
+  // rendering wrapper (the code fence, the heading `#`s, the list marker,
+  // …, measured directly by rendering the block with empty text). The
+  // actual per-position overhead of heading context (§10.3) is not
+  // guessed at on top of that, with a fixed reserve or otherwise, since
+  // that guess is what let a block that truly fit fine get split
+  // needlessly. A block that genuinely cannot fit once its real heading
+  // context is added still meets the existing safety check below
+  // (`candidate.charCount > limit`) and still fails the whole call closed,
+  // exactly as before.
+  const expanded = source.flatMap((block) => {
+    const overhead = material.title.length + renderBlock({ ...block, text: "" }).length;
+    const blockLimit = Math.max(1, limit - overhead);
+    return splitBlock(block, blockLimit);
+  });
   const chunks = [];
   let start = 0;
 
