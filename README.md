@@ -21,7 +21,7 @@
 
 ## Overview
 
-**web-digest** is a Chrome extension that takes the page you currently have open, extracts its main content, and produces a short summary of it with an AI provider of your choice: the Sakura AI Engine (さくらの AI Engine), OpenAI, Claude, or Kimi.
+**web-digest** is a Chrome extension that takes the page you currently have open, extracts its main content, and produces a summary of it with an AI provider of your choice: the Sakura AI Engine (さくらの AI Engine), OpenAI, Claude, or Kimi.
 
 **The task is semantic compression, not shortening.** A summary that is short and has lost the condition a claim depends on has failed; a summary that is long because the page carried little redundancy has not. What the summary keeps is the central claim, the main grounds for it, the causal relations that matter, the conclusion, and the conditions and reservations that could change it. What it removes is repetition, several examples of one proposition, rhetorical elaboration, introductory throat-clearing and digression.
 
