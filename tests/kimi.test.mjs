@@ -166,14 +166,64 @@ test("a call-level 2xx response with a missing or unsupported finish_reason is n
 
 test("the failure mapping table", () => {
   assert.equal(mapHttpFailure(401, null).kind, "credential-rejected");
-  assert.equal(mapHttpFailure(403, null).detail, "unspecified");
-  assert.equal(mapHttpFailure(404, null).detail, "unspecified");
-  assert.equal(mapHttpFailure(429, null).detail, "rate-limited");
+  assert.equal(mapHttpFailure(403, null).detail, "access-denied");
+  assert.equal(mapHttpFailure(404, null).detail, "refused");
+  assert.equal(mapHttpFailure(429, null).detail, "unspecified");
   assert.equal(mapHttpFailure(500, null).detail, "unavailable");
   assert.equal(mapHttpFailure(503, null).detail, "unavailable");
   assert.equal(mapHttpFailure(418, null).detail, "unspecified");
   for (const status of [403, 404, 429, 500, 418]) {
     assert.equal(mapHttpFailure(status, null).kind, "provider-error");
+  }
+});
+
+// Kimi's documented error-code semantics
+// (https://www.kimi.ai/help/kimi-api/api-error-codes): 403 is an access
+// problem, 404 is the endpoint or resource declining the request outright,
+// and a 429's three documented `error.type` values are each distinguished
+// from one another and from an unrecognized or missing one.
+test("403 is access-denied and 404 is refused", () => {
+  assert.equal(mapHttpFailure(403, { error: { message: "no" } }).detail, "access-denied");
+  assert.equal(mapHttpFailure(404, { error: { message: "no" } }).detail, "refused");
+});
+
+test("a 429 is classified by its documented error.type", () => {
+  assert.equal(
+    mapHttpFailure(429, { error: { type: "exceeded_current_quota_error" } })
+      .detail,
+    "account-limit",
+  );
+  assert.equal(
+    mapHttpFailure(429, { error: { type: "rate_limit_reached_error" } })
+      .detail,
+    "rate-limited",
+  );
+  assert.equal(
+    mapHttpFailure(429, { error: { type: "engine_overloaded_error" } })
+      .detail,
+    "unavailable",
+  );
+});
+
+test("a 429 with an unrecognized or missing error.type is unspecified rather than guessed at", () => {
+  assert.equal(
+    mapHttpFailure(429, { error: { type: "some_future_error" } }).detail,
+    "unspecified",
+  );
+  assert.equal(mapHttpFailure(429, { error: {} }).detail, "unspecified");
+  assert.equal(mapHttpFailure(429, null).detail, "unspecified");
+});
+
+test("every 429 mapping still carries the kind and the HTTP status", () => {
+  for (const type of [
+    "exceeded_current_quota_error",
+    "rate_limit_reached_error",
+    "engine_overloaded_error",
+    "unrecognized",
+  ]) {
+    const mapped = mapHttpFailure(429, { error: { type } });
+    assert.equal(mapped.kind, "provider-error");
+    assert.equal(mapped.status, 429);
   }
 });
 
@@ -184,6 +234,10 @@ test("a refusal that names a length problem is the too-much-text kind", () => {
       { message: "This model's maximum context is 8192 tokens" },
       { message: "input too long" },
       { message: "Request TOO LARGE" },
+      {
+        message:
+          "prompt tokens + max_tokens exceeds the model specification of 131072",
+      },
     ]) {
       assert.equal(
         mapHttpFailure(status, { error }).kind,
@@ -239,7 +293,9 @@ test("the call sends what buildRequest built", async () => {
 test("HTTP failures reach the caller as their kind", async () => {
   const cases = [
     [401, "credential-rejected", undefined],
-    [429, "provider-error", "rate-limited"],
+    [403, "provider-error", "access-denied"],
+    [404, "provider-error", "refused"],
+    [429, "provider-error", "unspecified"],
     [500, "provider-error", "unavailable"],
   ];
   for (const [status, kind, detail] of cases) {
@@ -250,6 +306,17 @@ test("HTTP failures reach the caller as their kind", async () => {
     assert.equal(result.kind, kind);
     if (detail) assert.equal(result.detail, detail);
   }
+});
+
+test("a 429 with a documented error.type reaches the caller with the matching detail", async () => {
+  const result = await callKimi(CALL, {
+    fetchImpl: answering(429, {
+      error: { type: "rate_limit_reached_error", message: "slow down" },
+    }),
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.kind, "provider-error");
+  assert.equal(result.detail, "rate-limited");
 });
 
 test("a transport failure is provider-unreachable", async () => {

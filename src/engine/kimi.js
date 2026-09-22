@@ -29,8 +29,15 @@ export const KIMI_BASE_URL = "https://api.moonshot.ai/v1";
 // A bare "too long" / "too large" is deliberately absent: those words also
 // appear in validation errors unrelated to size, so a generic marker would
 // misclassify them as too-much-text. `SIZE_TARGET_TOO_LONG` below covers
-// free-form size refusals that still name what is too long.
-const LENGTH_MARKERS = ["context_length", "context length", "maximum context"];
+// free-form size refusals that still name what is too long. The last marker
+// is Kimi's own documented wording for a request whose prompt plus requested
+// completion tokens exceeds what the model accepts.
+const LENGTH_MARKERS = [
+  "context_length",
+  "context length",
+  "maximum context",
+  "prompt tokens + max_tokens exceeds the model specification",
+];
 
 // A free-form message counts as a size refusal only when it names a size
 // target — context, input, prompt or request — close to "too long" / "too
@@ -70,15 +77,31 @@ function namesALengthProblem(data) {
   );
 }
 
+// Kimi's documented 429 `error.type` values
+// (https://www.kimi.ai/help/kimi-api/api-error-codes): a request denied for
+// having exhausted the account's current quota, one denied by an ordinary
+// rate limit, and one refused because the engine itself is overloaded. Only
+// these three recognized values are distinguished; an unrecognized or
+// missing `error.type` on a 429 stays the generic `unspecified` mapping
+// rather than being guessed at, per the same "matched, not parsed" rule the
+// length markers above follow.
+const ACCOUNT_LIMIT_TYPES = new Set(["exceeded_current_quota_error"]);
+const RATE_LIMITED_TYPES = new Set(["rate_limit_reached_error"]);
+const UNAVAILABLE_TYPES = new Set(["engine_overloaded_error"]);
+
+function kimiErrorType(data) {
+  const error = data && data.error ? data.error : {};
+  return error.type;
+}
+
 // A non-2xx answer, mapped to the kind that describes it. The status
 // travels with the mapped result, an HTTP-originated failure's own
 // diagnostic metadata for the worker to log; the endpoint's wording is read
 // only to choose that mapping and goes no further than here — it is never
-// itself returned, and never itself reaches the log. Kimi's current
-// official documentation does not establish a distinct meaning for HTTP 403
-// or 404 beyond an ordinary provider error, so — matching how Sakura's own
-// undocumented statuses are treated — both keep the generic `unspecified`
-// mapping rather than being guessed at.
+// itself returned, and never itself reaches the log. 403 and 404 follow
+// Kimi's own documented meaning: 403 is an access problem with the account,
+// project or model, and 404 is the endpoint or resource declining the
+// request outright.
 export function mapHttpFailure(status, data) {
   if (status === 401) {
     return { ok: false, kind: ErrorKind.CREDENTIAL_REJECTED, status };
@@ -89,13 +112,29 @@ export function mapHttpFailure(status, data) {
   ) {
     return { ok: false, kind: ErrorKind.TOO_MUCH_TEXT, status };
   }
-  if (status === 429) {
+  if (status === 403) {
     return {
       ok: false,
       kind: ErrorKind.PROVIDER_ERROR,
-      detail: ProviderErrorDetail.RATE_LIMITED,
+      detail: ProviderErrorDetail.ACCESS_DENIED,
       status,
     };
+  }
+  if (status === 404) {
+    return {
+      ok: false,
+      kind: ErrorKind.PROVIDER_ERROR,
+      detail: ProviderErrorDetail.REFUSED,
+      status,
+    };
+  }
+  if (status === 429) {
+    const type = kimiErrorType(data);
+    let detail = ProviderErrorDetail.UNSPECIFIED;
+    if (ACCOUNT_LIMIT_TYPES.has(type)) detail = ProviderErrorDetail.ACCOUNT_LIMIT;
+    else if (RATE_LIMITED_TYPES.has(type)) detail = ProviderErrorDetail.RATE_LIMITED;
+    else if (UNAVAILABLE_TYPES.has(type)) detail = ProviderErrorDetail.UNAVAILABLE;
+    return { ok: false, kind: ErrorKind.PROVIDER_ERROR, detail, status };
   }
   if (status >= 500) {
     return {

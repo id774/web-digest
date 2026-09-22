@@ -1378,11 +1378,15 @@ status codes and error body:
 | HTTP 401 | `credential-rejected` | — |
 | HTTP 400, 413 or 422 whose error names the context length or a maximum input | `too-much-text` | — |
 | HTTP 402 for Claude | `provider-error` | `account-limit` |
-| HTTP 403 for OpenAI or Claude | `provider-error` | `access-denied` |
-| HTTP 403 for Sakura or Kimi | `provider-error` | `unspecified` |
-| HTTP 404 for OpenAI or Claude | `provider-error` | `refused` |
-| HTTP 404 for Sakura or Kimi | `provider-error` | `unspecified` |
+| HTTP 403 for OpenAI, Claude or Kimi | `provider-error` | `access-denied` |
+| HTTP 403 for Sakura | `provider-error` | `unspecified` |
+| HTTP 404 for OpenAI, Claude or Kimi | `provider-error` | `refused` |
+| HTTP 404 for Sakura | `provider-error` | `unspecified` |
 | HTTP 429 for OpenAI whose error names a documented account-side limit | `provider-error` | `account-limit` |
+| HTTP 429 for Kimi whose `error.type` is `exceeded_current_quota_error` | `provider-error` | `account-limit` |
+| HTTP 429 for Kimi whose `error.type` is `rate_limit_reached_error` | `provider-error` | `rate-limited` |
+| HTTP 429 for Kimi whose `error.type` is `engine_overloaded_error` | `provider-error` | `unavailable` |
+| HTTP 429 for Kimi with any other or missing `error.type` | `provider-error` | `unspecified` |
 | HTTP 429, otherwise | `provider-error` | `rate-limited` |
 | HTTP 504 for Claude | `timeout` | — |
 | HTTP 5xx (and, for Claude, 529 "overloaded", but not 504) | `provider-error` | `unavailable` |
@@ -1443,11 +1447,23 @@ does not establish that either of them means provider-side access denial or
 the model name, so neither is specific enough to leave the generic mapping,
 and both keep the default `unspecified` mapping — which is this section's own
 rule against guessing at a status code's meaning, applied to Sakura. Kimi's
-current official documentation likewise does not establish a distinct
-meaning for either status, so Kimi's HTTP 403 and HTTP 404 keep the same
-`unspecified` mapping, by the same rule. OpenAI's and Claude's HTTP 404 keeps
-its existing `refused` mapping. An undocumented response from one provider
-does not become a failure category of its own.
+official documentation
+(https://www.kimi.ai/help/kimi-api/api-error-codes), unlike Sakura's, does
+establish a meaning for both: HTTP 403 is an access problem with the
+account, project or model, mapped the same way as OpenAI's and Claude's
+403 to `access-denied`; HTTP 404 is the endpoint or resource refusing the
+request outright, mapped the same way as OpenAI's and Claude's 404 to
+`refused`. OpenAI's and Claude's HTTP 404 keeps its existing `refused`
+mapping. Kimi's HTTP 429 is also documented with three distinct `error.type`
+values, unlike the generic 429 handling every other provider gets:
+`exceeded_current_quota_error` (the account's current quota is exhausted) to
+`account-limit`, `rate_limit_reached_error` (an ordinary rate limit) to
+`rate-limited`, and `engine_overloaded_error` (the engine itself, not the
+caller's account) to `unavailable`. An unrecognized or missing `error.type`
+on a Kimi 429 is not guessed at and keeps the generic `unspecified` mapping,
+the same rule this section applies to every other undocumented case. An
+undocumented response from one provider does not become a failure category
+of its own.
 
 OpenAI's Responses API can also report failure without a non-2xx status: a
 top-level `status` of `"failed"` means the provider itself failed to produce
@@ -1465,10 +1481,14 @@ content is read before any output text, and a `"failed"` status before either,
 so a response that happens to carry both a refusal and other content is still
 classified as refusal, never as a partial success.
 
-The status code, once mapped through this table, travels with the result as
-`status` (§11.5) — reaching the log (§19), never the reader (§18). The
-wording of the provider's own error goes no further than deciding that
-mapping: it is not itself carried anywhere beyond it.
+The HTTP status code, once mapped through this table, travels with the
+result as `status` (§11.5) — reaching the log (§19), never the reader
+(§18). OpenAI's body-level `"failed"` status and either provider's explicit
+refusal content carry no HTTP status at all, since both arrive on an
+ordinary 2xx response: the mapped result for these two carries no `status`
+field, and the end-of-run log line records nothing beyond what it always
+does. The wording of the provider's own error goes no further than deciding
+that mapping: it is not itself carried anywhere beyond it.
 
 ## 12. The credential
 
@@ -1852,11 +1872,12 @@ selected AI provider" rather than assuming which one it is.
 | `timeout` | the selected provider's adapter, the abort at `REQUEST_TIMEOUT_MS` (§11.3), or Claude's HTTP 504 (§11.6) | the elapsed time, or the status, is logged | "The selected AI provider took too long to answer. Trying again is reasonable." | no |
 | `provider-error` / `rate-limited` | the selected provider's adapter, HTTP 429 without a documented account-limit signal | the status is logged | "The selected AI provider reported a rate limit. Try again later." | no |
 | `provider-error` / `account-limit` | the selected provider's adapter, an OpenAI HTTP 429 with a documented account-limit `error.code`/`error.type`, or Claude's HTTP 402 (§11.6) | the status is logged | "The selected AI provider reported a billing or usage-limit problem. Check the provider account's billing and usage limits." | no — the provider account's own billing/usage settings, not this extension's |
-| `provider-error` / `refused` | the selected provider's adapter, HTTP 404 for OpenAI or Claude | the status is logged | "The selected AI provider refused the request. Check the model name in Settings." | possibly, the model |
-| `provider-error` / `access-denied` | the selected provider's adapter, HTTP 403 for OpenAI or Claude | the status is logged | "The selected AI provider denied access for this request. Check the provider account's access to the selected project, workspace and model." | possibly, the provider account's own access settings — not this extension's |
+| `provider-error` / `refused` | the selected provider's adapter, HTTP 404 for OpenAI, Claude or Kimi | the status is logged | "The selected AI provider refused the request. Check the model name in Settings." | possibly, the model |
+| `provider-error` / `access-denied` | the selected provider's adapter, HTTP 403 for OpenAI, Claude or Kimi | the status is logged | "The selected AI provider denied access for this request. Check the provider account's access to the selected project, workspace and model." | possibly, the provider account's own access settings — not this extension's |
 | `provider-error` / `provider-refusal` | the selected provider's adapter, explicit refusal content in an OpenAI answer or Claude's `stop_reason: "refusal"` (§11.4) | the answer is discarded, not shown | "The selected AI provider declined to generate a summary for this request." | no |
-| `provider-error` / `unavailable` | the selected provider's adapter, HTTP 5xx (529 for Claude, but not Claude's 504) | the status is logged | "The selected AI provider reported an error. Trying again later is reasonable." | no |
-| `provider-error` / `unspecified` | the selected provider's adapter, HTTP 403 for Sakura or Kimi, HTTP 404 for Sakura or Kimi, an OpenAI answer whose top-level `status` is `"failed"`, or any other non-2xx not mapped elsewhere in this table | the status is logged | "The selected AI provider reported an error." | no |
+| `provider-error` / `unavailable` | the selected provider's adapter, HTTP 5xx (529 for Claude, but not Claude's 504), or a Kimi HTTP 429 whose `error.type` is `engine_overloaded_error` | the status is logged | "The selected AI provider reported an error. Trying again later is reasonable." | no |
+| `provider-error` / `unspecified` | the selected provider's adapter, HTTP 403 or 404 for Sakura, a Kimi HTTP 429 with any other or missing `error.type`, or any other non-2xx not mapped elsewhere in this table | the status is logged | "The selected AI provider reported an error." | no |
+| `provider-error` / `unspecified` | an OpenAI 2xx answer whose top-level `status` is `"failed"` (§11.4) | no status accompanies a 2xx answer, so nothing beyond the ordinary end-of-run log line is recorded | "The selected AI provider reported an error." | no |
 | `page-unreadable` | the worker, from the injection failing or returning nothing usable (§7.5) | the rejection is not carried further | "The content of this page could not be obtained." | no |
 | `too-little-text` | `shape.js` (§9.1) | the run stops before a request | "This page has too little text to summarize." | no |
 | `too-much-text` | the staged summarizer safety bound, or an adapter from its provider's refusal (§9.3, §11.6) | the run stops | "This page is too large to process." | no |
@@ -1915,11 +1936,12 @@ logging — no new phase or log line is added for it.
 
 `status` appears only on a failure that had one. It is worth recording even
 though the panel never shows it: 401 is a credential to replace, 429 a rate
-limit, and 403 is mapped by what each adapter's provider documents (§11.6) —
-provider-side access denial for OpenAI and Claude, but still the generic
-provider error for Sakura and Kimi, whose documentation does not establish
-the same meaning — so only the log, with the raw status, can say which status
-actually happened, for whichever provider was selected. `elapsed` is
+limit or, for Kimi, one of three documented account/engine outcomes, and 403
+is mapped by what each adapter's provider documents (§11.6) — provider-side
+access denial for OpenAI, Claude and Kimi, but still the generic provider
+error for Sakura, whose documentation does not establish the same meaning —
+so only the log, with the raw status, can say which status actually
+happened, for whichever provider was selected. `elapsed` is
 recorded on success too, because an answer that arrived in almost the whole
 of `REQUEST_TIMEOUT_MS` is next run's timeout,
 seen one run early. **Which provider was used is deliberately not logged**:
