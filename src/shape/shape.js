@@ -116,7 +116,35 @@ function splitPoint(text, limit) {
   return limit;
 }
 
+// A `\n` boundary never corrupts code the way a mid-line cut can, so it is
+// preferred whenever one falls within reach of the limit. Neither piece is
+// trimmed: code keeps line breaks and indentation as meaningful content
+// (§8.1), shape.js's own normalization already set the block's outer edges
+// once, and trimming a piece here would strip exactly the leading
+// indentation or blank line the split boundary introduces. `remaining` is
+// only ever sliced, never rewritten, so concatenating every piece this
+// returns reproduces the original text exactly.
+function splitCodeBlock(block, limit) {
+  const pieces = [];
+  let remaining = block.text;
+  while (remaining.length > limit) {
+    let point = -1;
+    for (const match of remaining.slice(0, limit + 1).matchAll(/\n/g)) {
+      point = match.index + match[0].length;
+    }
+    // No line boundary within reach: a single line longer than the limit.
+    // Split at the limit itself rather than truncating, sampling or
+    // otherwise dropping any of it.
+    if (point <= 0) point = limit;
+    pieces.push({ ...block, text: remaining.slice(0, point) });
+    remaining = remaining.slice(point);
+  }
+  if (remaining) pieces.push({ ...block, text: remaining });
+  return pieces;
+}
+
 function splitBlock(block, limit) {
+  if (block.kind === "code") return splitCodeBlock(block, limit);
   const pieces = [];
   let remaining = block.text;
   while (remaining.length > limit) {
@@ -230,14 +258,23 @@ export function shape(extracted) {
         : normalizeText(block.text);
     if (carriesNothing(text)) continue;
 
+    // A heading's structural identity is its level as well as its text: the
+    // hierarchy `render` (§8.4) actually draws from `level` is what a
+    // repetition fingerprint must agree with, so the same wording at two
+    // different levels — `## Overview` and `### Overview` — are not the
+    // same repeated block. The clamped level is used, since that is the
+    // level rendering itself uses.
+    const level = block.kind === "heading" ? clampLevel(block.level) : null;
+
     if (block.kind !== "table-cell" && text.length >= DEDUPE_MIN_CHARS) {
-      const fingerprint = `${block.kind} ${text}`;
+      const fingerprint =
+        level === null ? `${block.kind} ${text}` : `${block.kind} ${level} ${text}`;
       if (seen.has(fingerprint)) continue;
       seen.add(fingerprint);
     }
 
     const shaped = { kind: block.kind, text };
-    if (block.kind === "heading") shaped.level = clampLevel(block.level);
+    if (block.kind === "heading") shaped.level = level;
     if (block.kind === "table-cell") shaped.row = block.row;
     kept.push(shaped);
   }

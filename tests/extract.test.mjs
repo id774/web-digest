@@ -679,6 +679,56 @@ test("an inline element does not split a non-candidate wrapper's prose from a fo
   );
 });
 
+test("an inline element's own leading whitespace is preserved when absorbed into surrounding prose", () => {
+  const doc = page([
+    el("div", {}, [
+      "Hello",
+      el("strong", { style: { display: "inline" } }, [" world"]),
+      "!",
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+
+  assert.deepEqual(
+    result.blocks.map((b) => [b.kind, b.text]),
+    [["paragraph", "Hello world!"]],
+  );
+});
+
+test("an inline element's own trailing whitespace is preserved when absorbed into surrounding prose", () => {
+  const doc = page([
+    el("div", {}, [
+      el("span", { style: { display: "inline" } }, ["Hello "]),
+      el("em", { style: { display: "inline" } }, ["world"]),
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+
+  assert.deepEqual(
+    result.blocks.map((b) => [b.kind, b.text]),
+    [["paragraph", "Hello world"]],
+  );
+});
+
+test("adjacent inline CJK text absorbed into surrounding prose gains no artificial space", () => {
+  const doc = page([
+    el("div", {}, [
+      "前",
+      el("strong", { style: { display: "inline" } }, ["後"]),
+      "。",
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+
+  assert.deepEqual(
+    result.blocks.map((b) => [b.kind, b.text]),
+    [["paragraph", "前後。"]],
+  );
+});
+
 test("no URL is ever returned", () => {
   const doc = page([
     el("h2", {}, [el("a", { href: "/section" }, ["Installation"])]),

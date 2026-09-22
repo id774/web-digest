@@ -7,8 +7,8 @@ v1.1.1 (Release Date: TBD)
   with the current tab through navigation, closure, and replacement.
 - Fixed settings-page async races and storage read/write failures so provider
   selection and saved preferences match the last confirmed outcome.
-- Fixed content extraction so hidden text cannot select a root and visible semantic
-  content, text boundaries, linked headings and table cells are preserved.
+- Fixed content extraction and shaping so hidden text cannot select a root and
+  text boundaries, heading hierarchy, linked headings, table cells, and code survive.
 - Fixed side-panel synchronization so stale bindings, snapshots, and session-state
   failures cannot replace the active tab.
 - Fixed provider response handling so failures stay distinct and only complete

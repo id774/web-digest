@@ -86,6 +86,34 @@ test("repetition removal is per kind and only above the floor", () => {
   assert.match(result.material.text, /\n\nOverview\n\n/);
 });
 
+test("same text at different heading levels is not treated as repetition", () => {
+  const result = shape({
+    title: "T",
+    blocks: [
+      { kind: "heading", level: 2, text: "Overview" },
+      { kind: "heading", level: 3, text: "Overview" },
+      filler("body."),
+    ],
+  });
+  assert.equal(result.ok, true);
+  assert.match(result.material.text, /## Overview/);
+  assert.match(result.material.text, /### Overview/);
+});
+
+test("same text at the same heading level is still deduped as exact repetition", () => {
+  const result = shape({
+    title: "T",
+    blocks: [
+      { kind: "heading", level: 2, text: "Overview" },
+      { kind: "heading", level: 2, text: "Overview" },
+      filler("body."),
+    ],
+  });
+  assert.equal(result.ok, true);
+  const occurrences = result.material.text.split("Overview").length - 1;
+  assert.equal(occurrences, 1);
+});
+
 test("render keeps the structure a summary can use", () => {
   const text = render([
     { kind: "heading", level: 3, text: "A heading" },
@@ -198,6 +226,40 @@ test("only an individually oversized block is split internally", () => {
       .join(" "),
     text,
   );
+});
+
+test("an oversized code block is split at line boundaries, keeping its indentation", () => {
+  const lines = [];
+  for (let i = 0; i < 30; i += 1) {
+    lines.push(`    line ${i} padded with enough text to force a split`);
+  }
+  const code = lines.join("\n");
+  const chunks = chunkMaterial(
+    { title: "T", blocks: [{ kind: "code", text: code }] },
+    400,
+  );
+  const codeBlocks = chunks.flatMap((chunk) => chunk.blocks);
+
+  assert.ok(codeBlocks.length > 1);
+  assert.ok(codeBlocks.every((block) => block.kind === "code"));
+  // No character is added, removed or reordered by splitting: joining the
+  // pieces back together reproduces the original code exactly.
+  assert.equal(codeBlocks.map((block) => block.text).join(""), code);
+  // The second piece still opens with its original leading indentation:
+  // trimming here would be exactly the defect this guards against.
+  assert.match(codeBlocks[1].text, /^ {4}line/);
+});
+
+test("a single code line longer than the chunk limit is split but never truncated", () => {
+  const line = "x".repeat(500);
+  const chunks = chunkMaterial(
+    { title: "T", blocks: [{ kind: "code", text: line }] },
+    200,
+  );
+  const codeBlocks = chunks.flatMap((chunk) => chunk.blocks);
+
+  assert.ok(codeBlocks.length > 1);
+  assert.equal(codeBlocks.map((block) => block.text).join(""), line);
 });
 
 test("chunking reserves room for a long title", () => {

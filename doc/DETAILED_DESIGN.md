@@ -667,9 +667,14 @@ above already uses) straight into the prose run currently being collected,
 so `Hello <strong>world</strong>!` stays the one paragraph `Hello world!`
 rather than three, and an inline anchor's text is counted into that
 paragraph's own link/text ratio rather than standing alone as a 100%-link
-paragraph the density rule (below) would then drop. Nothing here is
-special-cased by tag name, and no table of "known inline tags" is kept:
-`isInlineDisplay` reads the one fact the page's own layout already carries.
+paragraph the density rule (below) would then drop. This contributed text
+is not trimmed at its own two edges before the concatenation: an inline
+element's authored leading or trailing whitespace —
+`Hello<strong> world</strong>!` — is part of the adjacency the surrounding
+run must keep, and is only trimmed once, at the edges of the whole
+paragraph the run eventually becomes. Nothing here is special-cased by tag
+name, and no table of "known inline tags" is kept: `isInlineDisplay` reads
+the one fact the page's own layout already carries.
 
 Anything else — a `dl`, a `dt`, a `dd`, a `figcaption`, a `div`, or any
 other tag that renders as a block of its own — is walked by this same
@@ -793,7 +798,11 @@ characters, or consists only of punctuation, symbols and spaces.
 
 A non-table block is dropped when a block of the same kind and the same text
 has already been kept, and the text is at least `DEDUPE_MIN_CHARS` characters
-long. The first occurrence stays.
+long. The first occurrence stays. For a `heading`, the level is part of that
+identity as well: the same wording at two different levels — `## Overview`
+and `### Overview` — is not the same repeated block, since §8.4 renders each
+level as its own place in the hierarchy. Two headings only compare equal
+when their kind, their (clamped) level and their text all match.
 
 The length floor is there so that two list items reading "Yes" are both kept
 while a site's repeated one-line footer is not. Comparison is exact, on the
@@ -873,9 +882,17 @@ tokens.
 
 The splitter keeps the ordered shaped blocks. It prefers level 2 heading
 boundaries, then lower headings, then paragraph, list, quote, code and table
-boundaries. Only a block too large to fit alone is divided within its text, at
-a line, sentence or whitespace boundary where possible. Each chunk carries the
-page title and the heading context active at its start.
+boundaries. Only a block too large to fit alone is divided within its text.
+For every kind but `code`, that division happens at a line, sentence or
+whitespace boundary where possible, and each piece is trimmed at the new
+edge the split introduced. A `code` block is divided differently, since a
+line break and its indentation are meaningful content here (§8.1), not
+whitespace a split may absorb: the division prefers a line boundary, never
+trims a piece, and falls back to cutting mid-line only when a single line is
+itself longer than the limit — never by truncating, sampling or otherwise
+dropping any of that line. Concatenating a `code` block's pieces in order
+always reproduces its original text exactly. Each chunk carries the page
+title and the heading context active at its start.
 
 **Every chunk `chunkMaterial` returns satisfies `charCount <= limit`.** The
 title, the active heading context and the block text are never truncated,
