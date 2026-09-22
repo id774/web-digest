@@ -458,6 +458,9 @@ blocks, in order.
   same short text recurring in different rows or different cells of a table
   usually carries meaning — a repeated status, unit or category value — so
   identical cell text is never dropped on the strength of repetition alone.
+  For a heading, its level is part of what makes two occurrences the same
+  repeated block; the same wording at a different level is a different
+  place in the hierarchy the next bullet keeps, not a repeat of it.
 - **Keeps the heading hierarchy**, marked by level, because the structure of a
   document is evidence about what its author considered subordinate — and
   subordination is exactly what semantic compression must be able to see.

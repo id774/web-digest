@@ -245,6 +245,14 @@ function webDigestExtract(doc) {
   // inline element that may itself be the `<a>`, whose own direct text the
   // internal walk would otherwise miss, since the walk only turns the flag
   // on for a descendant tagged `a`, never for the element it starts from.
+  //
+  // The returned `text` is untrimmed: whether an edge of it is significant
+  // depends on where the caller puts it. A container emitting its own
+  // standalone block trims once, at that point (`tryEmitContainer`); an
+  // inline element being absorbed into a surrounding prose run must not
+  // trim at all, or authored whitespace at exactly its own boundary —
+  // `Hello<strong> world</strong>` — is lost before the concatenation that
+  // needed it ever happens.
   function ownedContent(element, insideAnchor = false) {
     let text = "";
     let linkChars = 0;
@@ -273,7 +281,7 @@ function webDigestExtract(doc) {
     }
 
     walk(element, insideAnchor);
-    return { text: text.trim(), linkChars };
+    return { text, linkChars };
   }
 
   // True when `element` renders inline, by its own computed style: the
@@ -368,8 +376,11 @@ function webDigestExtract(doc) {
 
   function tryEmitContainer(element, tag) {
     const owned = ownedContent(element);
-    const density = owned.text.length === 0 ? 0 : owned.linkChars / owned.text.length;
-    tryEmit(element, tag, owned.text, density);
+    // A container is a standalone block: its own two edges are trimmed
+    // here, once, the same edge-trim every other emitted block gets.
+    const text = owned.text.trim();
+    const density = text.length === 0 ? 0 : owned.linkChars / text.length;
+    tryEmit(element, tag, text, density);
   }
 
   // The accepted root, walked top-down in document order. `absorbingP` is
