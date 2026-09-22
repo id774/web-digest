@@ -202,6 +202,46 @@ test("a newer live stateChanged is not overwritten by an older snapshot resolvin
   }
 });
 
+// doc/DETAILED_DESIGN.md §6.1.1: the initial getState snapshot and a live
+// stateChanged both belong to the same binding, so whichever settles second
+// must never override the one already rendered — including when the
+// snapshot is the one that settles second, and does so by rejecting rather
+// than resolving. Before this was fixed, a late rejection was treated as a
+// fresh failure regardless of a live update already on screen, overwriting
+// it with internal-error.
+test("a live stateChanged already rendered is not overwritten by the initial getState rejecting late", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  try {
+    await loadPanel(fake.chrome, doc);
+    await flushUntil(() => fake.pendingSendMessage.length === 1);
+    const initialSnapshot = fake.pendingSendMessage.shift();
+
+    // The live update arrives — and is rendered — before the initial
+    // snapshot request this same binding started with ever settles.
+    fake.listeners.message({
+      type: MessageType.STATE_CHANGED,
+      tabId: 1,
+      state: succeededState("T", "Live summary"),
+    });
+    assert.equal(doc.elements.summary.textContent, "Live summary");
+
+    // The initial snapshot request rejects now, well after the live update
+    // was already rendered.
+    initialSnapshot.reject(new Error("message port closed"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.equal(doc.elements.summary.textContent, "Live summary");
+    assert.notEqual(
+      doc.elements.status.textContent,
+      messageFor(ErrorKind.INTERNAL_ERROR, ""),
+    );
+  } finally {
+    cleanup();
+  }
+});
+
 test("a stale snapshot for the previous tab does not overwrite the new tab's view after a rebind", async () => {
   const fake = makeFakeChrome(1);
   const doc = makeFakeDocument();
@@ -236,7 +276,44 @@ test("a stale snapshot for the previous tab does not overwrite the new tab's vie
   }
 });
 
-// §15.1 of the requirements this fixes: two active-tab lookups overlap — one
+test("a stale snapshot for the previous tab rejecting late does not overwrite the new tab's view after a rebind", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  try {
+    await loadPanel(fake.chrome, doc);
+    await flushUntil(() => fake.pendingSendMessage.length === 1);
+    const oldTabSnapshot = fake.pendingSendMessage.shift();
+
+    fake.setActiveTab(2);
+    fake.listeners.activated();
+    await flushUntil(() => fake.pendingSendMessage.length === 1);
+    const newTabSnapshot = fake.pendingSendMessage.shift();
+
+    // The old tab's snapshot rejects only now, well after the rebind.
+    oldTabSnapshot.reject(new Error("message port closed"));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.notEqual(
+      doc.elements.status.textContent,
+      messageFor(ErrorKind.INTERNAL_ERROR, ""),
+    );
+
+    newTabSnapshot.resolve(idleState());
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.equal(doc.elements.summary.textContent, "");
+    assert.equal(
+      doc.elements.status.textContent,
+      "No summary has been run for this tab yet.",
+    );
+  } finally {
+    cleanup();
+  }
+});
+
+// doc/DETAILED_DESIGN.md §6.1.1: two active-tab lookups overlap — one
 // started following a switch to B, the next started following a switch to
 // C before B's lookup resolved — and are made to complete in reverse order.
 // The panel must end up following C regardless: B's lookup belongs to an
@@ -343,9 +420,9 @@ test("an active tab query failure is shown as internal-error and is not an unhan
   }
 });
 
-// §15.2 of the requirements this fixes: a current-generation active-tab
-// query rejects while the panel is bound to Tab A. The rejection must not
-// just render internal-error locally — it must also invalidate the Tab A
+// doc/DETAILED_DESIGN.md §6.1.2: a current-generation active-tab query
+// rejects while the panel is bound to Tab A. The rejection must not just
+// render internal-error locally — it must also invalidate the Tab A
 // binding itself, so a stateChanged that arrives for Tab A afterward is no
 // longer accepted as this panel's own current live update.
 test("an active-tab query failure invalidates the old binding, so a stale stateChanged for it cannot override the failure", async () => {
@@ -388,11 +465,12 @@ test("an active-tab query failure invalidates the old binding, so a stale stateC
   }
 });
 
-// §15.3: the same query failure, but this time Tab A's own still-pending
-// snapshot — requested before the failure, by the binding the failure went
-// on to invalidate — resolves only afterward. It must not be able to
-// override the failure either, the same way a stale rebind snapshot cannot
-// override a newer tab's view (see the rebind test above).
+// doc/DETAILED_DESIGN.md §6.1.2: the same query failure, but this time Tab
+// A's own still-pending snapshot — requested before the failure, by the
+// binding the failure went on to invalidate — resolves only afterward. It
+// must not be able to override the failure either, the same way a stale
+// rebind snapshot cannot override a newer tab's view (see the rebind test
+// above).
 test("an active-tab query failure invalidates the old binding, so its own still-pending snapshot cannot override the failure", async () => {
   const fake = makeFakeChrome(1);
   const doc = makeFakeDocument();
@@ -427,10 +505,11 @@ test("an active-tab query failure invalidates the old binding, so its own still-
   }
 });
 
-// §15.4: a current-generation active-tab query succeeds but yields no valid
-// tab id. Idle is shown, as before, but the old binding must also be
-// invalidated the same way a query failure invalidates it, so Tab A's own
-// stateChanged cannot revive its state over idle.
+// doc/DETAILED_DESIGN.md §6.1.2: a current-generation active-tab query
+// succeeds but yields no valid tab id. Idle is shown, as before, but the
+// old binding must also be invalidated the same way a query failure
+// invalidates it, so Tab A's own stateChanged cannot revive its state over
+// idle.
 test("an active-tab query with no valid tab id invalidates the old binding, so the old tab's stateChanged cannot override idle", async () => {
   const fake = makeFakeChrome(1);
   const doc = makeFakeDocument();
@@ -466,9 +545,9 @@ test("an active-tab query with no valid tab id invalidates the old binding, so t
   }
 });
 
-// §15.4, the pending-snapshot half: Tab A's own still-pending snapshot must
-// not override idle either, once no-valid-tab-id has invalidated its
-// binding.
+// doc/DETAILED_DESIGN.md §6.1.2, the pending-snapshot half: Tab A's own
+// still-pending snapshot must not override idle either, once
+// no-valid-tab-id has invalidated its binding.
 test("an active-tab query with no valid tab id invalidates the old binding, so its own still-pending snapshot cannot override idle", async () => {
   const fake = makeFakeChrome(1);
   const doc = makeFakeDocument();
@@ -499,10 +578,11 @@ test("an active-tab query with no valid tab id invalidates the old binding, so i
   }
 });
 
-// §15.5: after either failure/no-tab transition invalidates the binding, the
-// next valid active-tab lookup must rebind normally — a fresh snapshot
-// request for the new tab, its state shown, and the old tab's own update
-// still ignored, exactly the ordinary-rebind behavior already covered above.
+// doc/DETAILED_DESIGN.md §6.1.2: after either failure/no-tab transition
+// invalidates the binding, the next valid active-tab lookup must rebind
+// normally — a fresh snapshot request for the new tab, its state shown, and
+// the old tab's own update still ignored, exactly the ordinary-rebind
+// behavior already covered above.
 test("a valid active-tab lookup after a query failure rebinds normally to the new tab", async () => {
   const fake = makeFakeChrome(1);
   const doc = makeFakeDocument();

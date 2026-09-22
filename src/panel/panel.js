@@ -126,23 +126,30 @@ function invalidateBinding() {
 // Binds to `tabId`: starts a new generation, fetches its current snapshot,
 // and renders it — unless a live update for this same binding, or a newer
 // binding started since, has already made that snapshot stale by the time
-// it resolves.
+// it settles. This applies identically whether the snapshot request
+// resolves or rejects: a live `stateChanged` already rendered for this
+// binding is newer information than either outcome of a request issued
+// before that update was known to exist, so neither a late resolve nor a
+// late rejection may replace what the live update already put on screen.
 async function bindTo(tabId) {
   bindGeneration += 1;
   const generation = bindGeneration;
   currentTabId = tabId;
   liveSeenThisGeneration = false;
 
+  function stale() {
+    return generation !== bindGeneration || liveSeenThisGeneration;
+  }
+
   let snapshot;
   try {
     snapshot = await requestState(tabId);
   } catch {
-    if (generation !== bindGeneration) return;
+    if (stale()) return;
     render(internalErrorState());
     return;
   }
-  if (generation !== bindGeneration) return;
-  if (liveSeenThisGeneration) return;
+  if (stale()) return;
   render(snapshot);
 }
 
