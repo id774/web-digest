@@ -867,6 +867,84 @@ test("a nested heading inside a display:contents wrapper is still its own indepe
   );
 });
 
+test("a display:contents anchor's text counts as link characters, just like an ordinary inline anchor", () => {
+  const ordinary = runExtract(
+    page([
+      el("div", {}, [
+        el("a", { href: "/x", style: { display: "inline" } }, [
+          "Link only text",
+        ]),
+      ]),
+    ]),
+  );
+  const contents = runExtract(
+    page([
+      el("div", {}, [
+        el("a", { href: "/x", style: { display: "contents" } }, [
+          "Link only text",
+        ]),
+      ]),
+    ]),
+  );
+
+  assert.deepEqual(ordinary.blocks, []);
+  assert.deepEqual(contents.blocks, []);
+});
+
+test("mixed prose around a display:contents anchor still measures density from the anchor's own text", () => {
+  const doc = page([
+    el("div", {}, [
+      "See ",
+      el("a", { href: "/docs", style: { display: "contents" } }, [
+        "x".repeat(50),
+      ]),
+      ".",
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+
+  assert.deepEqual(result.blocks, []);
+});
+
+test("a display:contents anchor nested inside another display:contents wrapper keeps its anchor context", () => {
+  const doc = page([
+    el("div", {}, [
+      el("span", { style: { display: "contents" } }, [
+        el("a", { href: "/x", style: { display: "contents" } }, [
+          "Link only text",
+        ]),
+      ]),
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+
+  assert.deepEqual(result.blocks, []);
+});
+
+test("hidden text inside a display:contents anchor is excluded from both text and link character counts", () => {
+  const doc = page([
+    el("div", {}, [
+      "Visible before ",
+      el("a", { href: "/x", style: { display: "contents" } }, [
+        "visible link ",
+        el("span", { hidden: true }, ["secret"]),
+      ]),
+      "visible after.",
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+  const paragraphs = result.blocks.filter((b) => b.kind === "paragraph");
+
+  assert.equal(paragraphs.length, 1);
+  assert.match(paragraphs[0].text, /Visible before/);
+  assert.match(paragraphs[0].text, /visible link/);
+  assert.match(paragraphs[0].text, /visible after/);
+  assert.doesNotMatch(paragraphs[0].text, /secret/);
+});
+
 test("no URL is ever returned", () => {
   const doc = page([
     el("h2", {}, [el("a", { href: "/section" }, ["Installation"])]),

@@ -709,7 +709,10 @@ around it. A `display: contents` wrapper holding plain text does not split
 surrounding prose into two paragraphs around itself; a candidate or
 container nested inside one is still found and emitted as its own
 independent block, by the same top-down walk, exactly as if the wrapper
-were absent.
+were absent. "Exactly as if the wrapper were absent" includes an `<a>`
+with `display: contents`: it still is an anchor, and its own text still
+counts toward the enclosing paragraph's link/text ratio, the same as an
+ordinary inline `<a>` — losing that box is not losing being a link.
 
 The kind of an emitted block comes from its own tag:
 

@@ -496,7 +496,15 @@ function webDigestExtract(doc) {
     // `tryEmitLeaf`/`tryEmitContainer` through `eligibleText`/
     // `ownedContent`) is still found rather than assumed hidden along with
     // an ancestor.
-    function processChildren(parent, parentHidden) {
+    //
+    // `insideAnchor` here shadows the outer parameter of the same name: a
+    // `display: contents` element has no box, but it can still be the
+    // `<a>` itself, and its own anchor-ness must reach whatever text its
+    // children contribute to this same buffer — an ordinary inline `<a>`
+    // updates this before merging via `ownedContent`, and a `display:
+    // contents` `<a>` must update it here for the very same reason before
+    // recursing into its own children one level deeper, in place.
+    function processChildren(parent, parentHidden, insideAnchor) {
       for (const child of parent.childNodes) {
         if (child.nodeType === 3) {
           if (!absorbingP && !parentHidden) {
@@ -525,7 +533,11 @@ function webDigestExtract(doc) {
             continue;
           }
           if (isContentsDisplay(child)) {
-            processChildren(child, isVisibilityHidden(child));
+            processChildren(
+              child,
+              isVisibilityHidden(child),
+              insideAnchor || tag === "a",
+            );
             continue;
           }
         }
@@ -553,7 +565,7 @@ function webDigestExtract(doc) {
       }
     }
 
-    processChildren(node, isVisibilityHidden(node));
+    processChildren(node, isVisibilityHidden(node), insideAnchor);
     flush();
   }
 
