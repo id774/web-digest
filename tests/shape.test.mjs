@@ -228,6 +228,45 @@ test("only an individually oversized block is split internally", () => {
   );
 });
 
+test("a block that fits alone with the title is not split by a fixed reserve it never needed", () => {
+  const limit = 1000;
+  const title = "T";
+  const text = "x".repeat(800);
+  const chunks = chunkMaterial({ title, blocks: [paragraph(text)] }, limit);
+
+  assert.equal(chunks.length, 1);
+  assert.equal(chunks[0].blocks.length, 1);
+  assert.equal(chunks[0].blocks[0].text, text);
+});
+
+test("a fitting table-cell is not fragmented by a fixed reserve it never needed", () => {
+  const limit = 1000;
+  const title = "T";
+  const text = "y".repeat(800);
+  const chunks = chunkMaterial(
+    { title, blocks: [{ kind: "table-cell", row: 1, text }] },
+    limit,
+  );
+
+  assert.equal(chunks.length, 1);
+  assert.equal(chunks[0].blocks.length, 1);
+  assert.equal(chunks[0].blocks[0].text, text);
+});
+
+test("a fitting list-item is not fragmented by a fixed reserve it never needed", () => {
+  const limit = 1000;
+  const title = "T";
+  const text = "z".repeat(800);
+  const chunks = chunkMaterial(
+    { title, blocks: [{ kind: "list-item", text }] },
+    limit,
+  );
+
+  assert.equal(chunks.length, 1);
+  assert.equal(chunks[0].blocks.length, 1);
+  assert.equal(chunks[0].blocks[0].text, text);
+});
+
 test("an oversized code block is split at line boundaries, keeping its indentation", () => {
   const lines = [];
   for (let i = 0; i < 30; i += 1) {
