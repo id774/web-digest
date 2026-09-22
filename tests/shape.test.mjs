@@ -215,6 +215,46 @@ test("chunking keeps content in order without dropping blocks", () => {
   assert.equal(chunks[1].blocks[0].level, 2);
 });
 
+test("an oversized heading is never fragmented into multiple heading blocks", () => {
+  const headingText = "word ".repeat(30).trim();
+  const blocks = [
+    { kind: "heading", level: 2, text: headingText },
+    paragraph("a".repeat(70)),
+  ];
+  const chunks = chunkMaterial({ title: "T", blocks }, 500);
+  const headingBlocks = chunks
+    .flatMap((chunk) => chunk.blocks)
+    .filter((block) => block.kind === "heading");
+  assert.equal(headingBlocks.length, 1);
+  assert.equal(headingBlocks[0].text, headingText);
+});
+
+test("a heading too large to fit alone fails the whole call closed rather than being split", () => {
+  const limit = 100;
+  const headingText = "h".repeat(150);
+  const blocks = [
+    { kind: "heading", level: 2, text: headingText },
+    paragraph("body ".repeat(60)),
+  ];
+  const chunks = chunkMaterial({ title: "T", blocks }, limit);
+  assert.deepEqual(chunks, []);
+});
+
+test("heading hierarchy context is preserved across chunks when headings are never split", () => {
+  const blocks = [
+    { kind: "heading", level: 1, text: "Top" },
+    { kind: "heading", level: 2, text: "Middle" },
+    paragraph("a".repeat(80)),
+    { kind: "heading", level: 3, text: "Detail" },
+    paragraph("b".repeat(80)),
+  ];
+  const chunks = chunkMaterial({ title: "T", blocks }, 150);
+  assert.ok(chunks.length > 1);
+  const lastChunk = chunks[chunks.length - 1];
+  assert.match(lastChunk.text, /SECTION: Top > Middle/);
+  assert.match(lastChunk.text, /### Detail/);
+});
+
 test("only an individually oversized block is split internally", () => {
   const text = `${"sentence one. ".repeat(20)}sentence two.`;
   const chunks = chunkMaterial({ title: "T", blocks: [paragraph(text)] }, 120);
@@ -287,6 +327,30 @@ test("an oversized code block is split at line boundaries, keeping its indentati
   // The second piece still opens with its original leading indentation:
   // trimming here would be exactly the defect this guards against.
   assert.match(codeBlocks[1].text, /^ {4}line/);
+});
+
+test("a code block containing a run of three backticks gets a fence longer than any run in its text", () => {
+  const code = "before\n```\nnested content\n```\nafter";
+  const text = render([{ kind: "code", text: code }]);
+  assert.equal(text, `\`\`\`\`\n${code}\n\`\`\`\``);
+  assert.ok(text.startsWith("````\n"));
+  assert.ok(text.endsWith("\n````"));
+});
+
+test("chunking a code block with backticks reserves room for its longer fence, and reconstructs losslessly", () => {
+  const runs = "`".repeat(5);
+  const code = `${runs}\n${"line of code text repeated to be long enough. ".repeat(10)}`;
+  const limit = 200;
+  const chunks = chunkMaterial(
+    { title: "T", blocks: [{ kind: "code", text: code }] },
+    limit,
+  );
+  assert.ok(chunks.length >= 1);
+  for (const chunk of chunks) {
+    assert.ok(chunk.charCount <= limit);
+  }
+  const codeBlocks = chunks.flatMap((chunk) => chunk.blocks);
+  assert.equal(codeBlocks.map((block) => block.text).join(""), code);
 });
 
 test("a single code line longer than the chunk limit is split but never truncated", () => {

@@ -489,16 +489,17 @@ The material is bounded by a conservative per-request size budget —
 section context and rendered body actually included in that request. Material
 within it follows the one-request path. Material over it is divided by major
 heading, lower heading and block boundaries, in that order; only a block that
-cannot fit alone is split internally.
+cannot fit alone is split internally — except a heading, which is always kept
+whole, never fragmented into several heading blocks.
 
 **Every chunk this design emits is at or under the budget.** The title, the
 active heading context and the block text are never truncated, sampled or
 ranked away to force a chunk under the limit. When no partition exists that
 keeps every chunk within budget — the title's own length leaves no room for
-body text, or the heading context carried into a chunk pushes it over — the
-whole page is declined as the "too large to process" case of §17 rather than
-being sent as a partial or oversized chunk; no partial staged summary is ever
-shown.
+body text, a single heading is too large to fit alone, or the heading context
+carried into a chunk pushes it over — the whole page is declined as the "too
+large to process" case of §17 rather than being sent as a partial or oversized
+chunk; no partial staged summary is ever shown.
 
 Every chunk that is sent is semantically compressed with the page title and
 heading context. The chunk summaries are then integrated by the model into

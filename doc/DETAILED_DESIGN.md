@@ -847,7 +847,7 @@ blank line:
 | `paragraph` | the text |
 | `list-item` | `- ` and the text |
 | `quote` | `> ` and the text |
-| `code` | the text between two lines of three backticks |
+| `code` | the text between two fence lines of backticks, at least three, long enough that no run of backticks already in the text can collide with it |
 | `table-cell` | joined with the other cells of the same `row`, `" | "` between them, as one line |
 
 **This is the concise representation basic design §9 asks for**: the heading
@@ -901,29 +901,39 @@ tokens.
 
 The splitter keeps the ordered shaped blocks. It prefers level 2 heading
 boundaries, then lower headings, then paragraph, list, quote, code and table
-boundaries. Only a block too large to fit alone is divided within its text.
-For every kind but `code`, that division happens at a line, sentence or
-whitespace boundary where possible, and each piece is trimmed at the new
-edge the split introduced. A `code` block is divided differently, since a
-line break and its indentation are meaningful content here (§8.1), not
-whitespace a split may absorb: the division prefers a line boundary, never
-trims a piece, and falls back to cutting mid-line only when a single line is
-itself longer than the limit — never by truncating, sampling or otherwise
-dropping any of that line. Concatenating a `code` block's pieces in order
-always reproduces its original text exactly. Each chunk carries the page
-title and the heading context active at its start.
+boundaries. Only a block too large to fit alone is divided within its text —
+except a `heading`, which is never divided: splitting a heading's text across
+several heading blocks would corrupt the very hierarchy §8.2's dedupe and
+§10.3's heading context both rely on, so a `heading` is always kept as one
+block or not fit into any chunk at all. For every kind but `code` and
+`heading`, that division happens at a line, sentence or whitespace boundary
+where possible, and each piece is trimmed at the new edge the split
+introduced. A `code` block is divided differently, since a line break and
+its indentation are meaningful content here (§8.1), not whitespace a split
+may absorb: the division prefers a line boundary, never trims a piece, and
+falls back to cutting mid-line only when a single line is itself longer than
+the limit — never by truncating, sampling or otherwise dropping any of that
+line. Concatenating a `code` block's pieces in order always reproduces its
+original text exactly. A `code` block's fence is chosen long enough that no
+run of backticks already in its text can be mistaken for the closing fence,
+without altering the code text itself; that same delimiter's actual length is
+what the budget below is measured against, for the block as a whole and for
+each of its split pieces alike. Each chunk carries the page title and the
+heading context active at its start.
 
 **Every chunk `chunkMaterial` returns satisfies `charCount <= limit`.** The
 title, the active heading context and the block text are never truncated,
-sampled or ranked away to force a chunk under budget. Two situations can make
-a safe partition impossible: the title's own length can leave no room for any
-body text in the same material, or the heading-context line carried into a
-later chunk (§10.3) can push that chunk over the limit even though the block
-starting it would fit alone. In either case `chunkMaterial` returns an empty
-array rather than a partial or an oversized one, and the worker's staged
-summarizer reads that as `too-much-text` — the same "chunks.length < 2" path a
-page just under two chunks already takes. No oversized chunk is ever sent to
-a provider, and no partial staged summary is ever shown for such a page.
+sampled or ranked away to force a chunk under budget. Three situations can
+make a safe partition impossible: the title's own length can leave no room
+for any body text in the same material, a single `heading` block can be too
+large to fit alone even in an otherwise-empty chunk, or the heading-context
+line carried into a later chunk (§10.3) can push that chunk over the limit
+even though the block starting it would fit alone. In every such case
+`chunkMaterial` returns an empty array rather than a partial or an oversized
+one, and the worker's staged summarizer reads that as `too-much-text` — the
+same "chunks.length < 2" path a page just under two chunks already takes. No
+oversized chunk is ever sent to a provider, and no partial staged summary is
+ever shown for such a page.
 
 Each chunk that is sent is semantically compressed. Their summaries are
 combined and sent through an integration task which reconstructs one
