@@ -250,7 +250,7 @@ prompt, to extraction or to shaping is allowed to do.
   Extension APIs already do.
 - A proposed dependency states what it is for, why the standard APIs do not
   serve, and what its licence is. Its licence must be compatible with the choice
-  in §1.16.
+  in §1.15.
 - A dependency must be usable under Manifest V3 as packaged code. One that needs
   a remote script, `eval`, or a build step to exist at all is refused by what
   this extension is.
@@ -288,65 +288,7 @@ prompt, to extraction or to shaping is allowed to do.
   own official documentation is the authority and is referred to rather than
   restated.
 
-### 1.13 Pull Request Scope and History
-A pull request presents the change it proposes, not the sequence of corrections
-that produced it. It carries one purpose, and when the direction is revised part
-way through a review, the branch is rewritten so that it reads as the change
-finally intended, and merges as if it had been written that way.
-
-#### 1.13.1 One Purpose to a Pull Request
-- The concern separation in §§1.3, 1.5 and 1.6 does not divide pull requests.
-  It keeps implementation responsibilities separate inside whatever coherent
-  change §1.13 groups for review and acceptance.
-- "Purpose" means the higher-level reason the pull request exists, not an
-  individual finding, issue, file, function, or review comment. Several
-  findings may belong to one purpose when they are part of the same
-  cross-cutting investigation, maintenance task, defect class, migration,
-  release preparation, or quality correction.
-- Do not split a pull request mechanically by finding or file. Before splitting
-  one approved work group, consider semantic coherence, shared files, merge
-  conflicts, duplicated validation, branch and pull-request management cost,
-  and whether the parts truly need independent review, release, rollback, or
-  acceptance.
-- Changes that serve different purposes are proposed separately, as a rule, even
-  when they touch one file and even when one was noticed while the other was
-  being made. A pull request is accepted or rejected whole, and a mixed one
-  leaves no way to take the part that is wanted.
-- An unrelated change noticed in passing is proposed on a branch of its own. A
-  finding discovered while carrying out the approved purpose is not "in
-  passing" merely because it was unknown before the investigation. It may
-  remain in the same pull request when it serves that purpose.
-- Where the separation is genuinely artificial, because neither part is correct
-  or reviewable without the other, they are proposed together and the request
-  says why.
-
-#### 1.13.2 Keeping a Branch to Its Change
-- A branch that carries one coherent change carries it as one commit. That
-  commit is amended and force pushed with `--force-with-lease`, rather than
-  gaining a further commit for each remark received.
-- Commits such as "fix review comment", "address feedback" or "resolve conflict"
-  describe the review rather than the change, and do not belong in the history
-  that is merged.
-- A branch is split into several commits only when it genuinely carries several
-  independent changes. The reasoning is the one that decides a `doc/VERSIONS`
-  bullet: coherence, not chronology.
-
-#### 1.13.3 Leaving No Trace of the Correction
-- Each revision is read against the base branch, not against the revision before
-  it, so that a correction leaves no residue in the diff that is merged.
-- A correction withdraws what it replaces. Code, comments and wording introduced
-  by an earlier revision and since abandoned are removed, not left standing
-  beside their replacement.
-- Conflicts with the base branch are resolved by rebasing onto it, so that no
-  merge commit enters the branch.
-- A rewritten branch invalidates the copies others have fetched. Force pushing
-  is confined to the branch under review, and the rewrite is stated whenever the
-  branch is shared.
-- No commit message, branch name, pull request or fixture quotes a real page's
-  content. A defect is described by what it did, not by the page that triggered
-  it.
-
-### 1.14 Versioning
+### 1.13 Versioning
 - **[`doc/VERSIONS`](VERSIONS) is the release history of this repository**, and
   the authority for what a release contained. It is not a commit log.
 - Release versions follow Chrome's extension version format: one to four
@@ -389,7 +331,7 @@ finally intended, and merges as if it had been written that way.
 - `manifest.json` carries the `version` Chrome reads. It states the version
   being released when a release is made, and `doc/VERSIONS` remains the history.
 
-#### 1.14.1 The Structure of doc/VERSIONS
+#### 1.13.1 The Structure of doc/VERSIONS
 - Each entry opens with a heading of the form `vX.Y.Z (YYYY-MM-DD)`, or `vX.Y.Z
   (Release Date: TBD)` while it is unreleased, underlined with `-` characters,
   followed by one `-` bullet per change.
@@ -422,7 +364,7 @@ finally intended, and merges as if it had been written that way.
 - The first entry, at the lowest version `doc/VERSIONS` reaches, reads only
   `Initial release.` and nothing else.
 
-### 1.15 Document Format
+### 1.14 Document Format
 - The format of a document is decided by what it is for and by the name it
   carries, not by whether part of its content happens to parse as Markdown.
 - A document named with `.md` is written, displayed and maintained as Markdown:
@@ -449,20 +391,71 @@ finally intended, and merges as if it had been written that way.
   What is kept uniform is the criterion by which a document's form is chosen,
   not the appearance of the documents.
 
-### 1.16 The Language of the Repository
+### 1.15 The Language of the Repository
 - The code, the comments, the identifiers, the documents, the screens and the
   prompt are written in English.
 - A summary is written in the language of the page being summarized, which is
   the prompt's business and not the code's.
 
-### 1.17 License
-- The repository is dual licensed under the GPL version 3 or the LGPL version 3,
-  at the user's option, as stated in [`LICENSE.md`](LICENSE.md). The full texts
-  live in [`COPYING`](COPYING) and [`COPYING.LESSER`](COPYING.LESSER), and are
-  kept verbatim.
-- A dependency is added only when its licence is compatible with that choice.
+### 1.16 Pull Request Scope and History
+A pull request presents the change it proposes, not the sequence of corrections
+that produced it. It carries one purpose, and when the direction is revised part
+way through a review, the branch is rewritten so that it reads as the change
+finally intended, and merges as if it had been written that way.
 
-### 1.18 Judging a Change
+#### 1.16.1 One Purpose to a Pull Request
+- The concern separation in §§1.3, 1.5 and 1.6 does not divide pull requests.
+  It keeps implementation responsibilities separate inside whatever coherent
+  change §1.16 groups for review and acceptance.
+- "Purpose" means the higher-level reason the pull request exists, not an
+  individual finding, issue, file, function, or review comment. Several
+  findings may belong to one purpose when they are part of the same
+  cross-cutting investigation, maintenance task, defect class, migration,
+  release preparation, or quality correction.
+- Do not split a pull request mechanically by finding or file. Before splitting
+  one approved work group, consider semantic coherence, shared files, merge
+  conflicts, duplicated validation, branch and pull-request management cost,
+  and whether the parts truly need independent review, release, rollback, or
+  acceptance.
+- Changes that serve different purposes are proposed separately, as a rule, even
+  when they touch one file and even when one was noticed while the other was
+  being made. A pull request is accepted or rejected whole, and a mixed one
+  leaves no way to take the part that is wanted.
+- An unrelated change noticed in passing is proposed on a branch of its own. A
+  finding discovered while carrying out the approved purpose is not "in
+  passing" merely because it was unknown before the investigation. It may
+  remain in the same pull request when it serves that purpose.
+- Where the separation is genuinely artificial, because neither part is correct
+  or reviewable without the other, they are proposed together and the request
+  says why.
+
+#### 1.16.2 Keeping a Branch to Its Change
+- A branch that carries one coherent change carries it as one commit. That
+  commit is amended and force pushed with `--force-with-lease`, rather than
+  gaining a further commit for each remark received.
+- Commits such as "fix review comment", "address feedback" or "resolve conflict"
+  describe the review rather than the change, and do not belong in the history
+  that is merged.
+- A branch is split into several commits only when it genuinely carries several
+  independent changes. The reasoning is the one that decides a `doc/VERSIONS`
+  bullet: coherence, not chronology.
+
+#### 1.16.3 Leaving No Trace of the Correction
+- Each revision is read against the base branch, not against the revision before
+  it, so that a correction leaves no residue in the diff that is merged.
+- A correction withdraws what it replaces. Code, comments and wording introduced
+  by an earlier revision and since abandoned are removed, not left standing
+  beside their replacement.
+- Conflicts with the base branch are resolved by rebasing onto it, so that no
+  merge commit enters the branch.
+- A rewritten branch invalidates the copies others have fetched. Force pushing
+  is confined to the branch under review, and the rewrite is stated whenever the
+  branch is shared.
+- No commit message, branch name, pull request or fixture quotes a real page's
+  content. A defect is described by what it did, not by the page that triggered
+  it.
+
+### 1.17 Judging a Change
 Before a change is proposed, it answers these:
 
 - Does it cross an Invariant? Then it is not made.
@@ -483,6 +476,13 @@ A change that is correct but cannot be explained by the requirements is a sign
 that the requirements are incomplete, and that is where it is taken.
 
 ---
+
+### 1.18 License
+- The repository is dual licensed under the GPL version 3 or the LGPL version 3,
+  at the user's option, as stated in [`LICENSE.md`](LICENSE.md). The full texts
+  live in [`COPYING`](COPYING) and [`COPYING.LESSER`](COPYING.LESSER), and are
+  kept verbatim.
+- A dependency is added only when its licence is compatible with that choice.
 
 ## 2. Chrome Extension Policy
 
