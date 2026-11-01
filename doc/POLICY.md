@@ -420,6 +420,13 @@ that produced it. It carries one purpose, and when the direction is revised part
 way through a review, the branch is rewritten so that it reads as the change
 finally intended, and merges as if it had been written that way.
 
+An automated agent must not commit or push directly to `master`.
+It must commit authorized changes to a work branch and submit them through
+a pull request targeting the approved base branch. Creating or updating a
+pull request does not authorize the agent to merge it or enable auto-merge.
+Either action requires an explicit instruction from the maintainer. This
+paragraph does not change a human maintainer's authority.
+
 #### 1.16.1 One Purpose to a Pull Request
 - The concern separation in §§1.3, 1.5 and 1.6 does not divide pull requests.
   It keeps implementation responsibilities separate inside whatever coherent
