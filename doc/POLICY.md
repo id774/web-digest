@@ -63,6 +63,14 @@ to be relaxed to match a more general rule.
 - The measure of this extension is that one path works: open a page, click the
   action, read the summary beside it. A change that lengthens that path has to
   earn its place before anything else about it is discussed.
+- Use `must`, `always`, and `never` only for invariants that admit no
+  reasonable exception. Express preferences and situational decisions with
+  `prefer`, `should`, or other qualified wording. Do not apply a rule literally
+  where doing so would defeat the repository's stated purpose, intended
+  behavior, compatibility, safety, or approved change scope. Where the
+  applicable specifications and policy leave a legitimate choice open, an
+  explicit maintainer decision governs that choice; general conventions do not
+  override it.
 
 ### 1.4 Invariants
 These lines are not crossed by a setting or by an extension.
@@ -396,6 +404,15 @@ prompt, to extraction or to shaping is allowed to do.
   prompt are written in English.
 - A summary is written in the language of the page being summarized, which is
   the prompt's business and not the code's.
+- Write English explanatory prose in clear, natural sentences. Do not replace a
+  sentence with a label and a colon, a status prefix such as `Implement:` or
+  `Incompatible:`, a symbol, or an unexplained abbreviation. Apply this to
+  English prose in comments, docstrings, documentation, version histories,
+  release notes, commit messages, and pull request descriptions. This rule does
+  not alter the established forms of headings, list labels, tables, code,
+  configuration syntax, machine-readable fields, literal interface strings, or
+  non-English content required by the repository's purpose. Do not rewrite
+  historical entries or unrelated text merely to align their style.
 
 ### 1.16 Pull Request Scope and History
 A pull request presents the change it proposes, not the sequence of corrections
