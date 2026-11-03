@@ -18,6 +18,14 @@ to be relaxed to match a more general rule.
 
 ---
 
+## 0. Governing Principle
+
+**Simplicity is robustness.**
+
+This principle governs the following implementation and maintenance rules. It
+does not permit dropping required behavior, security, compatibility, or
+validation; satisfy those obligations without unnecessary complexity.
+
 ## 1. General Policy
 
 ### 1.1 Purpose and Scope
@@ -502,11 +510,11 @@ that the requirements are incomplete, and that is where it is taken.
 ---
 
 ### 1.18 License
-- The repository is dual licensed under the GPL version 3 or the LGPL version 3,
-  at the user's option, as stated in [`LICENSE.md`](LICENSE.md). The full texts
-  live in [`COPYING`](COPYING) and [`COPYING.LESSER`](COPYING.LESSER), and are
-  kept verbatim.
-- A dependency is added only when its licence is compatible with that choice.
+- Follow the applicable terms in [`LICENSE.md`](LICENSE.md),
+  [`COPYING`](COPYING), and [`COPYING.LESSER`](COPYING.LESSER). The authoritative
+  license texts are preserved without alteration.
+- A dependency is added only when its licence is compatible with the
+  applicable repository license.
 
 ## 2. Chrome Extension Policy
 
@@ -615,11 +623,9 @@ that the requirements are incomplete, and that is where it is taken.
   They neither reach into a page nor are reachable from one.
 
 ### 2.7 The AI Providers
-- **Exactly four providers are supported: the Sakura AI Engine, OpenAI,
-  Claude and Kimi.** A fifth provider, a custom or reader-editable endpoint,
-  and a generic OpenAI-compatible, Azure OpenAI, Amazon Bedrock or Google
-  Vertex AI provider are out of scope; adding one changes the requirements
-  first.
+- The supported provider set and endpoint contracts are defined in the
+  requirements and detailed design. Do not add providers or endpoints without
+  an explicit requirements change.
 - **BYOK is maintained, per provider.** The reader's own API credential for
   the provider they selected is the only way a request is made, and no
   arrangement is added under which a page is summarized without one.
@@ -632,14 +638,9 @@ that the requirements are incomplete, and that is where it is taken.
   Engine.** This is what an existing reader's profile, which never wrote a
   provider selection, keeps resolving to — no migration script and no
   one-shot conversion exists or is added.
-- **Each provider's protocol is used natively.** Sakura's and Kimi's own
-  OpenAI-compatible Chat Completions endpoints, OpenAI's own Responses API
-  (`store: false`, never Chat Completions or the Assistants API), and
-  Claude's own Messages API (never an OpenAI-compatible endpoint or a
-  compatibility layer). No wrapper protocol of this project's own is
-  invented for any of them, and Kimi's own OpenAI-compatible protocol is not
-  a reason to fold it into another provider's adapter: each provider keeps
-  its own independent adapter, origin, credential and model.
+- Preserve the provider-specific API protocols and adapter boundaries defined
+  in the detailed design. Do not substitute protocols or collapse provider
+  responsibilities to simplify implementation.
 - **No credential for any provider is written into the source**, committed to
   this repository — not even as a sample value — or embedded in anything
   distributed.
