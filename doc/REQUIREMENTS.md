@@ -236,6 +236,13 @@ not produce summaries of the same length.
 The summary is shown where the reader can read it without leaving the page it
 came from, and reading it is the whole of what is required.
 
+The final result begins with a brief, source-grounded overview of the page.
+It normally consists of three concise sentences on separate text lines, without
+a heading or list markers. If the page does not support three distinct points,
+the overview uses fewer lines rather than inventing or repeating content. One
+blank line separates it from the full summary, whose length and preservation
+of important conditions remain determined by the substance of the page.
+
 **The initial version needs no more than a result that can be read easily.**
 Several display modes, a comparison view, an analysis screen, an export format
 and a stored list of past summaries are not required, and none of them is to be

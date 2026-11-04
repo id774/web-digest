@@ -531,6 +531,11 @@ One instruction, carrying these principles:
   restatement, and supporting explanation that does not bear on the main line.
 - **No length is fixed.** The summary is as long as the page's substance
   requires and no longer; a page with little redundancy compresses little.
+- **A short overview precedes only the final result.** Normally three short,
+  source-grounded sentences appear on separate lines, followed by one blank
+  line and the unconstrained full summary. If there are fewer distinct points,
+  no statement is invented or repeated to fill three lines. Intermediate
+  chunk compression carries no overview; a completed page or integration does.
 - **Nothing is added.** No fact, no conclusion and no evaluation that the page
   does not carry — which is also why the page is not fact-checked or graded
   (requirements §23).

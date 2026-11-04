@@ -30,6 +30,27 @@ import { MessageType } from "../src/common/messages.js";
 
 const INSTRUCTION = "# Summarize a web page\n\nProduce a summary of it.";
 
+test("the packaged prompt describes the final overview and matches the design", async () => {
+  const prompt = await readFile(
+    new URL("../prompts/summarize.md", import.meta.url),
+    "utf8",
+  );
+  const design = await readFile(
+    new URL("../doc/DETAILED_DESIGN.md", import.meta.url),
+    "utf8",
+  );
+  const section = design.split("### 10.1 The proposed text of `prompts/summarize.md`")[1];
+  assert.ok(section);
+  const quotedPrompt = section.match(/```markdown\n([\s\S]*?)\n```/);
+  assert.ok(quotedPrompt);
+  assert.equal(quotedPrompt[1].trimEnd(), prompt.trimEnd());
+  assert.match(prompt, /For `page` and `integrate`, begin the final result/);
+  assert.match(prompt, /Normally write three concise,/);
+  assert.match(prompt, /If fewer than three distinct substantive points are supported,/);
+  assert.match(prompt, /For `chunk`, return only the intermediate compression/);
+  assert.match(prompt, /full semantic-compression summary, without a length limit/);
+});
+
 test("the instruction and the material are two fields, not one string", () => {
   const request = composeRequest(INSTRUCTION, {
     title: "A title",

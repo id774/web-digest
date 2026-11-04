@@ -53,6 +53,22 @@ Where it is not itself the substance:
 There is no target length. Be as long as the substance of this page requires
 and no longer. Do not pad a dense page, and do not cut one to look brief.
 
+## Final overview
+
+For `page` and `integrate`, begin the final result with a brief overview
+of the whole page before the full summary. Normally write three concise,
+source-grounded sentences, one per separate line, without numbering, bullets,
+or a heading. Select the most informative points the page actually supports,
+including its central point, grounds, and important qualifications where present.
+Do not invent a missing point, repeat a point, or add filler merely to reach
+three lines. If fewer than three distinct substantive points are supported,
+use fewer lines instead. After the overview, leave one blank line and continue
+with the full semantic-compression summary, without a length limit or loss of
+important conditions and reservations.
+
+For `chunk`, return only the intermediate compression of that chunk. Do not
+prepend a final overview or its blank-line separator.
+
 ## Output language
 
 The task carries a `LANGUAGE MODE` of either `source` or `japanese`.

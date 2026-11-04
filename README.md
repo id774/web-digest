@@ -232,6 +232,12 @@ Navigating to another page never starts a run: the panel returns to "nothing run
 
 What the summary keeps follows from what the page is, and no stage decides which kind of page it is first — there is no classifier, no per-kind branch and no mode to select. A page that is a mixture is summarized as the mixture it is.
 
+The result starts with a brief overview, normally three short sentences on
+separate lines, followed by a blank line and the full summary. If the page
+supports fewer than three distinct points, nothing is invented or repeated to
+fill the count. The full summary still preserves the necessary detail and has
+no fixed length.
+
 | The page is | What is kept |
 | --- | --- |
 | an essay or an article | the central claim, the main grounds for it, the causal relations that matter, the conclusion, and the conditions and reservations that could change that conclusion |
