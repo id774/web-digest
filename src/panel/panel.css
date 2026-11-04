@@ -77,3 +77,19 @@ body {
   opacity: 0.55;
   cursor: default;
 }
+
+/* Diagnostics are plain text, selectable and copyable like any other text. */
+.diagnostics {
+  margin: 0 0 14px;
+}
+
+.diagnostics-text {
+  margin: 6px 0 0;
+  padding: 8px;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}

@@ -27,6 +27,7 @@ export const STORAGE_KEY_ANTHROPIC_MODEL = "anthropicModel";
 export const STORAGE_KEY_KIMI_KEY = "kimiApiKey";
 export const STORAGE_KEY_KIMI_MODEL = "kimiModel";
 export const STORAGE_KEY_JAPANESE_SUMMARY = "japaneseSummary";
+export const STORAGE_KEY_DIAGNOSTIC_LOGGING = "diagnosticLogging";
 
 // The Sakura AI Engine credential and model keys keep the names they had
 // before this project supported more than one provider, so that an existing
@@ -109,6 +110,13 @@ export function resolveModel(value) {
 // true. Absent, malformed, or any other stored value resolves to off, so a
 // profile upgraded from an earlier version keeps its current behavior.
 export function resolveJapaneseSummary(value) {
+  return value === true;
+}
+
+// Diagnostic recording is on only when the stored value is the boolean true.
+// Absent, malformed, or any other stored value resolves to off, so a profile
+// that never wrote this key records nothing.
+export function resolveDiagnosticLogging(value) {
   return value === true;
 }
 
@@ -201,10 +209,23 @@ export async function deleteToken() {
   return deleteCredential(Provider.SAKURA);
 }
 
+export async function readDiagnosticLogging() {
+  const stored = await chrome.storage.local.get(STORAGE_KEY_DIAGNOSTIC_LOGGING);
+  return resolveDiagnosticLogging(stored[STORAGE_KEY_DIAGNOSTIC_LOGGING]);
+}
+
 // Saved on its own, independent of saveProviderSettings, so that turning this
 // preference on or off never requires a credential to be re-entered.
 export async function saveJapaneseSummary(value) {
   await chrome.storage.local.set({
     [STORAGE_KEY_JAPANESE_SUMMARY]: value === true,
+  });
+}
+
+// Saved on its own, like the Japanese summary preference: it never touches a
+// provider, a credential or a model, and saving one of those never touches it.
+export async function saveDiagnosticLogging(value) {
+  await chrome.storage.local.set({
+    [STORAGE_KEY_DIAGNOSTIC_LOGGING]: value === true,
   });
 }

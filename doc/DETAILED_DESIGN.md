@@ -87,7 +87,8 @@ listing (basic design §4).
         ├── settings.js
         ├── permissions.js
         ├── errors.js
-        └── messages.js
+        ├── messages.js
+        └── diagnostics.js
 ```
 
 The split is deliberate: extraction, shaping, provider communication, display,
@@ -101,7 +102,7 @@ of the repository but are outside this architectural view.
 | File | What it is | Responsible for | Depends on |
 |---|---|---|---|
 | `manifest.json` | the MV3 declaration | permissions, the action, the panel, the options page, the CSP (§4) | names the entry points |
-| `src/background/service_worker.js` | the worker, an ES module | one run start to finish: the action click, settings, the permission check, injection, shaping, the prompt, the request, the state, telling the panel (§22); and the service-worker lifetime keepalive held only while the summarization operation runs (§22) | `shape.js`, `dispatcher.js`, `settings.js`, `permissions.js`, `errors.js`, `messages.js`, `prompts/summarize.md` |
+| `src/background/service_worker.js` | the worker, an ES module | one run start to finish: the action click, settings, the permission check, injection, shaping, the prompt, the request, the state, telling the panel (§22); the service-worker lifetime keepalive held only while the summarization operation runs (§22); and, when the reader enabled it, the observation points and the session write of the diagnostic record (§19.1) | `shape.js`, `dispatcher.js`, `settings.js`, `permissions.js`, `errors.js`, `messages.js`, `diagnostics.js`, `prompts/summarize.md` |
 | `src/extract/extract.js` | the injected pass | reading one document into blocks (§7) | nothing |
 | `src/shape/shape.js` | a pure module | blocks in, material out; the two size verdicts (§8, §9) | nothing |
 | `src/engine/dispatcher.js` | a pure module of its own logic | selecting one adapter by provider and calling it; no fallback path (§11.1) | `sakura.js`, `openai.js`, `claude.js`, `kimi.js`, `transport.js`, `settings.js`, `errors.js` |
@@ -110,22 +111,24 @@ of the repository but are outside this architectural view.
 | `src/engine/openai.js` | a pure module but for `fetch` (via `transport.js`) | the OpenAI Responses request, reading the answer, mapping a failure to an error kind (§11.2, §11.3) | `errors.js`, `transport.js` |
 | `src/engine/claude.js` | a pure module but for `fetch` (via `transport.js`) | the Claude Messages request, reading the answer, mapping a failure to an error kind (§11.2, §11.3) | `errors.js`, `transport.js` |
 | `src/engine/kimi.js` | a pure module but for `fetch` (via `transport.js`) | the Kimi Chat Completions request, reading the answer, mapping a failure to an error kind (§11.2, §11.3) | `errors.js`, `transport.js` |
-| `src/panel/panel.html` | the panel document | the four state regions and the way to the options page | `panel.js`, `panel.css` |
-| `src/panel/panel.js` | the panel's script | asking for the state and rendering it (§16, §17) | `errors.js`, `messages.js` |
+| `src/panel/panel.html` | the panel document | the four state regions, the collapsible diagnostics section and the way to the options page | `panel.js`, `panel.css` |
+| `src/panel/panel.js` | the panel's script | asking for the state and rendering it (§16, §17); reading and showing the tab's diagnostic record (§19.5) | `errors.js`, `messages.js`, `diagnostics.js` |
 | `src/panel/panel.css` | the panel's stylesheet | legibility of the result beside the page | nothing |
-| `src/options/options.html` | the settings document | the provider selector, the credential field, the model field, the Japanese summary checkbox, save, delete, status | `options.js`, `options.css` |
+| `src/options/options.html` | the settings document | the provider selector, the credential field, the model field, the Japanese summary checkbox, the diagnostic recording checkbox, save, delete, status | `options.js`, `options.css` |
 | `src/options/options.js` | the settings script | validation, the provider-change/permission flow, reading and writing the settings (§6.2, §12, §13, §13.1) | `settings.js`, `permissions.js` |
 | `src/options/options.css` | the settings stylesheet | legibility of the settings fields | nothing |
-| `src/common/settings.js` | the settings accessor | the storage keys, reading, writing, deleting, the unset tests, the provider resolver, the per-provider model default, the Japanese summary resolver (§12, §13, §13.1) | nothing |
+| `src/common/settings.js` | the settings accessor | the storage keys, reading, writing, deleting, the unset tests, the provider resolver, the per-provider model default, the Japanese summary resolver, the diagnostic recording resolver, reader and writer (§12, §13, §13.1, §19.1) | nothing |
 | `src/common/permissions.js` | the permission helper | which providers need an optional host permission, checking it, requesting it (§6, §11.1 of the basic design) | `settings.js` |
 | `src/common/errors.js` | the error kinds | the kind constants and the reader-facing message for each (§18) | nothing |
 | `src/common/messages.js` | the message names | the two message type constants and the shape of each (§16) | nothing |
+| `src/common/diagnostics.js` | the diagnostic record | the storage key, the event vocabulary and its sanitizer, the retention bounds, the recorder, and the plain-text formatter (§19.1–§19.5) | `errors.js` |
 | `prompts/summarize.md` | the instruction | what a summary keeps and what it drops (§10) | nothing |
 
-`settings.js`, `permissions.js`, `errors.js` and `messages.js` are the basic
-design's `src/common/` — the settings accessor, the permission helper, the
-error kinds, and the names of the messages the panel and the worker already
-exchange there (§5.1, §5.3).
+`settings.js`, `permissions.js`, `errors.js`, `messages.js` and
+`diagnostics.js` are the basic design's `src/common/` — the settings accessor,
+the permission helper, the error kinds, the names of the messages the panel
+and the worker already exchange there, and the optional diagnostic record
+(§5.1, §5.3, §14).
 
 ### 3.2 The direction of dependency
 
@@ -348,6 +351,10 @@ available in every phase.
   `innerHTML`** (§20).
 - The title is written to its own element with `textContent`, from the state
   and never from the page directly.
+- Below the state region, a `<details>` section titled `Diagnostics` holds one
+  `<pre>` whose text is the formatted record (§19.5). It is hidden when the
+  tab has no record, written with `textContent`, selectable, and never
+  contains or replaces the summary or the error message.
 
 ### 6.1.1 Following the active tab
 
@@ -454,6 +461,8 @@ the summary.
 | status line | text | the result of the last Save or Delete action, or the reason it was refused |
 | Japanese summary | `<input type="checkbox">` | reflects the stored preference (§13.1), shared by every provider; saved on change |
 | Japanese summary status | text | the result of the last change to that preference |
+| Record diagnostics for each summary | `<input type="checkbox">` | reflects the stored diagnostic preference (§19.1); off by default; saved on change |
+| diagnostic status | text | the result of the last change to that preference, or why it could not be loaded |
 
 Validation, all of it local — **nothing is checked by contacting a provider**
 (basic design §7.4):
@@ -556,6 +565,18 @@ choice, and an older failure cannot revert it. If the latest write fails,
 the checkbox returns to the last successfully confirmed value and shows
 "The Japanese summary preference could not be saved."; if the latest write
 succeeds, the checkbox is set to that confirmed value and shows "Saved.".
+
+The diagnostic recording checkbox follows the same shape as the Japanese
+summary checkbox and is just as independent: it is outside Save, Delete
+credential and the provider lock, it writes only its own key, its saves are
+serialized, and a completion changes the checkbox and status only for the
+latest requested generation. A failed latest write returns the checkbox to the
+last confirmed value and shows "The diagnostic recording preference could not
+be saved." Its initial read is made on its own once the settings above have
+loaded: until it is confirmed the checkbox stays disabled and refuses
+changes, and a failed read leaves only that checkbox disabled with "The
+diagnostic recording preference could not be loaded. Reload the page to try
+again." without holding back any other setting.
 
 The page also states, as fixed text, where a credential is kept and what it is
 used for — the substance of §12, in one short paragraph, because the reader
@@ -1640,6 +1661,24 @@ removes it. A profile upgraded from an earlier version has no stored value
 under this key, resolves to off by the same rule as any other unexpected
 value, and keeps the behavior it already had — no migration is needed.
 
+### 13.2 The diagnostic recording preference
+
+| Question | Answer |
+|---|---|
+| where | `chrome.storage.local` |
+| key | `diagnosticLogging` |
+| set by | the options page's diagnostic recording checkbox, on change |
+| unset when | the key is absent, or its value is not the boolean `true` |
+| when unset | off — no record is created and no extra session write is made |
+| read by | the worker, once per run, immediately after the settings of §13 and before anything is recorded; a failed read means off |
+
+It is read by its own call rather than inside `readSettings`, so the keys a run
+reads for the provider, credential, model and Japanese preference are exactly
+what they were. Its value is held in the run's recorder for the whole of that
+run: changing the checkbox mid-run reaches only the next run. Off by default,
+independent of every other setting, and never a reason for a run to start,
+fail or differ.
+
 ## 14. Design constants
 
 Every number this design depends on, in one place. **None of them is a
@@ -1656,6 +1695,10 @@ choose, and each one exposed would be a second decision on a path requirement
 | `MAX_REQUEST_MATERIAL_CHARS` | 200000 | `shape.js` | the material budget for one request (§9.2) |
 | `REQUEST_TIMEOUT_MS` | 120000 | `transport.js` | one bounded wait for the whole request, shared by every adapter (§11.3) |
 | `SERVICE_WORKER_KEEPALIVE_INTERVAL_MS` | 25000 | `service_worker.js` | the interval between trivial runtime API calls that reset the worker's lifetime timer while the summarization operation is active, and no reader-facing setting or provider deadline (§22) |
+| `MAX_EVENTS` | 400 | `diagnostics.js` | the most events one run's diagnostic record keeps, the result included (§19.3) |
+| `RESERVED_FOR_RESULT` | 4 | `diagnostics.js` | the events at the end of `MAX_EVENTS` that only the final result may take (§19.3) |
+| `MAX_BYTES` | 49152 | `diagnostics.js` | the most bytes one run's stored diagnostic record may occupy, measured as UTF-8 JSON (§19.3) |
+| `RESERVED_BYTES_FOR_RESULT` | 1024 | `diagnostics.js` | the bytes at the end of `MAX_BYTES` that only the final result may take (§19.3) |
 | `SAKURA_BASE_URL` | `https://api.ai.sakura.ad.jp/v1` | `sakura.js` | the Sakura AI Engine origin (§11.2) |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | `openai.js` | the OpenAI origin (§11.2) |
 | `ANTHROPIC_BASE_URL` | `https://api.anthropic.com/v1` | `claude.js` | the Claude (Anthropic) origin (§11.2) |
@@ -1667,7 +1710,8 @@ choose, and each one exposed would be a second decision on a path requirement
 | `ANTHROPIC_DEFAULT_MODEL` | a name from Anthropic's list | `settings.js` | what a reader who set only a Claude credential runs with (§13) |
 | `KIMI_DEFAULT_MODEL` | a name from Kimi's list | `settings.js` | what a reader who set only a Kimi credential runs with (§13) |
 
-Three values are worth their reasons. `MAX_REQUEST_MATERIAL_CHARS` is counted
+The four diagnostic bounds are explained, with the sizes they were chosen
+from, in §19.3. Three other values are worth their reasons. `MAX_REQUEST_MATERIAL_CHARS` is counted
 in characters because shaping has no model-specific tokenizer. Its 200000
 characters are the one budget that lets large material stay on the one-request
 path, without assuming that a character equals a token. `REQUEST_TIMEOUT_MS` is two minutes
@@ -1780,6 +1824,11 @@ Two messages, both `chrome.runtime.sendMessage`, both shaped
 | `getState` | panel | worker | `{ tabId }` | the `RunState` for that tab, or an `idle` one when there is none — and, if reading `chrome.storage.session` itself fails, a `failed` one carrying `internal-error`, never a rejected message | the panel renders that response's `failed`/`internal-error` state; if the message itself never gets a response, the panel renders the same locally instead (§6.1.2) |
 | `stateChanged` | worker | any listening panel | `{ tabId, state }` | none | a broadcast with no listener rejects, and the worker ignores that: the state is already stored, and a panel that opens later reads it with `getState` |
 
+The diagnostic record is not a message either. The panel reads it from
+`chrome.storage.session` and listens to that area's change event (§19.5), so
+the two messages above, and the fact that the panel cannot start a run, are
+unchanged.
+
 The extraction pass is **not** a message. It is injected and its return value
 is the value of the `chrome.scripting.executeScript` promise, so nothing is
 listening for a message from a page and no page can send one (§4.2,
@@ -1864,6 +1913,16 @@ The four states of basic design §14, one per tab.
   itself is then attempted regardless of whether either write succeeded.
 - **No summary and no page text is written to disk by this design**, which is
   what requirement §16 asks of it.
+- The optional diagnostic record (§19.1) is a separate session entry,
+  `diag:<tabId>`, never part of a `RunState`. It is removed by the same
+  cleanups (closure, loading or URL change, replacement), queued behind the
+  tab's pending mutations the same way, and by the start of the tab's next
+  run before that run writes `running`. Each removal first reads the key and
+  removes it only when present, so a tab that never recorded costs no remove;
+  a failed read is treated as present, and a failed remove is followed by one
+  fallback write of an empty record in its place (never a second remove), so
+  an earlier run's record cannot remain as a later run's; the panel shows an
+  empty record as nothing. If that write fails too, nothing more is done.
 
 No state library, no store, no reducer and no persisted history. The panel asks
 for the state when it opens and is told when it changes.
@@ -1932,8 +1991,10 @@ diagnosed.
 ## 19. Logging
 
 `console` in the service worker, read in the worker's DevTools console. **No
-log file, no log framework, no log level setting, and nothing written to
-storage or sent anywhere.**
+log file, no log framework and no log level setting.** The line below is
+always written, whether or not the optional diagnostics of §19.1 are on, and
+those diagnostics are not log lines: they are a separate, session-only record
+that the panel shows (§19.5).
 
 One line when a run reaches a terminal outcome — `succeeded` or `failed` —
 of its own:
@@ -1964,13 +2025,15 @@ seen one run early. **Which provider was used is deliberately not logged**:
 the log's purpose is diagnosing a run, and the reader who reads their own
 DevTools console already knows which provider they selected.
 
-Never logged, at any level and in any build:
+Never logged, at any level and in any build, and never recorded in the
+diagnostic record of §19.1 either:
 
 - any provider's API credential, and the header or field it travels in,
 - the text of the page, whole or in part — no block, no material, no excerpt,
 - the page's title and the page's URL,
 - the prompt, the request body and the response body,
-- the summary.
+- the summary,
+- which provider was used, and the model name.
 
 `console.error` on a failure carries the same fields as the line above and
 nothing more. An exception object is never logged whole, because what a
@@ -1979,6 +2042,159 @@ nothing more. An exception object is never logged whole, because what a
 **Counts and durations are what a log is allowed to know here**, and they are
 enough to tell a page that yielded nothing from a page that yielded plenty and
 was refused.
+
+### 19.1 The optional diagnostic record
+
+The closing line cannot say where in a long run a failure happened, and a run
+that never ends writes none. When the reader turns on the preference of §13.2,
+the worker therefore also keeps a per-tab record of the run in
+`chrome.storage.session` under `diag:<tabId>`:
+
+```js
+{
+  v: 1,                 // RECORD_VERSION
+  events: [ /* ordered, at most MAX_EVENTS */ ],
+  dropped: 0,           // events counted but not kept (§19.3)
+  last: null            // the last event counted but not kept, or null
+}
+```
+
+It is created by a recorder (`createRecorder` in `diagnostics.js`) that the
+run builds once, right after the settings are read and the preference of
+§13.2 is known. With the preference off the recorder is inert: it holds no
+record, makes no storage call and is never consulted. Events before that
+point are not recorded and nothing stands in for them: a run that fails while
+its settings are still being read has no record, and the panel shows none.
+
+Recording is observation only. The recorder is called at the points the run
+already has, with facts the run already holds; it never reads a page, a
+request or an answer for its own purposes, never decides anything, and never
+throws into the run — `record` swallows its own failures, and the observer
+passed into `summarizeMaterial` is called through a guard that does the same.
+A discarded run leaves no record: its `diag:` entry is removed with its state
+(§17), so there is nothing to describe a run that was invalidated.
+
+### 19.2 Events
+
+Every event is built by `sanitizeEvent` from a fixed vocabulary and
+non-negative integers, and an event that does not fit is dropped whole:
+
+| Field | Values |
+|---|---|
+| `seq` | a count of the events the recorder was given, from 0, including ones later not kept, so a gap in the numbers is visible |
+| `ms` | milliseconds since the run began |
+| `step` | `settings`, `prompt`, `extract`, `shape`, `split`, `request-start`, `request-end`, `result` |
+| `outcome` | `ok`, `failed`, `exception` |
+| `task` | `page`, `chunk`, `integrate` |
+| `errorKind`, `detail` | only the kinds of §18 and the details of §11.6 |
+| `depth`, `index`, `total`, `chunks`, `blocks`, `chars`, `status`, `requestMs` | integers from 0 to 10^12 |
+
+The points that record, in order of a run: `settings` (`ok`, or `failed` when
+no credential is configured); `prompt` (`ok`, or `failed`); `extract` (`ok`
+with the number of blocks, or `failed`); `shape` (`ok` with block and
+character counts, or `failed` with the kind); `split` (when material exceeds
+the per-request budget: its depth, the number of parts and its size, `ok` or
+`failed` with `too-much-text`); for each provider request a `request-start`
+and a `request-end` carrying the task, the depth, the part number out of the
+total for a chunk, the size, the outcome, and for a failure its kind, detail
+and HTTP status as the adapter returned them; and finally `result`.
+
+The optional-permission check records nothing, and no event distinguishes the
+providers, because whether that check applies would reveal which provider was
+selected. A failed check is visible as the `result` event's kind. A request
+that threw rather than returned records `outcome: exception` with no kind, and
+the run then fails as `internal-error` exactly as it did before.
+
+### 19.3 How the bounds were chosen
+
+The record must be small enough never to be a burden and large enough to
+explain every run that can reasonably happen. The bounds come from sizes
+measured with the real chunker and a stub provider (every request answered
+with a summary of the stated length), counting what the recorder keeps:
+
+| Run | Requests | Events | Stored bytes |
+|---|---|---|---|
+| one short page | 1 | 7 | 538 |
+| 10 parts of 200000 characters, 20000-character summaries | 14 | 35 | 3748 |
+| 100 parts (20 million characters), 60000-character summaries, integrated over several further stages | 157 | 324 | 38324 |
+| the same, failing at the 50th request | 50 | 106 | 12487 |
+| 100 parts, 120000-character summaries | 824 | 397 kept, 1265 not kept | 47553 |
+| 20 parts whose summaries do not shrink, ending at the depth limit | 196 | 397 kept, 9 not kept | 46814 |
+
+An event is about 120 bytes on average and at most about 200 bytes for a
+failed request. The longest run chosen as representative is the third: a page
+of twenty million characters is far beyond what a browser shows, and it needs
+324 events and about 38 KiB. `MAX_EVENTS` is 400, which holds it with about a
+quarter to spare, and `MAX_BYTES` is 49152 (48 KiB), which is what 400 events
+of the observed size occupy, so the two bounds engage at nearly the same
+point for ordinary runs and the byte bound alone engages first only for
+unusually large events. The last two rows are runs no summary should produce;
+they are kept as far as the bounds allow and then reported as incomplete.
+
+`chrome.storage.session` holds 10 MB in total (Chrome 112 and later; the
+manifest requires 116), so at 48 KiB a profile could hold well over two
+hundred full records at once. A record exists only for a tab whose last run
+had the preference on, and the next run replaces it.
+
+When a bound is reached:
+
+- an event that would exceed `MAX_EVENTS - RESERVED_FOR_RESULT` events, or
+  `MAX_BYTES - RESERVED_BYTES_FOR_RESULT` bytes, is not kept. `dropped` is
+  incremented and the event becomes `last`;
+- the `result` event alone may use the reserved events and bytes, so a run
+  that was cut short in the middle still ends with its outcome;
+- bytes are counted on the UTF-8 encoding of the record's JSON, so the bound
+  does not depend on what characters an event happens to hold (all of them
+  are ASCII by construction, and a test proves the counter measures bytes);
+- the run is unaffected: no bound is ever an error of the run.
+
+### 19.4 Persistence and isolation
+
+- Each change is written whole (`chrome.storage.session.set` of a copy of the
+  record) through the tab's mutation queue (§17), never as a patch, so a
+  write that failed leaves an older but internally consistent record rather
+  than a torn one.
+- A write is skipped once the run is no longer the tab's current one. The
+  check is made again for each iteration, so a navigation or closure is never
+  followed by a late `diag:` write.
+- Writes coalesce. While one write is in flight, further events only mark the
+  record dirty and the latest record is written when the write ends, so a
+  long run causes a few writes per second at most, not one per event.
+- A write that fails is dropped and not retried; the record stays at whatever
+  last reached storage. Nothing in the run waits for the write or learns of it.
+- A new run removes the previous record of its tab (a read of the key, then a
+  remove only if present) before it writes `running`, whether or not the new
+  run records, so an older run's record is never shown for a newer run. When
+  the remove fails, one empty record is written in its place, the same
+  one-fallback rule the run state's cleanup follows (§17).
+- If the worker is terminated mid-run, what had reached storage is what a
+  later panel shows. It has no `result` event, and the panel says so (§19.5)
+  instead of supplying a cause.
+
+### 19.5 Display
+
+The panel reads `diag:<tabId>` with `chrome.storage.session.get` when it binds
+to a tab, and updates from `chrome.storage.onChanged` for the `session` area
+and the bound tab's key only. The same generation rules as for the state
+apply: a snapshot read that settles after the binding has changed, or after a
+live change was already shown, is ignored; a failed read shows nothing. A
+stored value passes `sanitizeRecord` before use, so a malformed or foreign
+value shows nothing. A `RunState` of `idle` clears the record on screen.
+
+`formatDiagnostics` renders one line per event, for example:
+
+```text
+#4 +0.9s request-start task=chunk depth=0 part=1/3 chars=198204
+#5 +4.2s request-end task=chunk depth=0 part=1/3 chars=198204 outcome=failed kind=provider-error detail=rate-limited status=429 took=3.3s
+```
+
+followed, when it applies, by one of: "This run has not ended yet. Events appear
+as they are recorded." (no result yet, the run still going); "Incomplete: no
+final result was recorded for this run." (the run has ended in a visible
+success or failure but its record has no result event); or "Incomplete: N
+later events were not retained." with "Last observed: ..." (a bound was
+reached, §19.3). The text is written with `textContent` into a `<pre>`, so
+nothing in it is ever markup, and the reader can select and copy it.
 
 ## 20. Security
 
@@ -2039,6 +2255,7 @@ What one run does with data, end to end.
 | the selected provider's credential | the reader, on the options page | `storage.local`, and that provider's one authentication header or field | until the reader deletes it |
 | the other providers' credentials, if configured | the reader, on the options page | `storage.local` only — never sent, because that run never selects them | until the reader deletes each one |
 | the model name | the reader, on the options page | `storage.local`, and the request body, for the selected provider only | the same |
+| the diagnostic record, when the reader turned it on | built by the worker from step names, counts, sizes and timings only (§19.1, §19.2) | `chrome.storage.session` under `diag:<tabId>`, and the panel; sent nowhere | until the browser closes, or the tab navigates or closes, or the tab's next run begins |
 | the page's URL | nowhere — it is never read, never returned by extraction, never stored and never sent |  |  |
 
 - **Only the page a summary was asked for is read**, from a toolbar click whose
@@ -2118,9 +2335,12 @@ The steps, at the granularity they are written at:
    step 1.
 5. **The settings are read** (§13): the provider, that provider's own
    credential and model, and the Japanese summary preference, all fixed for
-   the rest of this run. No credential for the selected provider, or a blank
-   one, ends the run here with `credential-missing`, before the tab is
-   touched.
+   the rest of this run. Immediately after, the diagnostic recording
+   preference is read once (§13.2) and the recorder is built (§19.1), also
+   fixed for the rest of the run. Before the settings are read, the tab's
+   previous diagnostic record is removed (§17). No credential for the
+   selected provider, or a blank one, ends the run here with
+   `credential-missing`, before the tab is touched.
 6. **An optional-permission provider's permission is checked**, never
    requested (§12.2). Sakura needs no check. A permission since revoked ends
    the run here with `permission-missing`, before the tab is touched.
@@ -2157,6 +2377,10 @@ The steps, at the granularity they are written at:
 15. **The final integrated summary is taken** from the answer.
 16. **The state becomes `succeeded`**, carrying the title and the summary, and
     `stateChanged` is broadcast. The panel renders it as text.
+    When the recorder is on, steps 5 and 7 to 16 each leave their event
+    (§19.2) before the next step is taken, and every ending of the run,
+    success or failure, leaves a `result` event before the state is written.
+    None of this changes what the run does next.
 17. **Any step above may end the run instead.** Every way it can is a row of
     §18; the state becomes `failed` with that kind, `stateChanged` is
     broadcast, and the panel shows the message. Another run starts only when
@@ -2191,6 +2415,10 @@ specification would be written against.
 | the service-worker keepalive (§22) | an async operation function, a fake runtime API and fake interval functions, all passed as parameters | the operation's resolved value, or its rejection propagated unchanged | none of its own: the interval period is `SERVICE_WORKER_KEEPALIVE_INTERVAL_MS`, the pulse is one `getPlatformInfo` call, and the interval is cleared on resolve as on reject, all without a browser profile, a network or a real timer |
 | run ownership at panel start (§5.1, §22) | a tab id, deferred fake side-panel Promises and a fake run starter | exactly one live identity exists from the click; invalidating it before panel completion prevents the starter from being called | a panel rejection releases the claimed identity; a synchronous exception from a panel operation releases it the same way; a duplicate click claims none |
 | tab-update navigation boundary (§17) | a `changeInfo` object | true for `status: "loading"` or the presence of its own `url` property, false otherwise | the URL property's value is never read |
+| the diagnostic event vocabulary (§19.2) | a raw event | an event of the fixed vocabulary and integers, or null | every value outside the vocabulary is dropped; no free-form string survives |
+| the retention bounds (§19.3) | a record and an event | the record with the event appended, or counted in `dropped` | just below, at and past each bound, with the largest events and with the result reserved |
+| the recorder and the observed run (§19.1) | a fake Chrome, a `fetch` stub and invented pages, with the preference on and off | the same state, requests and closing line either way, and an ordered record | storage failures of the record leave the run unchanged |
+| the diagnostic display (§19.5) | a fake panel document and a fake `chrome.storage.session` | the formatted text for the bound tab only | stale snapshots, other tabs, removals, unreadable and malformed values |
 
 Four properties make that possible, and each is a constraint on the
 implementation rather than an observation about it:
@@ -2246,10 +2474,10 @@ the several chunk and integrate requests it needs, none of them a retry.
 | §11.5 timeout, no retries | §11.3 |
 | §11.6 the model | §13 |
 | §12 the credential | §12 |
-| §13 settings | §12, §13, §13.1, §14 |
-| §14 state | §17 |
+| §13 settings | §12, §13, §13.1, §13.2, §14 |
+| §14 state | §17, and the optional diagnostic record in §19.1–§19.5 |
 | §15 the flow of one summary | §22 |
-| §16 privacy design | §21 |
+| §16 privacy design | §21, and §19 for what the diagnostic record may hold |
 | §17 errors | §18 |
 | §18 security design | §20 |
 | §19 what is not built | nothing in this document prepares for any of it |

@@ -53,6 +53,7 @@ the summary is shown in the side panel, beside the page
 - **Substance kept, redundancy dropped**: the central claim, the causal relations that matter, the conclusion and the conditions that qualify it survive the summary
 - **No target length**: the length that results from removing the redundancy of a particular page is the length that page gets
 - **Optional Japanese summary output**: off by default, the summary is written in the page's own language; turn on **Summarize in Japanese** in settings to have it written in Japanese instead, regardless of the page's language — this applies to every provider alike
+- **Optional diagnostics**: off by default; turn on **Record diagnostics for each summary** in settings to read, in the side panel, which steps a summary took and which request of a long page failed — step names, counts and timings only, kept for the browser session
 - **Your selected provider does the summarizing**: the extension prepares the material, asks for the summary and displays what comes back
 - **Bring your own key**: your own API credential for your selected provider is used, and this project holds none and supplies none
 - **Existing Sakura users need no changes**: Sakura AI Engine is the default provider, and an existing token, model and Japanese summary preference keep working exactly as before, with no migration
@@ -124,6 +125,7 @@ in `chrome.storage.local` in your own Chrome profile.
 | API credential (per provider) | yes, for the selected provider | — | The credential the request to that provider is made with. |
 | Model (per provider) | no | a name recorded in `src/common/settings.js`, one default per provider | Which model the selected provider summarizes with. |
 | Summarize in Japanese | no | off | Off: the summary is written in the page's own language. On: the summary is written in Japanese, regardless of the page's language. Applies to every provider alike. |
+| Record diagnostics for each summary | no | off | Off: nothing extra is recorded. On: each new summary records which steps it took and where it stopped, and the side panel shows that list. Independent of every other setting; a summary already running keeps the choice it started with. |
 
 Each provider's credential and model are stored under their own keys and are
 independent of one another: switching the selected provider never deletes,
@@ -185,6 +187,11 @@ The settings page carries:
 - **Summarize in Japanese**, a checkbox reflecting the stored preference, shared by
   every provider. Changing it saves that preference on its own, immediately,
   independently of **Save** — it never requires a credential to be re-entered.
+- **Record diagnostics for each summary**, a checkbox that is off until you turn it on.
+  Like the Japanese summary preference it is saved on its own, immediately, and it
+  never touches a credential, a model or the provider selection. It affects the next
+  summary you start, not one already running. If it cannot be saved, the checkbox
+  returns to its last saved value and says so.
 
 The endpoint, the timeout, the size budget and the summarization prompt are design constants and resources rather than settings. None of them is something a reader has the information to choose, and each one exposed would be a second decision on a path that is meant to stay at one.
 
@@ -213,6 +220,8 @@ each page:
    provider with your credential and configured model for that provider.
 6. When the run succeeds, the page title and summary appear in the side panel beside
    the original page.
+
+To read what a summary did, turn on **Record diagnostics for each summary** in **Settings** first, then run a summary. A **Diagnostics** section appears below the result in the side panel; open it to see, one line per step or request, what ran in order — extraction, shaping, how a long page was split, each request with its part number and outcome, and the final result — and select and copy it like any other text. It never replaces the summary or the error message, and opening it starts nothing and sends nothing. It shows only what was observed: a failed long page shows which request failed and how, and nothing about causes it did not see.
 
 To summarize the same page again, click the **web-digest** toolbar button again.
 The toolbar action is the only control that starts a summary.
@@ -261,6 +270,7 @@ How a summary is written is decided by `prompts/summarize.md`, outside the code,
 - **The main content of the page you asked about is sent to your one selected AI provider**, together with the summarization instruction, because that is where the summary is produced. One run uses exactly one provider; nothing is sent to the others, whether or not you have granted them permission. This is the point of the extension rather than an incidental transfer, and it is worth knowing before you install it.
 - **There is no backend belonging to this project**, so there is nowhere for a page, a summary, a credential or a history to be sent to or to accumulate in. That is a property of the design rather than a promise not to look.
 - **No page text and no summary is written to disk.** The result of the last run is held in session storage, per tab, and is gone when the browser closes, when the tab closes, or when the tab navigates elsewhere.
+- **Diagnostics, when you turn them on, are kept only for the browser session.** The record of a summary holds step names, counts, sizes and timings, never the page's text, title or address, the prompt, the summary, an API credential, or the provider or model used. It is held in session storage for that tab, shown only in the side panel, and discarded when the browser closes, the tab closes, the tab navigates elsewhere, or the tab's next summary begins. Nothing about it is sent anywhere.
 - **Each credential reaches one origin**, as one header or field, and no other: the origin belonging to the provider it was entered for.
 - **This project does not control what your selected provider does with what it receives.** Its own data handling — retention, logging, training use — is that provider's own policy, stated in its own documentation; this project makes no claim about it beyond what it itself sends and stores, which is nothing.
 
@@ -270,7 +280,9 @@ The permissions are the smallest set that allows this: `activeTab` for the tab y
 
 Every failure ends the run and shows one message in the panel that names the cause and what would address it: that no credential is configured for the selected provider and where to enter one, that the credential was rejected, that the selected provider could not be reached or took too long or reported an error, that a browser permission for the selected provider is missing, that the content of this page could not be obtained, that this page has too little text, that this page is too large to process, that no usable summary came back, or that the extension itself failed to complete the run.
 
-Causes that lead to different actions stay apart — "no credential" and "credential rejected" are never merged into one message about the provider. A message carries no status line, no response body, no internal detail and no API credential. What a status code was is recorded in the service worker's console log, which carries counts and durations and never the page's text, its title, its URL, the prompt, the request, the answer or the summary.
+Causes that lead to different actions stay apart — "no credential" and "credential rejected" are never merged into one message about the provider. A message carries no status line, no response body, no internal detail and no API credential. What a status code was is recorded in the service worker's console log, which carries counts and durations and never the page's text, its title, its URL, the prompt, the request, the answer or the summary. That one closing line is written whether or not diagnostics are on.
+
+If a summary is slow, stops, or fails and you want to see where, turn on **Record diagnostics for each summary** in **Settings** and run it again, then open **Diagnostics** in the side panel. It lists the steps and requests that were actually observed, in order, so a failure in the third part of a long page reads differently from a failure while the final parts were being combined. It does not guess at causes, and it can be incomplete: if the list says that later events were not retained, or that no final result was recorded, treat it as showing how far the run was known to get, not as the whole story. It exists only for summaries started after you turned it on.
 
 For the most common problems:
 

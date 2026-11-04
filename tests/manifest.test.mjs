@@ -65,3 +65,36 @@ test("doc/DETAILED_DESIGN.md's manifest example carries the same version as mani
     "doc/DETAILED_DESIGN.md must not still show the stale 1.1.0 manifest version",
   );
 });
+
+test("diagnostics add no permission, host, script, or dependency", async () => {
+  const manifest = await readManifest();
+  assert.equal(manifest.version, "1.1.1");
+  assert.deepEqual(manifest.permissions, [
+    "activeTab",
+    "scripting",
+    "storage",
+    "sidePanel",
+  ]);
+  assert.equal(manifest.content_scripts, undefined);
+  assert.equal(manifest.permissions.includes("unlimitedStorage"), false);
+  const pkg = JSON.parse(
+    await readFile(new URL("../package.json", import.meta.url), "utf8"),
+  );
+  assert.equal(pkg.dependencies, undefined);
+  assert.equal(pkg.devDependencies, undefined);
+});
+
+test("doc/VERSIONS keeps the unreleased entry's number and records the diagnostics item once", async () => {
+  const versions = await readFile(
+    new URL("../doc/VERSIONS", import.meta.url),
+    "utf8",
+  );
+  const top = versions.split("\n\n")[1];
+  assert.match(top, /^v1\.1\.2 \(Release Date: TBD\)\n-+\n/);
+  const bullets = top.split("\n").filter((line) => line.startsWith("- "));
+  assert.equal(bullets.length, 3);
+  assert.match(bullets[0], /extension icon legibility/);
+  assert.match(bullets[1], /three-line overview/);
+  assert.match(top, /Added optional, session-only diagnostics for summarization runs/);
+  for (const line of top.split("\n")) assert.ok(line.length <= 80, line);
+});

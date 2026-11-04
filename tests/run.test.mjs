@@ -27,6 +27,21 @@ import {
 import { MAX_REQUEST_MATERIAL_CHARS } from "../src/shape/shape.js";
 import { ErrorKind, ProviderErrorDetail, messageFor } from "../src/common/errors.js";
 import { MessageType } from "../src/common/messages.js";
+import {
+  DiagStep,
+  MAX_BYTES,
+  MAX_EVENTS,
+  RESERVED_FOR_RESULT,
+  appendEvent,
+  createRecorder,
+  diagnosticsKey,
+  emptyRecord,
+  formatDiagnostics,
+  recordBytes,
+  sanitizeEvent,
+  sanitizeRecord,
+} from "../src/common/diagnostics.js";
+import { shape } from "../src/shape/shape.js";
 
 const INSTRUCTION = "# Summarize a web page\n\nProduce a summary of it.";
 
@@ -876,4 +891,725 @@ test("a failed state renders the message for its kind", () => {
     messageFor(state.errorKind, state.errorDetail),
     "No API credential is configured for the selected AI provider. Open Settings and enter one.",
   );
+});
+
+// ---------------------------------------------------------------------------
+// Optional diagnostics. Everything below uses invented material and stubs;
+// nothing touches a network, a browser or a real credential.
+// ---------------------------------------------------------------------------
+
+const SENTINELS = [
+  "CRED-SENTINEL",
+  "TITLE-SENTINEL",
+  "BODY-SENTINEL",
+  "MODEL-SENTINEL",
+  "SUMMARY-SENTINEL",
+  "PROMPT-SENTINEL",
+];
+
+function eventsOf(record) {
+  return record.events.map((e) => ({
+    step: e.step,
+    task: e.task,
+    depth: e.depth,
+    index: e.index,
+    outcome: e.outcome,
+    errorKind: e.errorKind,
+  }));
+}
+
+function observeInto(record) {
+  const recorder = createRecorder({
+    enabled: true,
+    started: Date.now(),
+    persist: (r) => Object.assign(record, r),
+  });
+  return recorder;
+}
+
+test("an event keeps only the fixed vocabulary and non-negative integers", () => {
+  const event = sanitizeEvent({
+    seq: 3,
+    ms: 1200,
+    step: "request-end",
+    task: "chunk",
+    outcome: "failed",
+    errorKind: ErrorKind.PROVIDER_ERROR,
+    detail: ProviderErrorDetail.RATE_LIMITED,
+    status: 429,
+    index: 2,
+    total: 5,
+    title: "TITLE-SENTINEL",
+    provider: "sakura",
+    model: "MODEL-SENTINEL",
+    message: "BODY-SENTINEL",
+  });
+  assert.deepEqual(Object.keys(event).sort(), [
+    "detail",
+    "errorKind",
+    "index",
+    "ms",
+    "outcome",
+    "seq",
+    "status",
+    "step",
+    "task",
+    "total",
+  ]);
+  assert.equal(JSON.stringify(event).includes("SENTINEL"), false);
+});
+
+test("a value outside the vocabulary is dropped, not repaired", () => {
+  assert.equal(sanitizeEvent({ seq: 0, ms: 0, step: "BODY-SENTINEL" }), null);
+  assert.equal(sanitizeEvent({ seq: 0, ms: 0, step: "result", task: "x" }).task, undefined);
+  const odd = sanitizeEvent({
+    seq: 0,
+    ms: 0,
+    step: "result",
+    errorKind: "あいう-SENTINEL",
+    chars: -1,
+    blocks: 1.5,
+    status: "429",
+  });
+  assert.deepEqual(odd, { seq: 0, ms: 0, step: "result" });
+  assert.equal(sanitizeRecord({ v: 2, events: [] }), null);
+  assert.equal(sanitizeRecord({ v: 1, events: [{ step: "nope" }] }), null);
+});
+
+test("recorder is inert when diagnostics are off", () => {
+  let persisted = 0;
+  const recorder = createRecorder({
+    enabled: false,
+    started: 0,
+    persist: () => (persisted += 1),
+  });
+  recorder.record(DiagStep.SETTINGS, { outcome: "ok" });
+  assert.equal(recorder.enabled, false);
+  assert.equal(persisted, 0);
+});
+
+test("a throwing persist callback never reaches the caller", () => {
+  const recorder = createRecorder({
+    enabled: true,
+    started: 0,
+    persist: () => {
+      throw new Error("storage exploded");
+    },
+  });
+  assert.doesNotThrow(() => recorder.record(DiagStep.SETTINGS, { outcome: "ok" }));
+});
+
+test("capacity: events up to the limit are kept, the rest are counted, and the result always has room", () => {
+  const limit = MAX_EVENTS - RESERVED_FOR_RESULT;
+  const plain = (seq) => ({ seq, ms: 1, step: "request-start", task: "chunk", depth: 0, index: 1, total: 2, chars: 1 });
+
+  const below = emptyRecord();
+  for (let i = 0; i < limit - 1; i++) appendEvent(below, plain(i));
+  assert.equal(below.events.length, limit - 1);
+  assert.equal(below.dropped, 0);
+
+  const atLimit = emptyRecord();
+  for (let i = 0; i < limit; i++) appendEvent(atLimit, plain(i));
+  assert.equal(atLimit.events.length, limit);
+  assert.equal(atLimit.dropped, 0);
+
+  const over = emptyRecord();
+  for (let i = 0; i < limit + 3; i++) appendEvent(over, plain(i));
+  assert.equal(over.events.length, limit);
+  assert.equal(over.dropped, 3);
+  assert.equal(over.last.seq, limit + 2);
+
+  appendEvent(over, { seq: 9999, ms: 2, step: "result", outcome: "failed", errorKind: ErrorKind.TIMEOUT });
+  assert.equal(over.events.at(-1).step, "result");
+  assert.equal(over.events.length, limit + 1);
+  assert.ok(over.events.length <= MAX_EVENTS);
+  const text = formatDiagnostics(over, { finished: true });
+  assert.match(text, /Incomplete: 3 later events were not retained\./);
+  assert.match(text, /Last observed: #/);
+});
+
+test("capacity: the byte bound holds with the largest events and still keeps the result", () => {
+  const large = (seq) => ({
+    seq: 999999999 + seq,
+    ms: 999999999999,
+    step: "request-end",
+    task: "integrate",
+    depth: 8,
+    index: 999999,
+    total: 999999,
+    chunks: 999999,
+    blocks: 999999999,
+    chars: 999999999999,
+    status: 503,
+    requestMs: 999999999999,
+    outcome: "failed",
+    errorKind: ErrorKind.PROVIDER_UNREACHABLE,
+    detail: ProviderErrorDetail.UNSPECIFIED,
+  });
+  const record = emptyRecord();
+  for (let i = 0; i < MAX_EVENTS; i++) appendEvent(record, sanitizeEvent(large(i)));
+  assert.ok(recordBytes(record) <= MAX_BYTES);
+  assert.ok(record.dropped > 0, "the byte bound must engage before the event bound for the largest events");
+  appendEvent(record, sanitizeEvent({ ...large(0), step: "result", seq: 1 }));
+  assert.equal(record.events.at(-1).step, "result");
+  assert.ok(recordBytes(record) <= MAX_BYTES);
+});
+
+test("capacity is counted in bytes, not characters", () => {
+  const ascii = recordBytes({ a: "aaaa" });
+  const multibyte = recordBytes({ a: "ああああ" });
+  assert.equal(multibyte - ascii, 8);
+});
+
+test("a short page records settings, prompt, extraction, shaping, one request and the result in order", async () => {
+  const record = emptyRecord();
+  const recorder = observeInto(record);
+  const answer = await summarizeMaterial(
+    { title: "T", text: "A normal page.", charCount: 14 },
+    INSTRUCTION,
+    async () => ({ ok: true, summary: "Done." }),
+    0,
+    () => true,
+    recorder.record,
+  );
+  recorder.record(DiagStep.RESULT, { outcome: "ok" });
+  assert.equal(answer.ok, true);
+  assert.deepEqual(
+    eventsOf(record).map((e) => [e.step, e.task, e.outcome]),
+    [
+      ["request-start", "page", undefined],
+      ["request-end", "page", "ok"],
+      ["result", undefined, "ok"],
+    ],
+  );
+  assert.deepEqual(record.events.map((e) => e.seq), [0, 1, 2]);
+});
+
+function longMaterial(count) {
+  const blocks = Array.from({ length: count }, (_, i) => ({
+    kind: "paragraph",
+    text: `Paragraph ${i} ${"word ".repeat(30000)}`,
+  }));
+  return shape({ title: "T", blocks }).material;
+}
+
+test("a multi-chunk run records every chunk in order and then the integrate request", async () => {
+  const record = emptyRecord();
+  const recorder = observeInto(record);
+  const material = longMaterial(3);
+  const answer = await summarizeMaterial(
+    material,
+    INSTRUCTION,
+    async () => ({ ok: true, summary: "part" }),
+    0,
+    () => true,
+    recorder.record,
+  );
+  assert.equal(answer.ok, true);
+  const steps = record.events.map((e) => `${e.step}:${e.task || ""}:${e.index || ""}`);
+  assert.deepEqual(steps, [
+    "split::",
+    "request-start:chunk:1",
+    "request-end:chunk:1",
+    "request-start:chunk:2",
+    "request-end:chunk:2",
+    "request-start:chunk:3",
+    "request-end:chunk:3",
+    "request-start:integrate:",
+    "request-end:integrate:",
+  ]);
+  assert.equal(record.events[0].chunks, 3);
+  assert.equal(record.events.at(-1).depth, 1);
+});
+
+test("a failed middle chunk is identified by index and error, and nothing after it is recorded", async () => {
+  const record = emptyRecord();
+  const recorder = observeInto(record);
+  let calls = 0;
+  const answer = await summarizeMaterial(
+    longMaterial(3),
+    INSTRUCTION,
+    async () => {
+      calls += 1;
+      return calls === 2
+        ? { ok: false, kind: ErrorKind.PROVIDER_ERROR, detail: ProviderErrorDetail.RATE_LIMITED, status: 429 }
+        : { ok: true, summary: "part" };
+    },
+    0,
+    () => true,
+    recorder.record,
+  );
+  assert.equal(answer.ok, false);
+  const last = record.events.at(-1);
+  assert.equal(last.step, "request-end");
+  assert.equal(last.task, "chunk");
+  assert.equal(last.index, 2);
+  assert.equal(last.total, 3);
+  assert.equal(last.errorKind, ErrorKind.PROVIDER_ERROR);
+  assert.equal(last.detail, ProviderErrorDetail.RATE_LIMITED);
+  assert.equal(last.status, 429);
+  assert.equal(record.events.filter((e) => e.task === "integrate").length, 0);
+  assert.equal(record.events.filter((e) => e.step === "request-start").length, 2);
+});
+
+test("an integrate failure is told apart from a chunk failure", async () => {
+  const record = emptyRecord();
+  const recorder = observeInto(record);
+  const answer = await summarizeMaterial(
+    longMaterial(2),
+    INSTRUCTION,
+    async (request) =>
+      request.instruction.endsWith("TASK: integrate")
+        ? { ok: false, kind: ErrorKind.NO_USABLE_SUMMARY }
+        : { ok: true, summary: "part" },
+    0,
+    () => true,
+    recorder.record,
+  );
+  assert.equal(answer.ok, false);
+  const last = record.events.at(-1);
+  assert.equal(last.task, "integrate");
+  assert.equal(last.outcome, "failed");
+  assert.equal(last.errorKind, ErrorKind.NO_USABLE_SUMMARY);
+  assert.equal(record.events.filter((e) => e.task === "chunk" && e.step === "request-end" && e.outcome === "ok").length, 2);
+});
+
+test("a nested integration is recorded stage by stage with its depth", async () => {
+  const record = emptyRecord();
+  const recorder = observeInto(record);
+  const big = "s".repeat(150000);
+  let chunkCalls = 0;
+  const answer = await summarizeMaterial(
+    longMaterial(3),
+    INSTRUCTION,
+    async (request) => {
+      if (request.instruction.endsWith("TASK: chunk")) chunkCalls += 1;
+      // Only the first stage's chunks answer at length, so that the second
+      // stage must itself be split and integrated.
+      return { ok: true, summary: chunkCalls <= 3 ? big : "final" };
+    },
+    0,
+    () => true,
+    recorder.record,
+  );
+  assert.equal(answer.ok, true);
+  const depths = new Set(record.events.map((e) => e.depth));
+  assert.ok(depths.has(0) && depths.has(1) && depths.has(2));
+  const splits = record.events.filter((e) => e.step === "split");
+  assert.deepEqual(splits.map((e) => e.depth), [0, 1]);
+  assert.equal(record.events.at(-1).task, "integrate");
+  assert.equal(record.events.at(-1).depth, 2);
+});
+
+test("a throwing provider records an exception outcome and the original error still propagates", async () => {
+  const record = emptyRecord();
+  const recorder = observeInto(record);
+  await assert.rejects(
+    summarizeMaterial(
+      { title: "T", text: "x", charCount: 2 },
+      INSTRUCTION,
+      async () => {
+        throw new Error("BODY-SENTINEL");
+      },
+      0,
+      () => true,
+      recorder.record,
+    ),
+    /BODY-SENTINEL/,
+  );
+  assert.equal(record.events.at(-1).outcome, "exception");
+  assert.equal(JSON.stringify(record).includes("SENTINEL"), false);
+});
+
+test("an observer that throws changes nothing about the run", async () => {
+  const calls = [];
+  const answer = await summarizeMaterial(
+    longMaterial(2),
+    INSTRUCTION,
+    async (request) => {
+      calls.push(request.instruction.split("TASK: ")[1]);
+      return { ok: true, summary: "part" };
+    },
+    0,
+    () => true,
+    () => {
+      throw new Error("observer failure");
+    },
+  );
+  assert.equal(answer.ok, true);
+  assert.deepEqual(calls, ["chunk", "chunk", "integrate"]);
+});
+
+test("an unfinished or truncated record is never shown as the whole story", () => {
+  const record = emptyRecord();
+  appendEvent(record, sanitizeEvent({ seq: 0, ms: 0, step: "settings", outcome: "ok" }));
+  assert.match(formatDiagnostics(record, { finished: false }), /has not ended yet/);
+  assert.match(formatDiagnostics(record, { finished: true }), /Incomplete: no final result was recorded/);
+  appendEvent(record, sanitizeEvent({ seq: 1, ms: 5, step: "result", outcome: "ok" }));
+  assert.doesNotMatch(formatDiagnostics(record, { finished: true }), /Incomplete/);
+});
+
+test("the recorded size of representative runs fits the chosen bounds with room to spare", async () => {
+  // Measured with the real chunker: a page of 100 chunks (about 20 million
+  // characters) whose chunk summaries are 60,000 characters each needs this
+  // many events and bytes. The bounds were chosen to hold it with headroom.
+  const blocks = [];
+  const paragraph = "x".repeat(5000);
+  for (let n = 0, total = 0; total < 100 * 200000; total += 5000, n += 1) {
+    blocks.push({ kind: "paragraph", text: `${paragraph} ${n}` });
+  }
+  const material = shape({ title: "T", blocks }).material;
+  const record = emptyRecord();
+  const recorder = observeInto(record);
+  const summary = "s".repeat(60000);
+  let requests = 0;
+  const answer = await summarizeMaterial(
+    material,
+    INSTRUCTION,
+    async () => {
+      requests += 1;
+      return { ok: true, summary };
+    },
+    0,
+    () => true,
+    recorder.record,
+  );
+  recorder.record(DiagStep.RESULT, { outcome: "ok" });
+  assert.equal(answer.ok, true);
+  assert.ok(requests >= 100, "a page of 100 chunks needs at least 100 requests");
+  assert.equal(record.dropped, 0, "a representative long run must be recorded whole");
+  assert.ok(record.events.length < MAX_EVENTS * 0.9);
+  assert.ok(recordBytes(record) < MAX_BYTES * 0.9);
+});
+
+// --- end to end through the real run, with a fake Chrome and a fetch stub ---
+
+async function endToEnd({
+  diagnostics = false,
+  blocks,
+  summaryFor = () => "SUMMARY-SENTINEL ok",
+  failSessionDiagnostics = false,
+  failDiagnosticsRemove = false,
+  failDiagnosticsFallback = false,
+  failProviderAt = 0,
+  seedLocal = {},
+  keepChrome = false,
+  store = new Map(),
+}) {
+  const listeners = {};
+  const sessionSets = [];
+  const sent = [];
+  const consoleLines = [];
+  const fetchBodies = [];
+  const local = {
+    provider: "sakura",
+    apiToken: "CRED-SENTINEL-token",
+    model: "MODEL-SENTINEL",
+    ...(diagnostics ? { diagnosticLogging: true } : {}),
+    ...seedLocal,
+  };
+  const chrome = {
+    action: { onClicked: { addListener: (fn) => (listeners.clicked = fn) } },
+    runtime: {
+      getURL: (path) => path,
+      onInstalled: { addListener: () => {} },
+      onMessage: { addListener: (fn) => (listeners.message = fn) },
+      sendMessage: (message) => {
+        sent.push(message);
+        return Promise.resolve();
+      },
+      getPlatformInfo: () => Promise.resolve({}),
+    },
+    sidePanel: {
+      setOptions: async () => {},
+      open: async () => {},
+      setPanelBehavior: async () => {},
+    },
+    scripting: {
+      executeScript: async () => [
+        { result: { title: "TITLE-SENTINEL", blocks } },
+      ],
+    },
+    storage: {
+      local: {
+        get: async (keys) => {
+          const list = Array.isArray(keys) ? keys : [keys];
+          return Object.fromEntries(
+            list.filter((k) => k in local).map((k) => [k, local[k]]),
+          );
+        },
+      },
+      session: {
+        get: async (key) => ({ [key]: store.get(key) }),
+        set: async (fields) => {
+          const [key, value] = Object.entries(fields)[0];
+          sessionSets.push(key);
+          if (failDiagnosticsFallback && key.startsWith("diag:") && value.events.length === 0) {
+            throw new Error("storage unavailable");
+          }
+          if (failSessionDiagnostics && key.startsWith("diag:")) {
+            throw new Error("quota exceeded");
+          }
+          store.set(key, JSON.parse(JSON.stringify(value)));
+        },
+        remove: async (key) => {
+          if (failDiagnosticsRemove && key.startsWith("diag:")) {
+            throw new Error("storage unavailable");
+          }
+          store.delete(key);
+        },
+      },
+    },
+    tabs: {
+      onRemoved: { addListener: (fn) => (listeners.removed = fn) },
+      onUpdated: { addListener: (fn) => (listeners.updated = fn) },
+      onReplaced: { addListener: (fn) => (listeners.replaced = fn) },
+    },
+  };
+
+  const realFetch = globalThis.fetch;
+  const realLog = console.log;
+  const realError = console.error;
+  let providerCalls = 0;
+  globalThis.chrome = chrome;
+  globalThis.fetch = async (url, init) => {
+    if (typeof url === "string" && url.startsWith("prompts/")) {
+      return { ok: true, text: async () => "PROMPT-SENTINEL instruction" };
+    }
+    providerCalls += 1;
+    const body = JSON.parse(init.body);
+    fetchBodies.push(body.messages.map((m) => m.content));
+    if (failProviderAt && providerCalls === failProviderAt) {
+      return { ok: false, status: 503, json: async () => ({}) };
+    }
+    const task = body.messages[0].content.match(/TASK: (\w+)/)[1];
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        choices: [{ finish_reason: "stop", message: { content: summaryFor(task) } }],
+      }),
+    };
+  };
+  console.log = (line) => consoleLines.push(["log", line]);
+  console.error = (line) => consoleLines.push(["error", line]);
+
+  try {
+    await import(
+      `../src/background/service_worker.js?e2e-${Math.random()}`
+    );
+    listeners.clicked({ id: 7, title: "Tab title" });
+    for (let i = 0; i < 400; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const state = store.get("run:7");
+      if (state && (state.phase === "succeeded" || state.phase === "failed")) {
+        // Let any coalesced diagnostic write finish.
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        break;
+      }
+    }
+    return {
+      state: store.get("run:7"),
+      diag: store.get("diag:7"),
+      store,
+      sessionSets,
+      sent,
+      consoleLines,
+      fetchBodies,
+      listeners,
+    };
+  } finally {
+    globalThis.fetch = realFetch;
+    console.log = realLog;
+    console.error = realError;
+    if (!keepChrome) delete globalThis.chrome;
+  }
+}
+
+const SHORT_PAGE = [
+  { kind: "paragraph", text: `BODY-SENTINEL ${"A reasonably long sentence. ".repeat(20)}` },
+];
+const LONG_PAGE = Array.from({ length: 3 }, (_, i) => ({
+  kind: "paragraph",
+  text: `BODY-SENTINEL ${i} ${"word ".repeat(30000)}`,
+}));
+
+test("diagnostics are off by default: no record is written and nothing else changes", async () => {
+  const off = await endToEnd({ blocks: SHORT_PAGE });
+  assert.equal(off.state.phase, "succeeded");
+  assert.equal(off.diag, undefined);
+  assert.equal(off.sessionSets.some((k) => k.startsWith("diag:")), false);
+});
+
+test("a stored value other than true leaves diagnostics off", async () => {
+  for (const bad of ["true", 1, null, {}, "yes"]) {
+    const run = await endToEnd({
+      blocks: SHORT_PAGE,
+      seedLocal: { diagnosticLogging: bad },
+    });
+    assert.equal(run.diag, undefined);
+  }
+});
+
+test("turning diagnostics on changes neither the result, the requests, nor the console line", async () => {
+  for (const blocks of [SHORT_PAGE, LONG_PAGE]) {
+    const off = await endToEnd({ blocks });
+    const on = await endToEnd({ blocks, diagnostics: true });
+    assert.deepEqual(on.state, off.state);
+    assert.deepEqual(on.fetchBodies, off.fetchBodies);
+    assert.equal(on.consoleLines.length, 1);
+    assert.equal(on.consoleLines[0][0], off.consoleLines[0][0]);
+    const strip = (line) => line.replace(/elapsed=[\d.]+s/, "");
+    assert.equal(strip(on.consoleLines[0][1]), strip(off.consoleLines[0][1]));
+    assert.ok(on.diag, "the record is written when diagnostics are on");
+  }
+});
+
+test("a long run with diagnostics on records every stage and ends with the result", async () => {
+  const run = await endToEnd({ blocks: LONG_PAGE, diagnostics: true });
+  assert.equal(run.state.phase, "succeeded");
+  const steps = run.diag.events.map((e) => e.step);
+  assert.deepEqual(steps.slice(0, 5), ["settings", "prompt", "extract", "shape", "split"]);
+  assert.equal(steps.at(-1), "result");
+  assert.equal(run.diag.events.at(-1).outcome, "ok");
+  assert.equal(
+    run.diag.events.filter((e) => e.step === "request-end" && e.task === "chunk").length,
+    3,
+  );
+});
+
+test("a provider failure on a chunk is recorded with its index and the run fails as before", async () => {
+  const off = await endToEnd({ blocks: LONG_PAGE, failProviderAt: 2 });
+  const on = await endToEnd({ blocks: LONG_PAGE, diagnostics: true, failProviderAt: 2 });
+  assert.deepEqual(on.state, off.state);
+  assert.equal(on.state.phase, "failed");
+  const lastRequest = on.diag.events.filter((e) => e.step === "request-end").at(-1);
+  assert.equal(lastRequest.index, 2);
+  assert.equal(lastRequest.status, 503);
+  assert.equal(on.diag.events.at(-1).step, "result");
+  assert.equal(on.diag.events.at(-1).errorKind, on.state.errorKind);
+  assert.equal(on.consoleLines[0][0], "error");
+});
+
+test("early failures record only what was observed", async () => {
+  const noCredential = await endToEnd({
+    blocks: SHORT_PAGE,
+    diagnostics: true,
+    seedLocal: { apiToken: "" },
+  });
+  assert.equal(noCredential.state.errorKind, ErrorKind.CREDENTIAL_MISSING);
+  assert.deepEqual(
+    noCredential.diag.events.map((e) => e.step),
+    ["settings", "result"],
+  );
+  const unreadable = await endToEnd({ blocks: "not an array", diagnostics: true });
+  assert.equal(unreadable.state.errorKind, ErrorKind.PAGE_UNREADABLE);
+  assert.deepEqual(
+    unreadable.diag.events.map((e) => `${e.step}:${e.outcome}`),
+    ["settings:ok", "prompt:ok", "extract:failed", "result:failed"],
+  );
+});
+
+test("no credential, title, page text, model, prompt, summary or provider name reaches the record, the console, or a message", async () => {
+  const run = await endToEnd({ blocks: LONG_PAGE, diagnostics: true });
+  const everything = JSON.stringify([
+    [...run.store.entries()].filter(([k]) => k.startsWith("diag:")),
+    run.consoleLines,
+    run.sent.filter((m) => m.type !== MessageType.STATE_CHANGED),
+  ]);
+  for (const sentinel of SENTINELS) {
+    assert.equal(everything.includes(sentinel), false, `${sentinel} leaked`);
+  }
+  assert.doesNotMatch(everything, /sakura/i);
+  const text = formatDiagnostics(sanitizeRecord(run.diag), { finished: true });
+  for (const sentinel of SENTINELS) assert.equal(text.includes(sentinel), false);
+});
+
+test("a diagnostics storage failure does not change the run", async () => {
+  const healthy = await endToEnd({ blocks: LONG_PAGE, diagnostics: true });
+  const broken = await endToEnd({
+    blocks: LONG_PAGE,
+    diagnostics: true,
+    failSessionDiagnostics: true,
+  });
+  assert.deepEqual(broken.state, healthy.state);
+  assert.deepEqual(broken.fetchBodies, healthy.fetchBodies);
+  assert.equal(broken.diag, undefined);
+  assert.equal(broken.consoleLines.length, 1);
+});
+
+test("a new run removes the previous run's record, and closing or navigating the tab removes it too", async () => {
+  try {
+    const run = await endToEnd({
+      blocks: SHORT_PAGE,
+      diagnostics: true,
+      keepChrome: true,
+    });
+    assert.ok(run.store.get("diag:7"));
+    run.listeners.updated(7, { status: "loading" });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(run.store.has("diag:7"), false);
+    assert.equal(run.store.has("run:7"), false);
+  } finally {
+    delete globalThis.chrome;
+  }
+
+  try {
+    const again = await endToEnd({
+      blocks: SHORT_PAGE,
+      diagnostics: true,
+      keepChrome: true,
+    });
+    assert.ok(again.store.get("diag:7"));
+    again.listeners.removed(7);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(again.store.has("diag:7"), false);
+  } finally {
+    delete globalThis.chrome;
+  }
+});
+
+test("a run with diagnostics off removes an earlier record for that tab before it starts", async () => {
+  const store = new Map();
+  const first = await endToEnd({ blocks: SHORT_PAGE, diagnostics: true, store });
+  assert.ok(first.diag);
+  const second = await endToEnd({ blocks: SHORT_PAGE, diagnostics: false, store });
+  assert.equal(second.state.phase, "succeeded");
+  assert.equal(second.diag, undefined);
+  assert.equal(store.has("diag:7"), false);
+});
+
+test("the diagnostics key is per tab and prefixed", () => {
+  assert.equal(diagnosticsKey(12), "diag:12");
+});
+
+test("when the previous record cannot be removed, the next run leaves an empty record in its place and succeeds as before", async () => {
+  const store = new Map();
+  const first = await endToEnd({ blocks: SHORT_PAGE, diagnostics: true, store });
+  assert.ok(first.diag.events.length > 0);
+  const reference = await endToEnd({ blocks: SHORT_PAGE, diagnostics: false });
+  const second = await endToEnd({
+    blocks: SHORT_PAGE,
+    diagnostics: false,
+    store,
+    failDiagnosticsRemove: true,
+  });
+  assert.deepEqual(second.state, reference.state);
+  assert.deepEqual(second.diag, { v: 1, events: [], dropped: 0, last: null });
+  assert.equal(sanitizeRecord(second.diag).events.length, 0);
+});
+
+test("when neither the remove nor the fallback write works, the run still completes unchanged", async () => {
+  const store = new Map();
+  await endToEnd({ blocks: SHORT_PAGE, diagnostics: true, store });
+  const reference = await endToEnd({ blocks: SHORT_PAGE, diagnostics: false });
+  const second = await endToEnd({
+    blocks: SHORT_PAGE,
+    diagnostics: false,
+    store,
+    failDiagnosticsRemove: true,
+    failDiagnosticsFallback: true,
+  });
+  assert.deepEqual(second.state, reference.state);
+  assert.equal(second.consoleLines.length, 1);
 });

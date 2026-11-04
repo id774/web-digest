@@ -10,13 +10,21 @@ import {
   shape,
 } from "../shape/shape.js";
 import { callProvider } from "../engine/dispatcher.js";
-import { readSettings } from "../common/settings.js";
+import { readDiagnosticLogging, readSettings } from "../common/settings.js";
 import {
   hasProviderPermission,
   needsOptionalPermission,
 } from "../common/permissions.js";
 import { ErrorKind } from "../common/errors.js";
 import { MessageType } from "../common/messages.js";
+import {
+  DiagOutcome,
+  DiagStep,
+  DiagTask,
+  createRecorder,
+  diagnosticsKey,
+  emptyRecord,
+} from "../common/diagnostics.js";
 
 const PANEL_PATH = "src/panel/panel.html";
 const PROMPT_PATH = "prompts/summarize.md";
@@ -181,33 +189,110 @@ function summaryMaterial(title, summaries) {
   return { title, text, charCount: title.length + text.length };
 }
 
+// Observation is a side channel: `observe` receives a step and non-text facts
+// about it, and nothing it does or throws changes what the run does.
+const noObserve = () => {};
+
+function safeObserve(observe) {
+  return (step, facts) => {
+    try {
+      observe(step, facts);
+    } catch {
+      // An observer's failure is never the run's.
+    }
+  };
+}
+
+async function observedCall(providerCall, request, observe, facts) {
+  const began = Date.now();
+  observe(DiagStep.REQUEST_START, facts);
+  let answer;
+  try {
+    answer = await providerCall(request);
+  } catch (error) {
+    observe(DiagStep.REQUEST_END, {
+      ...facts,
+      outcome: DiagOutcome.EXCEPTION,
+      requestMs: Date.now() - began,
+    });
+    throw error;
+  }
+  observe(DiagStep.REQUEST_END, {
+    ...facts,
+    outcome: answer && answer.ok ? DiagOutcome.OK : DiagOutcome.FAILED,
+    errorKind: answer && !answer.ok ? answer.kind : undefined,
+    detail: answer && !answer.ok ? answer.detail : undefined,
+    status: answer && !answer.ok ? answer.status : undefined,
+    requestMs: Date.now() - began,
+  });
+  return answer;
+}
+
 export async function summarizeMaterial(
   material,
   instruction,
   providerCall,
   depth = 0,
   isActive = () => true,
+  observe = noObserve,
 ) {
+  observe = safeObserve(observe);
   if (!isActive()) return null;
   if (material.charCount <= MAX_REQUEST_MATERIAL_CHARS) {
-    const answer = await providerCall(
-      composeRequest(instruction, material, depth ? "integrate" : "page"),
+    const task = depth ? DiagTask.INTEGRATE : DiagTask.PAGE;
+    const answer = await observedCall(
+      providerCall,
+      composeRequest(instruction, material, task),
+      observe,
+      { task, depth, chars: material.charCount },
     );
     return isActive() ? answer : null;
   }
 
   // Bound malformed or non-compressing answers without declining ordinary
   // long pages before their content has been processed.
-  if (depth >= 8) return { ok: false, kind: ErrorKind.TOO_MUCH_TEXT };
+  if (depth >= 8) {
+    observe(DiagStep.SPLIT, {
+      depth,
+      chars: material.charCount,
+      outcome: DiagOutcome.FAILED,
+      errorKind: ErrorKind.TOO_MUCH_TEXT,
+    });
+    return { ok: false, kind: ErrorKind.TOO_MUCH_TEXT };
+  }
 
   const chunks = chunkMaterial(material);
-  if (chunks.length < 2) return { ok: false, kind: ErrorKind.TOO_MUCH_TEXT };
+  if (chunks.length < 2) {
+    observe(DiagStep.SPLIT, {
+      depth,
+      chunks: chunks.length,
+      chars: material.charCount,
+      outcome: DiagOutcome.FAILED,
+      errorKind: ErrorKind.TOO_MUCH_TEXT,
+    });
+    return { ok: false, kind: ErrorKind.TOO_MUCH_TEXT };
+  }
+  observe(DiagStep.SPLIT, {
+    depth,
+    chunks: chunks.length,
+    chars: material.charCount,
+    outcome: DiagOutcome.OK,
+  });
 
   const summaries = [];
-  for (const chunk of chunks) {
+  for (const [position, chunk] of chunks.entries()) {
     if (!isActive()) return null;
-    const answer = await providerCall(
+    const answer = await observedCall(
+      providerCall,
       composeRequest(instruction, chunk, "chunk"),
+      observe,
+      {
+        task: DiagTask.CHUNK,
+        depth,
+        index: position + 1,
+        total: chunks.length,
+        chars: chunk.charCount,
+      },
     );
     if (!isActive()) return null;
     if (!answer.ok) return answer;
@@ -220,6 +305,7 @@ export async function summarizeMaterial(
     providerCall,
     depth + 1,
     isActive,
+    observe,
   );
 }
 
@@ -305,6 +391,7 @@ async function discardState(tabId) {
       // only signal left to try.
     }
   }
+  await removeDiagnostics(tabId);
   chrome.runtime
     .sendMessage({
       type: MessageType.STATE_CHANGED,
@@ -312,6 +399,75 @@ async function discardState(tabId) {
       state: idleState(),
     })
     .catch(() => {});
+}
+
+// Removes the tab's diagnostics if there are any. The record is looked for
+// first so that a tab that never recorded one costs no remove; when the look
+// itself fails, the remove is attempted anyway, since leaving a record behind
+// is the worse outcome. A failure here is the diagnostics' own and is never
+// surfaced.
+async function removeDiagnostics(tabId) {
+  const key = diagnosticsKey(tabId);
+  let present = true;
+  try {
+    const stored = await chrome.storage.session.get(key);
+    present = Boolean(stored) && stored[key] !== undefined;
+  } catch {
+    present = true;
+  }
+  if (!present) return;
+  try {
+    await chrome.storage.session.remove(key);
+  } catch {
+    // A record that cannot be removed must not stay as the old run's account
+    // of a later run. One fallback write of an empty record stands in for the
+    // remove, never a retry of it, and the panel shows an empty record as
+    // nothing. If that write fails too, nothing more can be done here.
+    try {
+      await chrome.storage.session.set({ [key]: emptyRecord() });
+    } catch {
+      // Storage is not answering either call.
+    }
+  }
+}
+
+// Queued behind whatever is pending for this tab, so a previous run's record
+// is gone before this run's own state is written.
+function clearDiagnostics(tabId) {
+  return enqueueStateMutation(tabId, () => removeDiagnostics(tabId));
+}
+
+// The diagnostics of one run are written through the same per-tab queue as
+// its state, and skipped once the run is no longer the tab's current one, so
+// a navigation or closure can never be followed by a late diagnostic write.
+// Writes coalesce: while one is in flight, further changes only mark the
+// record dirty, and the latest record is written once the current write ends.
+// A failed write is dropped; the run neither waits for it nor learns of it.
+function diagnosticsPersister(tabId, run) {
+  let writing = false;
+  let dirty = false;
+  let latest = null;
+  return (record) => {
+    latest = record;
+    dirty = true;
+    if (writing) return;
+    writing = true;
+    enqueueStateMutation(tabId, async () => {
+      try {
+        while (dirty && isCurrentRun(tabId, run)) {
+          dirty = false;
+          await chrome.storage.session.set({
+            [diagnosticsKey(tabId)]: structuredClone(latest),
+          });
+        }
+      } catch {
+        // The record stays at whatever last reached storage.
+      } finally {
+        dirty = false;
+        writing = false;
+      }
+    }).catch(() => {});
+  };
 }
 
 // Counts and durations are what a log is allowed to know here. Never a
@@ -348,8 +504,25 @@ async function loadInstruction() {
 // escaping from here — the same storage write that is already the failure
 // failing again — would leave that catch block, and the run's promise,
 // rejecting with nothing left to catch it.
-export async function fail(tabId, run, title, started, kind, detail, status) {
+export async function fail(
+  tabId,
+  run,
+  title,
+  started,
+  kind,
+  detail,
+  status,
+  recorder,
+) {
   if (!isCurrentRun(tabId, run)) return;
+  if (recorder) {
+    recorder.record(DiagStep.RESULT, {
+      outcome: DiagOutcome.FAILED,
+      errorKind: kind,
+      detail,
+      status,
+    });
+  }
   const state = failedState(title, kind, detail);
   try {
     await writeState(tabId, state, run);
@@ -382,10 +555,16 @@ async function runSummary(tabId, titleFromTab, run) {
 
   const started = Date.now();
   let title = titleFromTab || "";
+  let recorder = createRecorder({ enabled: false });
 
   try {
     // Wait for navigation cleanup so it cannot remove this run's new state.
     await waitForDiscard(tabId);
+    if (!isCurrentRun(tabId, run)) return;
+
+    // A record left by an earlier run of this tab is removed before this
+    // run's own state is written, whether or not this run records one.
+    await clearDiagnostics(tabId);
     if (!isCurrentRun(tabId, run)) return;
 
     // running is written before the first await of the work, so a worker
@@ -394,10 +573,37 @@ async function runSummary(tabId, titleFromTab, run) {
 
     const settings = await readSettings();
     if (!isCurrentRun(tabId, run)) return;
+
+    // Whether this run records diagnostics is fixed here, once. A preference
+    // that cannot be read means off, and recording can never fail the run.
+    let diagnosticsEnabled = false;
+    try {
+      diagnosticsEnabled = await readDiagnosticLogging();
+    } catch {
+      diagnosticsEnabled = false;
+    }
+    if (!isCurrentRun(tabId, run)) return;
+    recorder = createRecorder({
+      enabled: diagnosticsEnabled,
+      started,
+      persist: diagnosticsPersister(tabId, run),
+    });
+
     if (!settings.credential) {
-      await fail(tabId, run, title, started, ErrorKind.CREDENTIAL_MISSING);
+      recorder.record(DiagStep.SETTINGS, { outcome: DiagOutcome.FAILED });
+      await fail(
+        tabId,
+        run,
+        title,
+        started,
+        ErrorKind.CREDENTIAL_MISSING,
+        undefined,
+        undefined,
+        recorder,
+      );
       return;
     }
+    recorder.record(DiagStep.SETTINGS, { outcome: DiagOutcome.OK });
 
     // A provider whose host permission is optional (OpenAI, Claude, Kimi) may
     // have had that permission revoked since it was granted. This is checked, not
@@ -407,7 +613,16 @@ async function runSummary(tabId, titleFromTab, run) {
       const granted = await hasProviderPermission(settings.provider);
       if (!isCurrentRun(tabId, run)) return;
       if (!granted) {
-        await fail(tabId, run, title, started, ErrorKind.PERMISSION_MISSING);
+        await fail(
+          tabId,
+          run,
+          title,
+          started,
+          ErrorKind.PERMISSION_MISSING,
+          undefined,
+          undefined,
+          recorder,
+        );
         return;
       }
     }
@@ -419,10 +634,21 @@ async function runSummary(tabId, titleFromTab, run) {
         settings.japaneseSummary,
       );
     } catch {
-      await fail(tabId, run, title, started, ErrorKind.INTERNAL_ERROR);
+      recorder.record(DiagStep.PROMPT, { outcome: DiagOutcome.FAILED });
+      await fail(
+        tabId,
+        run,
+        title,
+        started,
+        ErrorKind.INTERNAL_ERROR,
+        undefined,
+        undefined,
+        recorder,
+      );
       return;
     }
     if (!isCurrentRun(tabId, run)) return;
+    recorder.record(DiagStep.PROMPT, { outcome: DiagOutcome.OK });
 
     let extracted;
     try {
@@ -432,22 +658,64 @@ async function runSummary(tabId, titleFromTab, run) {
       });
       extracted = results && results[0] ? results[0].result : null;
     } catch {
-      await fail(tabId, run, title, started, ErrorKind.PAGE_UNREADABLE);
+      recorder.record(DiagStep.EXTRACT, { outcome: DiagOutcome.FAILED });
+      await fail(
+        tabId,
+        run,
+        title,
+        started,
+        ErrorKind.PAGE_UNREADABLE,
+        undefined,
+        undefined,
+        recorder,
+      );
       return;
     }
     if (!isCurrentRun(tabId, run)) return;
 
     if (!isValidExtractResult(extracted)) {
-      await fail(tabId, run, title, started, ErrorKind.PAGE_UNREADABLE);
+      recorder.record(DiagStep.EXTRACT, { outcome: DiagOutcome.FAILED });
+      await fail(
+        tabId,
+        run,
+        title,
+        started,
+        ErrorKind.PAGE_UNREADABLE,
+        undefined,
+        undefined,
+        recorder,
+      );
       return;
     }
+    recorder.record(DiagStep.EXTRACT, {
+      outcome: DiagOutcome.OK,
+      blocks: extracted.blocks.length,
+    });
     if (extracted.title) title = extracted.title;
 
     const shaped = shape(extracted);
     if (!shaped.ok) {
-      await fail(tabId, run, title, started, shaped.kind);
+      recorder.record(DiagStep.SHAPE, {
+        outcome: DiagOutcome.FAILED,
+        errorKind: shaped.kind,
+      });
+      await fail(
+        tabId,
+        run,
+        title,
+        started,
+        shaped.kind,
+        undefined,
+        undefined,
+        recorder,
+      );
       return;
     }
+    recorder.record(DiagStep.SHAPE, {
+      outcome: DiagOutcome.OK,
+      blocks: shaped.material.blockCount,
+      chars: shaped.material.charCount,
+    });
 
     const answer = await keepServiceWorkerAlive(() =>
       summarizeMaterial(
@@ -463,6 +731,7 @@ async function runSummary(tabId, titleFromTab, run) {
           }),
         0,
         () => isCurrentRun(tabId, run),
+        recorder.record,
       ),
     );
 
@@ -476,11 +745,17 @@ async function runSummary(tabId, titleFromTab, run) {
         answer.kind,
         answer.detail,
         answer.status,
+        recorder,
       );
       return;
     }
 
     if (!isCurrentRun(tabId, run)) return;
+    recorder.record(DiagStep.RESULT, {
+      outcome: DiagOutcome.OK,
+      blocks: shaped.material.blockCount,
+      chars: shaped.material.charCount,
+    });
     await writeState(tabId, succeededState(title, answer.summary), run);
     if (!isCurrentRun(tabId, run)) return;
     logRun({
@@ -491,7 +766,16 @@ async function runSummary(tabId, titleFromTab, run) {
     });
   } catch {
     // So that "no failure is silent" survives an exception nobody predicted.
-    await fail(tabId, run, title, started, ErrorKind.INTERNAL_ERROR);
+    await fail(
+      tabId,
+      run,
+      title,
+      started,
+      ErrorKind.INTERNAL_ERROR,
+      undefined,
+      undefined,
+      recorder,
+    );
   } finally {
     releaseRun(tabId, run);
   }
