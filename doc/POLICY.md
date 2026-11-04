@@ -175,7 +175,10 @@ requirements, and recorded here once it has been.
 - No page text is stored on a server belonging to this project, because there is
   none, and none is written to disk. The result of the last run lives in session
   state, per tab, and is gone when the browser closes, the tab closes or the tab
-  navigates elsewhere.
+  navigates elsewhere. The optional diagnostic record (§1.10), when the reader
+  has turned it on, is held the same way and for the same time, and contains
+  none of the page's text, title or URL, the prompt, a summary, a credential,
+  or the provider or model used.
 - No summary is stored on a server belonging to this project, for the same
   reason, and no history of summaries is kept anywhere.
 - **The content to be summarized is sent to the one AI provider selected for
@@ -251,7 +254,8 @@ prompt, to extraction or to shaping is allowed to do.
 
 ### 1.10 Logging
 - Keep the log to the minimum that makes a run explicable: one line at the end
-  of a run, written with `console` in the service worker.
+  of a run, written with `console` in the service worker. That line is always
+  written, and it is unchanged by the optional diagnostics below.
 - Do not add a log line merely to record an ordinary control-flow decision.
   Logging exists to make a run explicable, not to prove that every branch was
   visited. Keep actionable failure information from being buried by normal
@@ -269,6 +273,22 @@ prompt, to extraction or to shaping is allowed to do.
 - There is no log level setting and no setting that turns any of the above back
   on. A diagnostic added while a fault is being chased is removed before the
   change is committed.
+- **The one allowed addition to the closing line is the reader's own optional
+  diagnostic record**, and it is not a log line. It is off until the reader
+  turns it on in settings, and its value is read once when a run begins. It
+  describes one run of one tab as an ordered list of steps and requests,
+  built only from a fixed vocabulary and integers, so the list above of what
+  is never logged holds for it in full. It lives in session storage under the
+  tab, is shown in the side panel as text, and is removed with the tab's run
+  state and by the tab's next run. Its size is bounded by constants whose
+  choice is recorded in the detailed design, a bound reached is reported as an
+  incomplete record and never as an error of the run, and a record that cannot
+  be made, stored or shown never changes a run's result, its error, its
+  requests, its timing or the closing line.
+- A change to diagnostics does not widen what may be recorded without changing
+  this section, and does not add a destination for it: not the console beyond
+  the one line, not disk, not a message to anywhere but the panel, not a
+  network.
 
 ### 1.11 Dependencies
 - **The initial version has no runtime dependency, no build step and no
@@ -681,8 +701,9 @@ that the requirements are incomplete, and that is where it is taken.
 
 ### 2.8 Settings and State
 - **The settings are the selected provider, each provider's own credential and
-  model, and the Japanese summary preference**, and they live in
-  `chrome.storage.local`. Nothing else is a setting.
+  model, the Japanese summary preference, and the diagnostic recording
+  preference**, and they live in `chrome.storage.local`. Nothing else is a
+  setting.
 - Each provider's credential and model are held under their own storage key,
   independent of the other providers'. Selecting a different provider, or
   saving or deleting one provider's credential, never touches another
@@ -701,7 +722,9 @@ that the requirements are incomplete, and that is where it is taken.
   that. A value with one correct answer is a constant with a comment saying why.
 - The state of a run lives in `chrome.storage.session`, keyed by tab, so that it
   survives the service worker being terminated and is gone when the browser
-  closes. No state management framework, no store, no persisted history.
+  closes. No state management framework, no store, no persisted history. The
+  optional diagnostic record (§1.10) lives in the same area under its own key
+  for the tab and has the same lifetime; it is never a field of the run state.
 - One place names the storage keys, and nothing else names one.
 
 ### 2.9 The Prompt

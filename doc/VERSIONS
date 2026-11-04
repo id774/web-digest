@@ -5,6 +5,8 @@ v1.1.2 (Release Date: TBD)
 --------------------------
 - Improved extension icon legibility at small sizes in Chrome's toolbar.
 - Added a brief three-line overview ahead of the full page summary.
+- Added optional, session-only diagnostics for summarization runs, readable
+  in the side panel without retaining page content or credentials.
 
 v1.1.1 (2026-09-23)
 -------------------

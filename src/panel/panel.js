@@ -5,6 +5,11 @@
 
 import { ErrorKind, messageFor } from "../common/errors.js";
 import { MessageType } from "../common/messages.js";
+import {
+  diagnosticsKey,
+  formatDiagnostics,
+  sanitizeRecord,
+} from "../common/diagnostics.js";
 
 const elements = {
   title: document.getElementById("title"),
@@ -12,6 +17,8 @@ const elements = {
   summary: document.getElementById("summary"),
   openSettings: document.getElementById("open-settings"),
   settings: document.getElementById("settings"),
+  diagnostics: document.getElementById("diagnostics"),
+  diagnosticsText: document.getElementById("diagnostics-text"),
 };
 
 // The tab this panel currently follows, and the generation of that binding:
@@ -36,6 +43,13 @@ let tabLookupGeneration = 0;
 // with — issued before that update was known to exist — can never overwrite
 // it by resolving late.
 let liveSeenThisGeneration = false;
+// The tab's diagnostics, when it has any, and the phase last rendered for it.
+// The record is shown as text beside the summary, never in place of it. It is
+// bound to the same tab and the same generation as the state, and reset with
+// them, so one tab's record is never shown for another.
+let currentDiagnostics = null;
+let renderedPhase = "idle";
+let diagnosticsLiveSeenThisGeneration = false;
 
 function show(element, text) {
   // Nothing from the page and nothing from the model becomes markup.
@@ -43,7 +57,31 @@ function show(element, text) {
   element.hidden = text === "";
 }
 
+function renderDiagnostics() {
+  // A record with no events and nothing dropped says nothing: it is what
+  // stands in for a record the worker could not remove.
+  if (
+    !currentDiagnostics ||
+    (currentDiagnostics.events.length === 0 && currentDiagnostics.dropped === 0)
+  ) {
+    show(elements.diagnosticsText, "");
+    elements.diagnostics.hidden = true;
+    return;
+  }
+  const finished = renderedPhase === "succeeded" || renderedPhase === "failed";
+  show(elements.diagnosticsText, formatDiagnostics(currentDiagnostics, { finished }));
+  elements.diagnostics.hidden = false;
+}
+
 function render(state) {
+  renderedPhase = state && state.phase ? state.phase : "idle";
+  // A tab with no run has no diagnostics, whatever was last shown for it.
+  if (renderedPhase === "idle") currentDiagnostics = null;
+  renderState(state);
+  renderDiagnostics();
+}
+
+function renderState(state) {
   const phase = state && state.phase ? state.phase : "idle";
 
   show(elements.title, state && state.title ? state.title : "");
@@ -121,6 +159,24 @@ function invalidateBinding() {
   currentTabId = null;
   bindGeneration += 1;
   liveSeenThisGeneration = false;
+  currentDiagnostics = null;
+  diagnosticsLiveSeenThisGeneration = false;
+}
+
+// Reads this binding's diagnostics once. Like the state snapshot, it is
+// ignored if the binding has changed, or a live change has already been
+// shown, by the time it settles. A read that fails shows nothing.
+async function loadDiagnostics(tabId, generation) {
+  const key = diagnosticsKey(tabId);
+  let stored;
+  try {
+    stored = await chrome.storage.session.get(key);
+  } catch {
+    return;
+  }
+  if (generation !== bindGeneration || diagnosticsLiveSeenThisGeneration) return;
+  currentDiagnostics = sanitizeRecord(stored && stored[key]);
+  renderDiagnostics();
 }
 
 // Binds to `tabId`: starts a new generation, fetches its current snapshot,
@@ -136,6 +192,9 @@ async function bindTo(tabId) {
   const generation = bindGeneration;
   currentTabId = tabId;
   liveSeenThisGeneration = false;
+  currentDiagnostics = null;
+  diagnosticsLiveSeenThisGeneration = false;
+  loadDiagnostics(tabId, generation);
 
   function stale() {
     return generation !== bindGeneration || liveSeenThisGeneration;
@@ -193,6 +252,17 @@ chrome.runtime.onMessage.addListener((message) => {
   if (message.tabId !== currentTabId) return;
   liveSeenThisGeneration = true;
   render(message.state);
+});
+
+// A change to the bound tab's diagnostics in session storage, and only that
+// one, is shown as it lands. A removal clears the display.
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "session" || currentTabId === null) return;
+  const change = changes[diagnosticsKey(currentTabId)];
+  if (!change) return;
+  diagnosticsLiveSeenThisGeneration = true;
+  currentDiagnostics = sanitizeRecord(change.newValue);
+  renderDiagnostics();
 });
 
 // tabs.onActivated carries only a tabId and a windowId, never a URL or a

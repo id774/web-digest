@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  STORAGE_KEY_DIAGNOSTIC_LOGGING,
   STORAGE_KEY_JAPANESE_SUMMARY,
   STORAGE_KEY_OPENAI_KEY,
   STORAGE_KEY_OPENAI_MODEL,
@@ -27,6 +28,8 @@ const ELEMENT_IDS = [
   "status",
   "japanese-summary",
   "japanese-summary-status",
+  "diagnostic-logging",
+  "diagnostic-logging-status",
 ];
 
 function makeElement() {
@@ -426,6 +429,11 @@ test("a successful provider change reads target settings before committing the s
     await resolveNextGet(pendingGets);
     await resolveNextGet(pendingGets);
     await flushUntil(() => els.provider.disabled === false);
+    // The diagnostic recording preference is read on its own once the
+    // settings above are loaded; it is settled here so that the reads counted
+    // below are only the provider change's own.
+    await flushUntil(() => pendingGets.length === 1);
+    await resolveNextGet(pendingGets);
 
     els.provider.value = "openai";
     const change = fire(els.provider, "change");
@@ -856,6 +864,139 @@ test("a Japanese summary toggle attempted before the initial load resolves is re
     assert.equal(els["japanese-summary"].checked, false);
     assert.equal(els["japanese-summary-status"].textContent, "Saved.");
     assert.equal(store.get(STORAGE_KEY_JAPANESE_SUMMARY), false);
+  } finally {
+    cleanup();
+  }
+});
+
+// --- diagnostic recording preference ---
+
+async function loadDiagnosticsOptions(chrome) {
+  const els = await loadOptionsPage(chrome);
+  await flushUntil(() => els["diagnostic-logging"].disabled === false);
+  return els;
+}
+
+test("diagnostic recording is off when nothing, or anything but true, is stored", async () => {
+  for (const seed of [{}, { [STORAGE_KEY_DIAGNOSTIC_LOGGING]: "true" }, { [STORAGE_KEY_DIAGNOSTIC_LOGGING]: 1 }]) {
+    const { chrome } = makeFakeChrome(seed);
+    try {
+      const els = await loadDiagnosticsOptions(chrome);
+      assert.equal(els["diagnostic-logging"].checked, false);
+    } finally {
+      cleanup();
+    }
+  }
+});
+
+test("a stored true shows the preference as on", async () => {
+  const { chrome } = makeFakeChrome({ [STORAGE_KEY_DIAGNOSTIC_LOGGING]: true });
+  try {
+    const els = await loadDiagnosticsOptions(chrome);
+    assert.equal(els["diagnostic-logging"].checked, true);
+  } finally {
+    cleanup();
+  }
+});
+
+test("toggling diagnostic recording saves only its own key", async () => {
+  const { chrome, store, pendingSets, calls } = makeFakeChrome({
+    [STORAGE_KEY_PROVIDER]: "openai",
+    [STORAGE_KEY_OPENAI_KEY]: "sk-keep",
+    [STORAGE_KEY_JAPANESE_SUMMARY]: true,
+  });
+  try {
+    const els = await loadDiagnosticsOptions(chrome);
+    els["diagnostic-logging"].checked = true;
+    const change = fire(els["diagnostic-logging"], "change");
+    await flushUntil(() => pendingSets.length === 1);
+    assert.deepEqual(pendingSets[0].fields, { [STORAGE_KEY_DIAGNOSTIC_LOGGING]: true });
+    pendingSets.shift().resolve();
+    await change;
+    assert.equal(els["diagnostic-logging-status"].textContent, "Saved.");
+    assert.equal(store.get(STORAGE_KEY_DIAGNOSTIC_LOGGING), true);
+    assert.equal(store.get(STORAGE_KEY_OPENAI_KEY), "sk-keep");
+    assert.equal(store.get(STORAGE_KEY_JAPANESE_SUMMARY), true);
+    assert.equal(calls.filter(([kind]) => kind === "remove-called").length, 0);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a diagnostic recording storage failure reverts the checkbox and does not claim success", async () => {
+  const { chrome, store, pendingSets } = makeFakeChrome();
+  try {
+    const els = await loadDiagnosticsOptions(chrome);
+    els["diagnostic-logging"].checked = true;
+    const change = fire(els["diagnostic-logging"], "change");
+    await flushUntil(() => pendingSets.length === 1);
+    pendingSets.shift().reject(new Error("storage unavailable"));
+    await change;
+    assert.equal(els["diagnostic-logging"].checked, false);
+    assert.equal(
+      els["diagnostic-logging-status"].textContent,
+      "The diagnostic recording preference could not be saved.",
+    );
+    assert.equal(store.has(STORAGE_KEY_DIAGNOSTIC_LOGGING), false);
+  } finally {
+    cleanup();
+  }
+});
+
+test("overlapping diagnostic recording toggles are serialized and the later one decides", async () => {
+  const { chrome, store, pendingSets } = makeFakeChrome();
+  try {
+    const els = await loadDiagnosticsOptions(chrome);
+    els["diagnostic-logging"].checked = true;
+    const first = fire(els["diagnostic-logging"], "change");
+    await flushUntil(() => pendingSets.length === 1);
+    els["diagnostic-logging"].checked = false;
+    const second = fire(els["diagnostic-logging"], "change");
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(pendingSets.length, 1, "the second save must wait for the first");
+    pendingSets.shift().resolve();
+    await first;
+    await flushUntil(() => pendingSets.length === 1);
+    pendingSets.shift().resolve();
+    await second;
+    assert.equal(els["diagnostic-logging"].checked, false);
+    assert.equal(store.get(STORAGE_KEY_DIAGNOSTIC_LOGGING), false);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a diagnostic recording change before the preference is confirmed is refused", async () => {
+  const { chrome, pendingGets, pendingSets } = makeFakeChrome(
+    { [STORAGE_KEY_DIAGNOSTIC_LOGGING]: true },
+    { holdGets: true },
+  );
+  try {
+    const els = await loadOptionsPageWithoutWaiting(chrome);
+    els["diagnostic-logging"].checked = false;
+    await fire(els["diagnostic-logging"], "change");
+    assert.equal(pendingSets.length, 0);
+    for (let i = 0; i < 4; i++) await resolveNextGet(pendingGets);
+    await resolveNextGet(pendingGets); // the diagnostic preference itself
+    await flushUntil(() => els["diagnostic-logging"].disabled === false);
+    assert.equal(els["diagnostic-logging"].checked, true);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a failed read of the diagnostic preference leaves only that control disabled", async () => {
+  const { chrome } = makeFakeChrome(
+    {},
+    { rejectGetKeys: { [STORAGE_KEY_DIAGNOSTIC_LOGGING]: new Error("unreadable") } },
+  );
+  try {
+    const els = await loadOptionsPage(chrome);
+    await flushUntil(() => els["diagnostic-logging-status"].textContent !== "");
+    assert.equal(els["diagnostic-logging"].disabled, true);
+    assert.equal(els.provider.disabled, false);
+    assert.match(els["diagnostic-logging-status"].textContent, /could not be loaded/);
   } finally {
     cleanup();
   }

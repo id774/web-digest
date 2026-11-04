@@ -11,6 +11,7 @@ import {
   Provider,
   STORAGE_KEY_ANTHROPIC_KEY,
   STORAGE_KEY_ANTHROPIC_MODEL,
+  STORAGE_KEY_DIAGNOSTIC_LOGGING,
   STORAGE_KEY_JAPANESE_SUMMARY,
   STORAGE_KEY_KIMI_KEY,
   STORAGE_KEY_KIMI_MODEL,
@@ -20,11 +21,14 @@ import {
   STORAGE_KEY_PROVIDER,
   STORAGE_KEY_TOKEN,
   isCredentialSet,
+  readDiagnosticLogging,
   readSettings,
+  resolveDiagnosticLogging,
   resolveJapaneseSummary,
   resolveModel,
   resolveModelFor,
   resolveProvider,
+  saveDiagnosticLogging,
 } from "../src/common/settings.js";
 import { validateCredential, validateModel } from "../src/options/options.js";
 import {
@@ -393,5 +397,58 @@ test("a message carries no status, no body and no internals", () => {
         `${kind}/${detail}`,
       );
     }
+  }
+});
+
+test("diagnostic recording is off unless the stored value is exactly true", () => {
+  assert.equal(STORAGE_KEY_DIAGNOSTIC_LOGGING, "diagnosticLogging");
+  assert.equal(resolveDiagnosticLogging(true), true);
+  for (const value of [false, undefined, null, "true", 1, {}, []]) {
+    assert.equal(resolveDiagnosticLogging(value), false);
+  }
+});
+
+test("the diagnostic preference is read and saved on its own key only", async () => {
+  const writes = [];
+  const previousChrome = globalThis.chrome;
+  globalThis.chrome = {
+    storage: {
+      local: {
+        get: async (key) => ({ [key]: true }),
+        set: async (fields) => writes.push(fields),
+      },
+    },
+  };
+  try {
+    assert.equal(await readDiagnosticLogging(), true);
+    await saveDiagnosticLogging(true);
+    await saveDiagnosticLogging("yes");
+    assert.deepEqual(writes, [
+      { diagnosticLogging: true },
+      { diagnosticLogging: false },
+    ]);
+  } finally {
+    globalThis.chrome = previousChrome;
+  }
+});
+
+test("readSettings does not read the diagnostic preference, so a run's other settings reads are unchanged", async () => {
+  const fake = makeFakeStorageLocal({ [STORAGE_KEY_DIAGNOSTIC_LOGGING]: true });
+  const previousChrome = globalThis.chrome;
+  globalThis.chrome = fake.chrome;
+  try {
+    const settings = await readSettings();
+    assert.deepEqual(Object.keys(settings).sort(), [
+      "credential",
+      "japaneseSummary",
+      "model",
+      "provider",
+    ]);
+    assert.equal(
+      fake.calls.flat(2).includes(STORAGE_KEY_DIAGNOSTIC_LOGGING),
+      false,
+    );
+  } finally {
+    globalThis.chrome = previousChrome;
   }
 });

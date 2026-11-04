@@ -1,5 +1,6 @@
-// The settings document: the provider, its credential and model, and the
-// Japanese summary preference, and nothing else.
+// The settings document: the provider, its credential and model, the Japanese
+// summary preference, and the diagnostic recording preference, and nothing
+// else.
 //
 // Nothing is validated by contacting a provider. A credential that does not
 // work is discovered by the first run that uses it, and reported as an error
@@ -15,9 +16,11 @@ import {
   Provider,
   deleteCredential,
   hasCredential,
+  readDiagnosticLogging,
   readJapaneseSummary,
   readStoredModel,
   readStoredProvider,
+  saveDiagnosticLogging,
   saveJapaneseSummary,
   saveProvider,
   saveProviderSettings,
@@ -136,10 +139,16 @@ function wire() {
     status: document.getElementById("status"),
     japaneseSummary: document.getElementById("japanese-summary"),
     japaneseSummaryStatus: document.getElementById("japanese-summary-status"),
+    diagnosticLogging: document.getElementById("diagnostic-logging"),
+    diagnosticLoggingStatus: document.getElementById(
+      "diagnostic-logging-status",
+    ),
   };
 
   let currentProvider = Provider.SAKURA;
   let confirmedJapaneseSummary = false;
+  let confirmedDiagnosticLogging = false;
+  let diagnosticLoggingInitializing = true;
 
   // True until the stored provider, its fields, and the Japanese summary
   // preference have all been read back at least once. `currentProvider` and
@@ -188,6 +197,10 @@ function wire() {
 
   function sayJapaneseSummary(text) {
     fields.japaneseSummaryStatus.textContent = text;
+  }
+
+  function sayDiagnosticLogging(text) {
+    fields.diagnosticLoggingStatus.textContent = text;
   }
 
   function setProviderControlsDisabled(disabled) {
@@ -254,6 +267,24 @@ function wire() {
     initializing = false;
     setProviderControlsDisabled(false);
     fields.japaneseSummary.disabled = false;
+  }
+
+  // Read on its own, after and apart from the settings above, because the
+  // preference is independent of them: until it is confirmed the checkbox
+  // stays disabled and refuses changes, and a failed read leaves it disabled
+  // with the failure said, without holding back any other setting.
+  async function loadDiagnosticLogging() {
+    try {
+      confirmedDiagnosticLogging = await readDiagnosticLogging();
+      fields.diagnosticLogging.checked = confirmedDiagnosticLogging;
+    } catch {
+      sayDiagnosticLogging(
+        "The diagnostic recording preference could not be loaded. Reload the page to try again.",
+      );
+      return;
+    }
+    diagnosticLoggingInitializing = false;
+    fields.diagnosticLogging.disabled = false;
   }
 
   // Every provider-scoped operation below starts by claiming this single
@@ -435,13 +466,52 @@ function wire() {
     return japaneseSummaryQueue;
   });
 
+  // The same shape as the Japanese summary preference above, and as
+  // independent of it: its own queue and generation keep two quick toggles
+  // from leaving the stored value reversed, and it never touches a provider,
+  // a credential, a model or the other preference.
+  let diagnosticLoggingQueue = Promise.resolve();
+  let diagnosticLoggingGeneration = 0;
+
+  fields.diagnosticLogging.addEventListener("change", () => {
+    if (diagnosticLoggingInitializing) {
+      fields.diagnosticLogging.checked = confirmedDiagnosticLogging;
+      return;
+    }
+    const requested = fields.diagnosticLogging.checked;
+    diagnosticLoggingGeneration += 1;
+    const generation = diagnosticLoggingGeneration;
+    diagnosticLoggingQueue = diagnosticLoggingQueue
+      .catch(() => {})
+      .then(async () => {
+        try {
+          await saveDiagnosticLogging(requested);
+        } catch {
+          if (generation === diagnosticLoggingGeneration) {
+            fields.diagnosticLogging.checked = confirmedDiagnosticLogging;
+            sayDiagnosticLogging(
+              "The diagnostic recording preference could not be saved.",
+            );
+          }
+          return;
+        }
+        confirmedDiagnosticLogging = requested;
+        if (generation === diagnosticLoggingGeneration) {
+          fields.diagnosticLogging.checked = confirmedDiagnosticLogging;
+          sayDiagnosticLogging("Saved.");
+        }
+      });
+    return diagnosticLoggingQueue;
+  });
+
   // Disabled until load() confirms what is actually stored, so nothing
   // above can be reached — by a real click or by a handler invoked directly
   // — while `currentProvider` and `confirmedJapaneseSummary` are still the
   // provisional defaults set above, not the reader's saved settings.
   setProviderControlsDisabled(true);
   fields.japaneseSummary.disabled = true;
-  load();
+  fields.diagnosticLogging.disabled = true;
+  load().then(loadDiagnosticLogging);
 }
 
 if (typeof document !== "undefined") {

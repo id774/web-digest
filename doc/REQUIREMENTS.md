@@ -260,6 +260,37 @@ selected, is independent of the provider choice and of any provider's
 credential or model, and does not require either to be re-entered when it is
 changed.
 
+### 13.2 Diagnostics
+
+When a summary is slow, stops, or fails, a reader needs to know what was done
+and how far the run got. A single closing line cannot say whether the trouble
+was in obtaining the page, in splitting it, in one of the several requests a
+long page needs, or in the final integration, and a run that never ends leaves
+no line at all.
+
+The reader can therefore turn on, in settings, a diagnostic record of each
+summary. It is off until the reader turns it on, it is independent of every
+other setting, and changing it never starts a summary. A summary already
+running keeps the choice it started with.
+
+While it is on, the reader can read, and copy as ordinary text, what that
+summary did: which steps ran in which order, which of a long page's requests
+were made, which one failed and in what way, and how far the run had got when
+it stopped. The failure kinds in section 18 are not changed by it, and it
+never claims a cause that was not observed. A record that could not keep
+everything, or that never reached its end, says so rather than passing for
+complete.
+
+The record describes one run of one tab. It is shown beside the summary and
+never mixed into it, it does not outlive the browser session, the tab or the
+page it was made for, and the next summary for the tab replaces it. It
+contains step names, counts, sizes and timings only: never an API credential,
+the selected provider or model, the text, title or address of a page, the
+prompt, a request or response, a summary, or an exception message. Recording
+it, showing it or failing to store it never changes a summary, an error, a
+request to a provider, or the line already written when a run ends. It sends
+nothing anywhere and asks for no new permission.
+
 ## 14. The AI provider
 
 The summarization is performed by one AI provider the reader has selected:
@@ -343,6 +374,10 @@ A server belonging to this project collects and stores none of the following:
 - a summary,
 - an API credential, for any provider.
 
+The optional diagnostic record (section 13.2) is held only in the browser
+session, per tab, and holds none of the above, nor the selected provider, a
+model name, the prompt or any request or response.
+
 What a selected provider itself does with what it receives — how long it is
 kept, whether it is logged, whether it is used to train anything — is that
 provider's own concern, stated in its own documentation. This document does
@@ -364,6 +399,10 @@ The reader can tell which of these a run is in:
 A run whose outcome cannot be told apart from a run that has not started is a
 defect, however the interface is built.
 
+A reader who has turned the diagnostic record on (section 13.2) can also tell
+how far an unfinished, failed or interrupted run got, and a record that lacks
+the end of its run says so.
+
 ## 18. Errors
 
 The reader is told when any of these happens, in terms they can act on:
@@ -381,6 +420,10 @@ The reader is told when any of these happens, in terms they can act on:
 - there is not enough text on the page to summarize,
 - the content is larger than can be processed,
 - no usable summary came back.
+
+When the reader has turned the diagnostic record on, the step a failed run had
+reached and the way its last request failed can be read alongside the error
+(section 13.2). That never changes which of these the reader is told.
 
 **These are distinguished from each other**, because what the reader does next
 differs: configure a credential, replace a credential, grant a permission,
@@ -549,3 +592,9 @@ The initial version has met its purpose when all of the following hold:
 14. What a reader needs in order to obtain, install, configure and use the
     extension from GitHub, for any of the four supported providers, is written
     down in this repository.
+15. A reader can turn on a diagnostic record, off by default, and then read and
+    copy what a summary did, in order, including which request of a long page
+    failed and in what way. Turning it on or off changes no summary, no error,
+    no request and no closing log line, the record holds none of the content
+    or secrets listed in section 13.2, it is bounded and says so when it is
+    incomplete, and it is gone with the session, the tab or the page.

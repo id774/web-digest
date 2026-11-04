@@ -156,6 +156,8 @@ browser restart. It is where a run happens:
 - it calls the provider client, which dispatches to the one adapter for the
   selected provider,
 - it records the state of the run, and its result or its error,
+- when the reader has turned diagnostics on, it notes each step it takes and
+  each request it makes as non-text facts, and keeps them for the panel (§14),
 - it tells the panel that the state changed.
 
 **Every decision in a run is taken here**, so that there is one place to read
@@ -204,6 +206,12 @@ options page. It does not start a run.
 It performs no extraction and makes no request to any AI provider. It receives
 what to display and displays it.
 
+When the tab has a diagnostic record (§14), the panel also shows it as plain
+text in its own collapsible section, apart from the summary and the error. The
+record is bound to the same tab and the same binding generation as the state,
+so another tab's record, or a snapshot read that settles after the reader has
+moved on, can never be shown. The section is absent when there is no record.
+
 Following the active tab means re-checking, on every tab activation, which tab
 is active now and binding to it — a check that is itself asynchronous and can
 overlap another one already in flight. The most recently started check is
@@ -224,8 +232,8 @@ untouched, since the recheck resolves back to it.
 
 ### 5.4 The options page
 
-The provider, its credential and its model, and the Japanese summary
-preference, and nothing else (§13). It is opened from the panel and from
+The provider, its credential and its model, the Japanese summary preference,
+and the diagnostic recording preference, and nothing else (§13). It is opened from the panel and from
 Chrome's extension list, and it is the only place a credential is entered.
 Selecting a provider whose host permission is optional (OpenAI, Claude, Kimi)
 asks Chrome's own permission prompt from here, before the selection is saved.
@@ -347,14 +355,22 @@ not exclusive to those two; the reader reaches Settings for them through the
 `Settings` header control, present in every phase, rather than through this
 shortcut. The not-run-yet phase does not fetch or show the page's title.
 
+When the reader has turned diagnostics on, a collapsible `Diagnostics`
+section lists what the run did, one line per step or request, as selectable
+text. It is shown beside the state and summary, never in place of either, and
+is hidden when there is nothing to show. A record that could not keep every
+event, or whose run shows no recorded result although it has ended, says so in
+its own last lines. Reading it starts nothing and sends nothing.
+
 The summary is rendered as text. **No markup from the page and no markup from
 the model is put into the panel's DOM** (§18), and no summary is written to
-disk.
+disk. The diagnostic text is rendered the same way.
 
 ### 7.4 The options page
 
 A provider selector, the selected provider's credential and model fields, a
-save, a delete, and a statement of what a credential is used for and where it
+save, a delete, a checkbox for diagnostic recording with a statement of what
+it records, and a statement of what a credential is used for and where it
 is kept. Choosing OpenAI, Claude or Kimi requests that provider's optional
 host permission before the selection is saved (§6); choosing Sakura AI Engine
 requests nothing. Nothing is validated by contacting a provider: a credential
@@ -776,13 +792,15 @@ guarantee, and is not part of this design.
 | the Kimi (Moonshot AI) API key | `storage.local` | entered by the reader; no default; independent of the other providers' credentials |
 | the Kimi model | `storage.local` | a documented default of its own |
 | the Japanese summary preference | `storage.local` | a boolean, off by default; shared by every provider; saved independently of the provider selection and of any provider's credential or model |
+| the diagnostic recording preference | `storage.local` | a boolean, off by default and off for any stored value but `true`; saved independently of every other setting; read once when a run begins, so a change reaches only the next run |
 
 Reading these stored values back when the options page opens is its own
 initializing phase, distinct from any later change the reader makes. A
 provider-scoped save or delete, a provider switch, or a change to the
 Japanese summary preference is never carried out against a value this phase
 has not yet confirmed: the page accepts none of them until that initial read
-has finished, so a change can never land against the wrong provider's keys
+has finished (the diagnostic recording preference is read on its own, after
+these, and accepts no change until its own read has finished), so a change can never land against the wrong provider's keys
 for having started too early, and the initial read — however late it
 actually finishes — can never undo a change the reader completed after it.
 
@@ -823,6 +841,31 @@ another tab is showing.
   same as any tab never summarized.
 - **No summary and no page text is written to disk by this design**, which is
   what §16 requires of it.
+
+**Diagnostics are a second, optional session record of the same tab.** When
+the preference in §13 was on at the start of a run, the worker keeps, in
+`chrome.storage.session` under a key of its own for that tab, an ordered list
+of what the run did: the step reached (settings, prompt, extraction,
+shaping), the split into parts, each request with its purpose (page, part or
+integration), its position and depth, its outcome and error kind, and
+timings and sizes. It is built only from facts the worker already has at the
+step in question, from a fixed vocabulary and integers; nothing free-form can
+enter it. It is not part of the run state and is never an input to whether a
+run succeeded or failed.
+
+- It is discarded together with the run state, on closure, navigation and
+  replacement, and by the next run of the tab before that run begins.
+- Writes go through the same per-tab ordering as the run state and are skipped
+  once the run is no longer the tab's current one, so a late write cannot
+  follow a discard. They coalesce while one is in flight.
+- Its size is bounded. When a bound is reached later events are counted
+  rather than kept, room is always left for the final result, and the panel
+  says that the record is incomplete and what was observed last. The bounds
+  are chosen from measured sizes of long runs (see the detailed design).
+- A record that is missing, stale in storage or cannot be written is not an
+  error of the run. If the worker is terminated mid-run, what had reached
+  storage is what the reader sees, and a missing result is reported as
+  missing, not explained.
 
 No state management framework, no store, no persisted history. The panel asks
 for the current state when it opens and is told when it changes.
@@ -868,7 +911,10 @@ Read as the steps of requirement §9 and of this task's brief:
 8. the summary comes back and is validated as usable (§11.3),
 9. the panel renders it beside the page (§7).
 
-Any step may end the run instead, and every way it can is in §17.
+Any step may end the run instead, and every way it can is in §17. When
+diagnostics were on at step 3, each of these steps and each request of step 7
+also leaves one non-text event in the tab's diagnostic record (§14), beside
+and not part of the run.
 
 ## 16. Privacy design
 
@@ -883,6 +929,7 @@ promissory:
 | no page text reaches a server of this project's | there is no such server; the only outbound origins are the four supported providers', one required and three optional, and the dispatcher sends to exactly the one selected |
 | no summary is stored in a cloud | the result lives in session state and is gone when the browser closes |
 | no credential reaches a server of this project's | each provider's credential is in one header or field, to that provider's one origin |
+| the optional diagnostic record leaks nothing | its events admit only a fixed vocabulary and integers, so no credential, provider, model, page text, title, address, prompt, request, response or exception can enter it; it stays in session storage per tab and is sent nowhere |
 
 **What is sent to the selected AI provider is the shaped text of the page the
 reader asked about, together with the instruction.** That is the point of the
@@ -989,6 +1036,7 @@ session state in §14, the no-fallback rule in §11.1 — that is the reason.
 | §14 four AI providers, one per run, model interchangeable | the dispatcher and adapters in §11, the model as a setting in §11.6 and §13 |
 | §15 the API credential, independent per provider | storage and travel in §12, its limits in §12.3, independence in §13 |
 | §16 privacy | the structural table in §16; no backend anywhere in §3 |
+| §13.2 diagnostics | the preference in §13, the optional session record in §14, its display in §7.3 |
 | §17 the state of a run | the four states and their home in §14 |
 | §18 errors, distinguishable | the table in §17 |
 | §19 maintainability | four modules with one direction of dependency, §2 and §4; the prompt as a resource, §10 |

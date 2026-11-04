@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import { ErrorKind, messageFor } from "../src/common/errors.js";
 import { MessageType } from "../src/common/messages.js";
+import { diagnosticsKey } from "../src/common/diagnostics.js";
 import {
   failedState,
   idleState,
@@ -29,9 +30,19 @@ function makeElement() {
 }
 
 function makeFakeDocument() {
-  const ids = ["title", "status", "summary", "open-settings", "settings"];
+  const ids = [
+    "title",
+    "status",
+    "summary",
+    "open-settings",
+    "settings",
+    "diagnostics",
+    "diagnostics-text",
+  ];
   const elements = {};
   for (const id of ids) elements[id] = makeElement();
+  // panel.html ships this element hidden.
+  elements.diagnostics.hidden = true;
   return { elements, getElementById: (id) => elements[id] };
 }
 
@@ -46,6 +57,7 @@ function makeFakeChrome(initialActiveTabId = 1) {
   const pendingTabsQuery = [];
   let activeTabId = initialActiveTabId;
   let holdTabsQuery = false;
+  const sessionStore = new Map();
 
   const chrome = {
     runtime: {
@@ -75,6 +87,12 @@ function makeFakeChrome(initialActiveTabId = 1) {
       onActivated: { addListener: (fn) => (listeners.activated = fn) },
       onReplaced: { addListener: (fn) => (listeners.replaced = fn) },
     },
+    storage: {
+      session: {
+        get: async (key) => ({ [key]: sessionStore.get(key) }),
+      },
+      onChanged: { addListener: (fn) => (listeners.storageChanged = fn) },
+    },
   };
 
   return {
@@ -83,6 +101,7 @@ function makeFakeChrome(initialActiveTabId = 1) {
     calls,
     pendingSendMessage,
     pendingTabsQuery,
+    sessionStore,
     setActiveTab(id) {
       activeTabId = id;
     },
@@ -863,6 +882,206 @@ test("replacing a non-active tab does not bind the panel to the added tab", asyn
     assert.equal(fake.pendingSendMessage.length, 0);
     assert.equal(doc.elements.title.textContent, "Tab 1 title");
     assert.equal(doc.elements.summary.textContent, "Tab 1 summary");
+  } finally {
+    cleanup();
+  }
+});
+
+// --- diagnostics ---
+
+const RECORD = {
+  v: 1,
+  events: [
+    { seq: 0, ms: 0, step: "settings", outcome: "ok" },
+    { seq: 1, ms: 400, step: "request-end", task: "chunk", index: 2, total: 3, outcome: "failed", errorKind: "timeout" },
+    { seq: 2, ms: 410, step: "result", outcome: "failed", errorKind: "timeout" },
+  ],
+  dropped: 0,
+  last: null,
+};
+
+async function bindToTab(fake, doc, state = idleState()) {
+  await loadPanel(fake.chrome, doc);
+  await flushUntil(() => fake.pendingSendMessage.length === 1);
+  fake.pendingSendMessage.shift().resolve(state);
+  for (let i = 0; i < 30; i++) await Promise.resolve();
+}
+
+test("a tab with a stored record shows it as text next to its state", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  fake.sessionStore.set(diagnosticsKey(1), RECORD);
+  try {
+    await bindToTab(fake, doc, failedState("t", ErrorKind.TIMEOUT));
+    await flushUntil(() => doc.elements.diagnostics.hidden === false);
+    assert.match(doc.elements["diagnostics-text"].textContent, /request-end task=chunk part=2\/3 outcome=failed kind=timeout/);
+    assert.doesNotMatch(doc.elements["diagnostics-text"].textContent, /Incomplete/);
+    assert.equal(doc.elements.status.textContent, messageFor(ErrorKind.TIMEOUT, ""));
+  } finally {
+    cleanup();
+  }
+});
+
+test("without a record nothing is shown", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  try {
+    await bindToTab(fake, doc, succeededState("t", "A summary."));
+    await flushUntil(() => doc.elements.summary.textContent !== "");
+    assert.equal(doc.elements.diagnostics.hidden, true);
+    assert.equal(doc.elements["diagnostics-text"].textContent, "");
+  } finally {
+    cleanup();
+  }
+});
+
+test("a finished run whose record has no result is reported as incomplete", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  fake.sessionStore.set(diagnosticsKey(1), { ...RECORD, events: [RECORD.events[0]] });
+  try {
+    await bindToTab(fake, doc, failedState("t", ErrorKind.INTERNAL_ERROR));
+    await flushUntil(() => doc.elements.diagnostics.hidden === false);
+    assert.match(doc.elements["diagnostics-text"].textContent, /Incomplete: no final result was recorded/);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a live change to the bound tab's record is shown, another tab's is ignored, and a removal clears it", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  try {
+    await bindToTab(fake, doc, runningState("t"));
+    fake.listeners.storageChanged({ [diagnosticsKey(2)]: { newValue: RECORD } }, "session");
+    assert.equal(doc.elements.diagnostics.hidden, true);
+    fake.listeners.storageChanged({ [diagnosticsKey(1)]: { newValue: RECORD } }, "local");
+    assert.equal(doc.elements.diagnostics.hidden, true);
+    fake.listeners.storageChanged({ [diagnosticsKey(1)]: { newValue: RECORD } }, "session");
+    assert.equal(doc.elements.diagnostics.hidden, false);
+    assert.match(doc.elements["diagnostics-text"].textContent, /settings outcome=ok/);
+    fake.listeners.storageChanged({ [diagnosticsKey(1)]: { oldValue: RECORD } }, "session");
+    assert.equal(doc.elements.diagnostics.hidden, true);
+  } finally {
+    cleanup();
+  }
+});
+
+test("switching tabs drops the old tab's record and shows the new tab's own", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  fake.sessionStore.set(diagnosticsKey(1), RECORD);
+  try {
+    await bindToTab(fake, doc, failedState("t", ErrorKind.TIMEOUT));
+    await flushUntil(() => doc.elements.diagnostics.hidden === false);
+
+    fake.setActiveTab(2);
+    fake.listeners.activated();
+    await flushUntil(() => fake.pendingSendMessage.length === 1);
+    assert.equal(doc.elements.diagnostics.hidden, true);
+    fake.pendingSendMessage.shift().resolve(idleState());
+    await flushUntil(() => doc.elements.status.textContent === "No summary has been run for this tab yet.");
+    assert.equal(doc.elements.diagnostics.hidden, true);
+    assert.equal(doc.elements["diagnostics-text"].textContent, "");
+  } finally {
+    cleanup();
+  }
+});
+
+test("a late snapshot read for an earlier binding cannot show its record", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  const pendingReads = [];
+  fake.chrome.storage.session.get = (key) =>
+    new Promise((resolve) => pendingReads.push({ key, resolve }));
+  try {
+    await loadPanel(fake.chrome, doc);
+    await flushUntil(() => pendingReads.length === 1 && fake.pendingSendMessage.length === 1);
+    fake.setActiveTab(2);
+    fake.listeners.activated();
+    await flushUntil(() => pendingReads.length === 2);
+    // The first binding's read settles after the second binding began.
+    pendingReads[0].resolve({ [diagnosticsKey(1)]: RECORD });
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(doc.elements.diagnostics.hidden, true);
+    pendingReads[1].resolve({ [diagnosticsKey(2)]: undefined });
+    await Promise.resolve();
+    assert.equal(doc.elements.diagnostics.hidden, true);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a live change seen first wins over a snapshot read that settles later", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  const pendingReads = [];
+  fake.chrome.storage.session.get = (key) =>
+    new Promise((resolve) => pendingReads.push({ key, resolve }));
+  try {
+    await loadPanel(fake.chrome, doc);
+    await flushUntil(() => pendingReads.length === 1);
+    fake.listeners.storageChanged({ [diagnosticsKey(1)]: { newValue: RECORD } }, "session");
+    pendingReads[0].resolve({ [diagnosticsKey(1)]: undefined });
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(doc.elements.diagnostics.hidden, false);
+  } finally {
+    cleanup();
+  }
+});
+
+test("an unreadable or malformed stored record shows nothing and never throws", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  fake.chrome.storage.session.get = async () => {
+    throw new Error("unavailable");
+  };
+  try {
+    await bindToTab(fake, doc, succeededState("t", "A summary."));
+    assert.equal(doc.elements.diagnostics.hidden, true);
+    fake.listeners.storageChanged({ [diagnosticsKey(1)]: { newValue: { v: 9, events: "x" } } }, "session");
+    assert.equal(doc.elements.diagnostics.hidden, true);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a new idle state clears the record on screen", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  fake.sessionStore.set(diagnosticsKey(1), RECORD);
+  try {
+    await bindToTab(fake, doc, failedState("t", ErrorKind.TIMEOUT));
+    await flushUntil(() => doc.elements.diagnostics.hidden === false);
+    fake.listeners.message({ type: MessageType.STATE_CHANGED, tabId: 1, state: idleState() });
+    assert.equal(doc.elements.diagnostics.hidden, true);
+  } finally {
+    cleanup();
+  }
+});
+
+test("the panel writes diagnostics as text, never as markup", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const script = await readFile(new URL("../src/panel/panel.js", import.meta.url), "utf8");
+  assert.doesNotMatch(script, /innerHTML|insertAdjacentHTML|outerHTML/);
+});
+
+test("an empty record, the stand-in for one that could not be removed, shows nothing", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  fake.sessionStore.set(diagnosticsKey(1), { v: 1, events: [], dropped: 0, last: null });
+  try {
+    await bindToTab(fake, doc, succeededState("t", "A summary."));
+    assert.equal(doc.elements.diagnostics.hidden, true);
+    fake.listeners.storageChanged({ [diagnosticsKey(1)]: { newValue: RECORD } }, "session");
+    assert.equal(doc.elements.diagnostics.hidden, false);
+    fake.listeners.storageChanged(
+      { [diagnosticsKey(1)]: { newValue: { v: 1, events: [], dropped: 0, last: null } } },
+      "session",
+    );
+    assert.equal(doc.elements.diagnostics.hidden, true);
   } finally {
     cleanup();
   }
