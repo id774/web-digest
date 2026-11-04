@@ -26,6 +26,18 @@ This principle governs the following implementation and maintenance rules. It
 does not permit dropping required behavior, security, compatibility, or
 validation; satisfy those obligations without unnecessary complexity.
 
+### 0.1 Browser Extension Design Principles
+
+A browser extension exists to assist the user with a specific operation, not to assume responsibilities beyond that operation. Its behavior must remain within the purpose, scope, and boundaries established by the requirements.
+
+Keep responsibilities, permissions, data access, external communication, persistence, dependencies, and execution contexts to the minimum necessary for the approved operation. A capability must not be added merely because it is technically possible or might make the result more comprehensive.
+
+Treat web page content, external responses, and AI-generated output as untrusted data. None of them may authorize additional operations, broaden permissions, introduce communication destinations, or cross an established trust boundary.
+
+Before adding external resource retrieval, navigation, authentication, broader site access, unrequested background processing, or new data transmission, establish why the capability is necessary for the stated purpose. Identify its security, privacy, and maintenance consequences, and obtain an explicit specification decision before implementation.
+
+When the intended operation cannot be completed within the established boundaries, report the limitation or fail safely. Do not silently expand the extension's responsibilities or permissions to overcome that limitation. Do not claim a level of verification that the operation has not actually performed.
+
 ## 1. General Policy
 
 ### 1.1 Purpose and Scope
