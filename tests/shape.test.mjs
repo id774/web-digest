@@ -391,6 +391,87 @@ test("a single code line longer than the chunk limit is split but never truncate
   assert.equal(codeBlocks.map((block) => block.text).join(""), line);
 });
 
+const PAIR = String.fromCodePoint(0x1f600);
+
+function hasLoneSurrogate(text) {
+  return /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(
+    text,
+  );
+}
+
+test("a forced cut in a long unbroken paragraph never separates a surrogate pair", () => {
+  const limit = 100;
+  for (let at = 90; at <= 101; at += 1) {
+    const text = `${"x".repeat(at)}${PAIR}${"y".repeat(150)}`;
+    const chunks = chunkMaterial(
+      { title: "", blocks: [paragraph(text)] },
+      limit,
+    );
+    const pieces = chunks.flatMap((chunk) => chunk.blocks).map((b) => b.text);
+
+    assert.ok(chunks.length > 1, `offset ${at}`);
+    assert.equal(pieces.join(""), text, `offset ${at}`);
+    for (const chunk of chunks) {
+      assert.ok(chunk.charCount <= limit, `offset ${at}`);
+      assert.equal(hasLoneSurrogate(chunk.text), false, `offset ${at}`);
+    }
+  }
+});
+
+test("a forced cut in a single long code line never separates a surrogate pair", () => {
+  const limit = 100;
+  for (let at = 80; at <= 95; at += 1) {
+    const line = `  ${"x".repeat(at)}${PAIR}${"y".repeat(150)}`;
+    const chunks = chunkMaterial(
+      { title: "", blocks: [{ kind: "code", text: line }] },
+      limit,
+    );
+    const pieces = chunks.flatMap((chunk) => chunk.blocks).map((b) => b.text);
+
+    assert.ok(chunks.length > 1, `offset ${at}`);
+    assert.equal(pieces.join(""), line, `offset ${at}`);
+    for (const chunk of chunks) {
+      assert.ok(chunk.charCount <= limit, `offset ${at}`);
+      assert.equal(hasLoneSurrogate(chunk.text), false, `offset ${at}`);
+    }
+  }
+});
+
+test("code split at a newline keeps surrogate pairs and indentation untouched", () => {
+  const code = `  a${PAIR}\n    b${PAIR}\n`.repeat(20);
+  const chunks = chunkMaterial(
+    { title: "T", blocks: [{ kind: "code", text: code }] },
+    130,
+  );
+  const pieces = chunks.flatMap((chunk) => chunk.blocks).map((b) => b.text);
+
+  assert.ok(chunks.length > 1);
+  assert.equal(pieces.join(""), code);
+  for (const piece of pieces.slice(0, -1)) assert.ok(piece.endsWith("\n"));
+  for (const chunk of chunks) assert.ok(chunk.charCount <= 130);
+});
+
+test("ordinary text with whitespace boundaries and pairs splits as before", () => {
+  const text = `${PAIR} word `.repeat(60).trim();
+  const chunks = chunkMaterial({ title: "", blocks: [paragraph(text)] }, 100);
+  const pieces = chunks.flatMap((chunk) => chunk.blocks).map((b) => b.text);
+
+  assert.ok(chunks.length > 1);
+  assert.equal(pieces.join(" "), text);
+  for (const chunk of chunks) assert.equal(hasLoneSurrogate(chunk.text), false);
+});
+
+test("a surrogate pair that cannot fit in any chunk fails closed", () => {
+  assert.deepEqual(
+    chunkMaterial({ title: "", blocks: [paragraph(`${PAIR}${PAIR}`)] }, 1),
+    [],
+  );
+  assert.deepEqual(
+    chunkMaterial({ title: "", blocks: [{ kind: "code", text: `${PAIR}${PAIR}` }] }, 9),
+    [],
+  );
+});
+
 test("chunking reserves room for a long title", () => {
   const limit = 1000;
   const title = "t".repeat(300);

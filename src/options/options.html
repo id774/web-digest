@@ -91,11 +91,12 @@
           Disabled by default. When enabled, each new summary records which
           steps ran and where it stopped, and the side panel shows that list
           so it can be read and copied. It holds only step names, counts,
-          sizes and timings, never page text, titles, addresses, prompts,
-          summaries, credentials or the provider used. It is kept for the
-          current browser session and for that tab's current page only. It
-          is saved on its own, and a summary already running keeps the
-          choice it started with.
+          sizes and timings, plus fixed outcome, failure-kind and detail
+          labels and a request's numeric HTTP status, never page text, titles,
+          addresses, prompts, summaries, credentials or the provider used. It
+          is kept for the current browser session and for that tab's current
+          page only. It is saved on its own, and a summary already running
+          keeps the choice it started with.
         </p>
         <p id="diagnostic-logging-status" class="status"></p>
       </section>

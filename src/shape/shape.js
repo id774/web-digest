@@ -118,6 +118,21 @@ export function judgeSize(charCount) {
   return "ok";
 }
 
+// A cut forced at a code-unit offset must not fall between the two halves of
+// a surrogate pair, or the character would reach two requests as two invalid
+// halves. The cut moves back by one unit; when that leaves no progress (the
+// pair sits at the very start), it moves past the pair instead, so the
+// piece exceeds its limit and the whole call fails closed downstream.
+function pairSafePoint(text, point) {
+  if (point <= 0 || point >= text.length) return point;
+  const high = text.charCodeAt(point - 1);
+  const low = text.charCodeAt(point);
+  if (high < 0xd800 || high > 0xdbff || low < 0xdc00 || low > 0xdfff) {
+    return point;
+  }
+  return point - 1 > 0 ? point - 1 : point + 1;
+}
+
 function splitPoint(text, limit) {
   const floor = Math.floor(limit * 0.6);
   for (const pattern of [/\n/g, /[.!?。！？]\s/g, /\s/g]) {
@@ -127,7 +142,7 @@ function splitPoint(text, limit) {
     }
     if (point >= floor) return point;
   }
-  return limit;
+  return pairSafePoint(text, limit);
 }
 
 // A `\n` boundary never corrupts code the way a mid-line cut can, so it is
@@ -149,7 +164,7 @@ function splitCodeBlock(block, limit) {
     // No line boundary within reach: a single line longer than the limit.
     // Split at the limit itself rather than truncating, sampling or
     // otherwise dropping any of it.
-    if (point <= 0) point = limit;
+    if (point <= 0) point = pairSafePoint(remaining, limit);
     pieces.push({ ...block, text: remaining.slice(0, point) });
     remaining = remaining.slice(point);
   }

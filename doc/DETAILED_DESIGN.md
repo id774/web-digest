@@ -953,12 +953,17 @@ its indentation are meaningful content here (§8.1), not whitespace a split
 may absorb: the division prefers a line boundary, never trims a piece, and
 falls back to cutting mid-line only when a single line is itself longer than
 the limit — never by truncating, sampling or otherwise dropping any of that
-line. Concatenating a `code` block's pieces in order always reproduces its
-original text exactly. A `code` block's fence is chosen long enough that no
-run of backticks already in its text can be mistaken for the closing fence,
-without altering the code text itself; that same delimiter's actual length is
-what the budget below is measured against, for the block as a whole and for
-each of its split pieces alike. Each chunk carries the page title and the
+line. Wherever a division has to cut at the limit itself, whether in a `code`
+block or any other, it never falls between the two UTF-16 code units of a
+surrogate pair, so a supplementary character is never split across chunks;
+when no cut satisfies that together with the limit and the block's full text,
+`chunkMaterial` fails closed as described below. Concatenating a `code`
+block's pieces in order always reproduces its original text exactly. A `code`
+block's fence is chosen long enough that no run of backticks already in its
+text can be mistaken for the closing fence, without altering the code text
+itself; that same delimiter's actual length is what the budget below is
+measured against, for the block as a whole and for each of its split pieces
+alike. Each chunk carries the page title and the
 heading context active at its start.
 
 **Every chunk `chunkMaterial` returns satisfies `charCount <= limit`.** The
