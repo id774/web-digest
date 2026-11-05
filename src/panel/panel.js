@@ -15,6 +15,9 @@ const elements = {
   title: document.getElementById("title"),
   status: document.getElementById("status"),
   summary: document.getElementById("summary"),
+  sections: document.getElementById("sections"),
+  highlights: document.getElementById("highlights"),
+  summaryBody: document.getElementById("summary-body"),
   openSettings: document.getElementById("open-settings"),
   settings: document.getElementById("settings"),
   diagnostics: document.getElementById("diagnostics"),
@@ -57,6 +60,58 @@ function show(element, text) {
   element.hidden = text === "";
 }
 
+// Recognizes the fixed final-result layout and nothing else: the line
+// HIGHLIGHTS, one to three non-empty lines, one blank line, the line SUMMARY,
+// then a non-empty body. Only line-ending and surrounding-whitespace
+// differences are tolerated. It judges the shape, never the meaning, and
+// returns null for anything else so the caller can show the text as it is.
+function parseSections(text) {
+  if (typeof text !== "string") return null;
+  const lines = text.replace(/\r\n?/g, "\n").trim().split("\n");
+  if (lines[0].trim() !== "HIGHLIGHTS") return null;
+  let end = 1;
+  while (end < lines.length && lines[end].trim() !== "") end += 1;
+  const count = end - 1;
+  if (count < 1 || count > 3) return null;
+  if (lines[end + 1] === undefined || lines[end + 1].trim() !== "SUMMARY") {
+    return null;
+  }
+  const body = lines.slice(end + 2).join("\n").trim();
+  if (body === "") return null;
+  const highlights = lines.slice(1, end).map((line) => line.trim());
+  // The panel draws the bullets itself, so a line that already carries a list
+  // marker is not the specified layout and is shown as it is instead.
+  if (highlights.some((line) => /^([-*+\u2022]|\d+[.)])\s/.test(line))) {
+    return null;
+  }
+  return { highlights, body };
+}
+
+function clearSections() {
+  elements.highlights.replaceChildren();
+  show(elements.summaryBody, "");
+  elements.sections.hidden = true;
+}
+
+function showSummary(text) {
+  const parsed = parseSections(text);
+  if (!parsed) {
+    clearSections();
+    show(elements.summary, typeof text === "string" ? text : "");
+    return;
+  }
+  show(elements.summary, "");
+  elements.highlights.replaceChildren(
+    ...parsed.highlights.map((point) => {
+      const item = document.createElement("li");
+      item.textContent = point;
+      return item;
+    }),
+  );
+  show(elements.summaryBody, parsed.body);
+  elements.sections.hidden = false;
+}
+
 function renderDiagnostics() {
   // A record with no events and nothing dropped says nothing: it is what
   // stands in for a record the worker could not remove.
@@ -89,18 +144,20 @@ function renderState(state) {
 
   if (phase === "running") {
     show(elements.summary, "");
+    clearSections();
     show(elements.status, "Summarizing… this can take a while.");
     return;
   }
 
   if (phase === "succeeded") {
     show(elements.status, "");
-    show(elements.summary, state.summary || "");
+    showSummary(state.summary || "");
     return;
   }
 
   if (phase === "failed") {
     show(elements.summary, "");
+    clearSections();
     show(elements.status, messageFor(state.errorKind, state.errorDetail));
     elements.openSettings.hidden = ![
       ErrorKind.CREDENTIAL_MISSING,
@@ -110,6 +167,7 @@ function renderState(state) {
   }
 
   show(elements.summary, "");
+  clearSections();
   show(elements.status, "No summary has been run for this tab yet.");
 }
 

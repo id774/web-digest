@@ -547,11 +547,20 @@ One instruction, carrying these principles:
   restatement, and supporting explanation that does not bear on the main line.
 - **No length is fixed.** The summary is as long as the page's substance
   requires and no longer; a page with little redundancy compresses little.
-- **A short overview precedes only the final result.** Normally three short,
-  source-grounded sentences appear on separate lines, followed by one blank
-  line and the unconstrained full summary. If there are fewer distinct points,
-  no statement is invented or repeated to fill three lines. Intermediate
-  chunk compression carries no overview; a completed page or integration does.
+- **Highlights precede only the final result.** The prompt owns their
+  selection. A completed page or integration is a fixed plain-text structure:
+  the line `HIGHLIGHTS`, one to three non-empty lines, one blank line, the line
+  `SUMMARY`, then the unconstrained full summary. The markers are English in
+  every output language. If the page supports fewer distinct points, none is
+  invented or repeated. Intermediate chunk compression carries neither markers
+  nor highlights.
+- **The panel only recognizes the structure.** The worker still produces and
+  stores one string. The panel checks mechanically whether that string has the
+  structure above and, if so, shows the items as a list under a static
+  `Highlights` heading and the body under a static `Summary` heading, with a
+  rule between them. It judges no meaning and selects nothing. All text is
+  written with `textContent`; no Markdown or markup is interpreted. A string
+  without the structure is shown whole in the single plain-text region.
 - **Nothing is added.** No fact, no conclusion and no evaluation that the page
   does not carry — which is also why the page is not fact-checked or graded
   (requirements §23).

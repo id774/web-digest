@@ -345,10 +345,21 @@ One document, four regions, one visible at a time, chosen by the phase in §17.
 `Settings` in the header calls `chrome.runtime.openOptionsPage()` and is
 available in every phase.
 
-- The summary is written with one assignment to `textContent`, and the
-  stylesheet gives that element `white-space: pre-wrap` so that the line breaks
-  the model produced survive. **No parsing, no Markdown rendering, no
-  `innerHTML`** (§20).
+- A succeeded state's summary string is checked for the final-result layout of
+  §10.1 and nothing else: the line `HIGHLIGHTS`, one to three non-empty lines,
+  one blank line, the line `SUMMARY`, then a non-empty body. An item line that
+  already begins with a list marker (`-`, `*`, `+`, `•`, or a number followed by
+  `.` or `)` and a space) does not match, since the panel draws the bullets
+  itself. Only line-ending
+  differences and surrounding whitespace are tolerated. When it matches, a
+  region with static `Highlights` and `Summary` headings is shown: each item is
+  a `<li>` of a `<ul>` and the body is a `<div>` with `white-space: pre-wrap`,
+  separated by an `<hr>`; every string is written with `textContent`. When it
+  does not match, including a free-form string stored before this layout, the
+  whole string is written with one assignment to `textContent` into the single
+  plain-text element with `white-space: pre-wrap`, and nothing is dropped,
+  repaired or requested again. The structured region is cleared in every other
+  phase. **No Markdown rendering, no `innerHTML`** (§20).
 - The title is written to its own element with `textContent`, from the state
   and never from the page directly.
 - Below the state region, a `<details>` section titled `Diagnostics` holds one
@@ -1045,21 +1056,60 @@ Where it is not itself the substance:
 There is no target length. Be as long as the substance of this page requires
 and no longer. Do not pad a dense page, and do not cut one to look brief.
 
-## Final overview
+## Final result
 
-For `page` and `integrate`, begin the final result with a brief overview
-of the whole page before the full summary. Normally write three concise,
-source-grounded sentences, one per separate line, without numbering, bullets,
-or a heading. Select the most informative points the page actually supports,
-including its central point, grounds, and important qualifications where present.
-Do not invent a missing point, repeat a point, or add filler merely to reach
-three lines. If fewer than three distinct substantive points are supported,
-use fewer lines instead. After the overview, leave one blank line and continue
-with the full semantic-compression summary, without a length limit or loss of
-important conditions and reservations.
+For `page` and `integrate`, the final result is plain text in two parts: a few
+highlights, then the full summary. Use exactly this layout, beginning with the
+line `HIGHLIGHTS`:
+
+    HIGHLIGHTS
+    First highlight.
+    Second highlight.
+    Third highlight.
+
+    SUMMARY
+    The full summary begins here.
+
+- `HIGHLIGHTS` and `SUMMARY` are fixed English marker words, each alone on its
+  line. Write them exactly as shown in every `LANGUAGE MODE`; never translate
+  them, and never use either word alone on a line anywhere else. They are
+  layout markers, not Markdown headings.
+- Write one to three highlights, each as one non-empty line of plain text with
+  no number, bullet, "- ", or other Markdown marker. Leave exactly one blank
+  line after the last highlight, then the `SUMMARY` line, then the summary.
+- Write the highlights and the summary in the language given by `LANGUAGE MODE`.
 
 For `chunk`, return only the intermediate compression of that chunk. Do not
-prepend a final overview or its blank-line separator.
+write the markers or any highlights.
+
+### Choosing the highlights
+
+The highlights are the one to three independent, substantive propositions that
+most change what a reader understands about the whole page, most important
+first.
+
+- Choose by importance to the page, not by position. Do not copy the title,
+  the introduction, or the opening sentences, and do not follow the page's order
+  mechanically.
+- Where the page makes them important, include its main conclusion, the ground
+  that most supports it, and the condition, constraint, reservation, or
+  unresolved point that most limits it. This is not a template: do not force
+  one highlight of each kind.
+- Each highlight is normally one sentence that states something the page
+  actually says. Avoid lead-ins such as "This article explains", restating
+  another highlight, filler, and any assertion the page does not support.
+- Be brief without changing the scope, a negation, a condition, the meaning of
+  a quantity, or the basis of a comparison.
+- Use three highlights only if the page supports three distinct ones. Otherwise
+  use two or one. Never invent, split, or pad a point to reach three.
+
+### The summary
+
+The summary after `SUMMARY` stands on its own and must be complete for a reader
+who has not read the highlights. A claim, ground, or condition that a highlight
+also states is not omitted from the summary for that reason. It is the same
+semantic compression as above, with no length limit and no loss of important
+conditions, reservations, or unresolved points.
 
 ## Output language
 
@@ -1089,11 +1139,13 @@ is.
 
 Plain text, in short paragraphs, following the order of the page's own
 argument. Use lines beginning with "- " only where the page's content is
-itself a list. No headings, no bold, no tables and no code fences.
+itself a list, and only within the summary. Apart from the two marker lines of
+the final result, no headings, no bold, no tables and no code fences.
 ```
 
 Its semantic-compression rules implement requirements §§11–12 and basic design
-§10.1. The final overview implements requirements §13 and basic design §10.1;
+§10.1. The final result structure and the choice of highlights implement requirements
+§13 and basic design §10.1;
 the language control remains as specified in §10.4. Nothing else is in it.
 
 The `Form` section exists because the panel renders text and never markup

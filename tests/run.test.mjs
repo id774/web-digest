@@ -59,11 +59,32 @@ test("the packaged prompt describes the final overview and matches the design", 
   const quotedPrompt = section.match(/```markdown\n([\s\S]*?)\n```/);
   assert.ok(quotedPrompt);
   assert.equal(quotedPrompt[1].trimEnd(), prompt.trimEnd());
-  assert.match(prompt, /For `page` and `integrate`, begin the final result/);
-  assert.match(prompt, /Normally write three concise,/);
-  assert.match(prompt, /If fewer than three distinct substantive points are supported,/);
-  assert.match(prompt, /For `chunk`, return only the intermediate compression/);
-  assert.match(prompt, /full semantic-compression summary, without a length limit/);
+  // Final structure: fixed, untranslated plain-text markers, 1-3 highlights.
+  assert.match(prompt, /beginning with the\nline `HIGHLIGHTS`/);
+  assert.match(prompt, /\n    HIGHLIGHTS\n[^\n]+\n[^\n]+\n[^\n]+\n\n    SUMMARY\n/);
+  assert.match(prompt, /fixed English marker words, each alone on its\n {2}line/);
+  assert.match(prompt, /every `LANGUAGE MODE`; never translate\n {2}them/);
+  assert.match(prompt, /layout markers, not Markdown headings/);
+  assert.match(prompt, /Write one to three highlights/);
+  assert.match(prompt, /no number, bullet, "- ", or other Markdown marker/);
+  // Selection quality: no mechanical copying, no invention, no padding.
+  assert.match(prompt, /Choose by importance to the page, not by position/);
+  assert.match(prompt, /do not force\n {2}one highlight of each kind/);
+  assert.match(prompt, /Never invent, split, or pad a point to reach three/);
+  assert.match(prompt, /scope, a negation, a condition/);
+  // chunk keeps the old intermediate compression only.
+  assert.match(prompt, /For `chunk`, return only the intermediate compression of that chunk\. Do not\nwrite the markers or any highlights\./);
+  // The summary stays a self-contained semantic compression with no limit.
+  assert.match(prompt, /stands on its own and must be complete/);
+  assert.match(prompt, /no length limit and no loss of important/);
+  assert.match(prompt, /The task is semantic compression, not shortening/);
+  assert.match(prompt, /There is no target length\./);
+  assert.match(prompt, /`source`: Do not translate\./);
+  assert.match(prompt, /`japanese`: Write the summary in Japanese/);
+  // No self-contradiction: the Form section allows the two markers.
+  assert.match(prompt, /Apart from the two marker lines of\nthe final result, no headings/);
+  assert.doesNotMatch(prompt, /without numbering, bullets,\s+or a heading/);
+  assert.doesNotMatch(prompt, /Final overview/);
 });
 
 test("the instruction and the material are two fields, not one string", () => {
