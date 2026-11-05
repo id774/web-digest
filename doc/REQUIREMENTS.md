@@ -295,7 +295,9 @@ complete.
 The record describes one run of one tab. It is shown beside the summary and
 never mixed into it, it does not outlive the browser session, the tab or the
 page it was made for, and the next summary for the tab replaces it. It
-contains step names, counts, sizes and timings only: never an API credential,
+contains step names, counts, sizes and timings, together with a fixed
+vocabulary of outcomes, failure kinds and details and, for a failed request,
+its numeric HTTP status: never an API credential,
 the selected provider or model, the text, title or address of a page, the
 prompt, a request or response, a summary, or an exception message. Recording
 it, showing it or failing to store it never changes a summary, an error, a
