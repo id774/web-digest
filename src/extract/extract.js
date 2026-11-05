@@ -195,13 +195,12 @@ function webDigestExtract(doc) {
       doc.querySelector("main") ||
       doc.querySelector('[role="main"]') ||
       doc.querySelector("article");
-    if (declared && eligibleText(declared).length >= MIN_ROOT_CHARS) {
+    if (declared && retainedCharsForRoot(declared) >= MIN_ROOT_CHARS) {
       return declared;
     }
 
     let best = null;
     let bestScore = 0;
-    let bestText = "";
     const scope = doc.body || doc;
     for (const element of scope.querySelectorAll("article, section, div")) {
       if (!element.querySelector("p")) continue;
@@ -212,10 +211,9 @@ function webDigestExtract(doc) {
       if (score > bestScore) {
         bestScore = score;
         best = element;
-        bestText = text;
       }
     }
-    if (best && bestText.length >= MIN_ROOT_CHARS) return best;
+    if (best && retainedCharsForRoot(best) >= MIN_ROOT_CHARS) return best;
 
     return doc.body || doc.documentElement;
   }
@@ -349,7 +347,11 @@ function webDigestExtract(doc) {
     return !!style && style.display === "contents";
   }
 
-  const root = chooseRoot();
+  // State shared by the provisional and the final collection. It is set up
+  // before the root is chosen, because choosing a root collects blocks.
+  const rows = rowNumbers();
+  const blocks = [];
+  let titleElement = null;
 
   // The page's own heading, where document.title usually carries the site name
   // as well. An h1 used as the title is not also emitted as a heading block.
@@ -358,25 +360,40 @@ function webDigestExtract(doc) {
   // never the title just for being the first one in the document — the
   // search keeps going to the next h1, and falls back to document.title if
   // none qualifies.
-  let title = "";
-  let titleElement = null;
-  const headingCandidates = root.querySelectorAll
-    ? root.querySelectorAll("h1")
-    : [];
-  for (const candidate of headingCandidates) {
-    if (isExcluded(candidate)) continue;
-    const text = eligibleText(candidate);
-    if (text.length === 0) continue;
-    title = text;
-    titleElement = candidate;
-    break;
-  }
-  if (!titleElement && typeof doc.title === "string" && doc.title.trim().length > 0) {
-    title = doc.title.trim();
+  function findTitleElement(candidate) {
+    const headingCandidates = candidate.querySelectorAll
+      ? candidate.querySelectorAll("h1")
+      : [];
+    for (const heading of headingCandidates) {
+      if (isExcluded(heading)) continue;
+      if (eligibleText(heading).length === 0) continue;
+      return heading;
+    }
+    return null;
   }
 
-  const rows = rowNumbers();
-  const blocks = [];
+  // How much text collecting `candidate` would actually keep: the same
+  // collection as the final one, run provisionally, with the title h1
+  // reserved. Nothing it gathers is left behind.
+  function retainedCharsForRoot(candidate) {
+    blocks.length = 0;
+    titleElement = findTitleElement(candidate);
+    collectBlocks(candidate, false, false);
+    const total = blocks.reduce((sum, block) => sum + block.text.length, 0);
+    blocks.length = 0;
+    titleElement = null;
+    return total;
+  }
+
+  const root = chooseRoot();
+
+  let title = "";
+  titleElement = findTitleElement(root);
+  if (titleElement) {
+    title = eligibleText(titleElement);
+  } else if (typeof doc.title === "string" && doc.title.trim().length > 0) {
+    title = doc.title.trim();
+  }
 
   function tryEmit(element, tag, text, density) {
     if (text.length === 0) return;

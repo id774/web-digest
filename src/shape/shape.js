@@ -36,8 +36,9 @@ export function normalizeText(text) {
     .trim();
 }
 
-// Code is the one place a line break carries meaning: trailing spaces go, runs
-// of three or more blank lines collapse to one, and the block is trimmed.
+// Code keeps line breaks and indentation, including on the first line:
+// trailing spaces go, long blank-line runs collapse, and boundary blank lines
+// are removed without trimming the leading whitespace of nonempty lines.
 export function normalizeCode(text) {
   return String(text)
     .replace(/\r\n?/g, "\n")
@@ -45,7 +46,7 @@ export function normalizeCode(text) {
     .map((line) => line.replace(/[ \t]+$/, ""))
     .join("\n")
     .replace(/\n{4,}/g, "\n\n")
-    .trim();
+    .replace(/^\n+|\n+$/g, "");
 }
 
 function carriesNothing(text) {

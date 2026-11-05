@@ -7,6 +7,7 @@ v1.1.2 (Release Date: TBD)
 - Added up to three Highlights above a clearly separated full Summary.
 - Added optional, session-only diagnostics for summarization runs, readable
   in the side panel without retaining page content or credentials.
+- Preserved code indentation and avoided roots dominated by discarded links.
 
 v1.1.1 (2026-09-23)
 -------------------

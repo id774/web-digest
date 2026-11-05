@@ -34,6 +34,32 @@ test("normalizeCode keeps line breaks and strips trailing spaces", () => {
   assert.equal(normalizeCode("$ one   \n$ two\t\n"), "$ one\n$ two");
 });
 
+test("normalizeCode keeps the leading indentation of the first line", () => {
+  assert.equal(
+    normalizeCode("    first()\n        second()"),
+    "    first()\n        second()",
+  );
+});
+
+test("normalizeCode drops boundary blank lines and trailing whitespace but not indentation", () => {
+  assert.equal(
+    normalizeCode("\n\n    first()  \n        second()\t\n\n"),
+    "    first()\n        second()",
+  );
+});
+
+test("shape keeps a code block's first-line indentation in the block and the rendered fence", () => {
+  const code = "    first()\n        second()";
+  const result = shape({
+    title: "T",
+    blocks: [filler("prose."), { kind: "code", text: code }],
+  });
+  assert.equal(result.ok, true);
+  const block = result.material.blocks.find((b) => b.kind === "code");
+  assert.equal(block.text, code);
+  assert.ok(result.material.text.includes("```\n" + code + "\n```"));
+});
+
 test("normalizeCode collapses three or more blank lines to one", () => {
   assert.equal(normalizeCode("a\n\n\n\n\nb"), "a\n\nb");
   assert.equal(normalizeCode("a\n\nb"), "a\n\nb");
