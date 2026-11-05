@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { el, page, runExtract } from "./extract-fixture.mjs";
-import { render } from "../src/shape/shape.js";
+import { render, shape } from "../src/shape/shape.js";
 
 test("hidden text inside the declared root cannot select it, and never appears in a block", () => {
   const hiddenFiller = "Hidden filler content. ".repeat(20); // well past MIN_ROOT_CHARS
@@ -957,4 +957,115 @@ test("no URL is ever returned", () => {
   const serialized = JSON.stringify(result);
   assert.doesNotMatch(serialized, /https?:\/\//);
   assert.doesNotMatch(serialized, /\/section/);
+});
+
+// ---- Root selection by retained content ----
+
+function linkList(word, count) {
+  const items = [];
+  for (let i = 0; i < count; i++) {
+    items.push(
+      el("li", {}, [
+        el("a", { href: `/${word}/${i}` }, [`${word} navigation entry number ${i} here`]),
+      ]),
+    );
+  }
+  return el("ul", {}, items);
+}
+
+const articleProse = (word) =>
+  `${word} the substance of this article is carried by its sentences. `.repeat(5);
+
+test("a main holding only a link list is not chosen over an article with real prose", () => {
+  const doc = page([
+    el("main", {}, [linkList("Linkmain", 10)]),
+    el("article", {}, [el("p", {}, [articleProse("Articleprose")])]),
+  ]);
+
+  const result = runExtract(doc);
+  const text = result.blocks.map((b) => b.text).join("\n");
+
+  assert.match(text, /Articleprose/);
+  assert.doesNotMatch(text, /Linkmain/);
+});
+
+test("a main whose retained prose is short is not rescued by its discarded links", () => {
+  const doc = page([
+    el("main", {}, [
+      el("p", {}, ["Shortmain intro only."]),
+      linkList("Linkmain", 10),
+    ]),
+    el("article", {}, [el("p", {}, [articleProse("Articleprose")])]),
+  ]);
+
+  const result = runExtract(doc);
+  const text = result.blocks.map((b) => b.text).join("\n");
+
+  assert.match(text, /Articleprose/);
+  assert.doesNotMatch(text, /Shortmain/);
+  assert.doesNotMatch(text, /Linkmain/);
+});
+
+test("a main with enough retained prose is still chosen and its link list is dropped", () => {
+  const doc = page([
+    el("main", {}, [
+      el("p", {}, [articleProse("Mainprose")]),
+      linkList("Linkmain", 10),
+    ]),
+    el("article", {}, [el("p", {}, [articleProse("Articleprose")])]),
+  ]);
+
+  const result = runExtract(doc);
+  const text = result.blocks.map((b) => b.text).join("\n");
+
+  assert.match(text, /Mainprose/);
+  assert.doesNotMatch(text, /Articleprose/);
+  assert.doesNotMatch(text, /Linkmain/);
+});
+
+test("a long linked heading counts as retained content, so the main is still chosen", () => {
+  const heading = `Linkedheading ${"a long linked heading carries its own words ".repeat(6)}`;
+  const doc = page([
+    el("main", {}, [el("h2", {}, [el("a", { href: "/h" }, [heading])])]),
+    el("article", {}, [el("p", {}, [articleProse("Articleprose")])]),
+  ]);
+
+  const result = runExtract(doc);
+  const headings = result.blocks.filter((b) => b.kind === "heading");
+
+  assert.equal(headings.length, 1);
+  assert.match(headings[0].text, /Linkedheading/);
+  assert.doesNotMatch(result.blocks.map((b) => b.text).join("\n"), /Articleprose/);
+});
+
+test("the title h1 does not count toward the retained content that adopts a root", () => {
+  const doc = page([
+    el("main", {}, [
+      el("h1", {}, [`Titleword ${"a very long page title ".repeat(12)}`]),
+      el("p", {}, ["Shortmain intro only."]),
+    ]),
+    el("article", {}, [el("p", {}, [articleProse("Articleprose")])]),
+  ]);
+
+  const result = runExtract(doc);
+  const text = result.blocks.map((b) => b.text).join("\n");
+
+  assert.match(text, /Articleprose/);
+  assert.doesNotMatch(text, /Shortmain/);
+});
+
+test("extraction feeds shaping with the first code line's indentation intact", () => {
+  const doc = page([
+    el("main", {}, [
+      el("p", {}, [articleProse("Mainprose")]),
+      el("pre", {}, ["    first()\n        second()"]),
+    ]),
+  ]);
+
+  const result = shape(runExtract(doc));
+
+  assert.equal(result.ok, true);
+  const code = result.material.blocks.find((b) => b.kind === "code");
+  assert.equal(code.text, "    first()\n        second()");
+  assert.ok(result.material.text.includes("    first()\n        second()"));
 });

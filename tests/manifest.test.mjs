@@ -92,7 +92,7 @@ test("doc/VERSIONS keeps the unreleased entry's number and records the diagnosti
   const top = versions.split("\n\n")[1];
   assert.match(top, /^v1\.1\.2 \(Release Date: TBD\)\n-+\n/);
   const bullets = top.split("\n").filter((line) => line.startsWith("- "));
-  assert.equal(bullets.length, 3);
+  assert.equal(bullets.length, 4);
   assert.match(bullets[0], /extension icon legibility/);
   assert.match(bullets[1], /up to three Highlights above a clearly separated full Summary/);
   assert.match(top, /Added optional, session-only diagnostics for summarization runs/);

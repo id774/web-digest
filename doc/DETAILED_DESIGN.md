@@ -615,21 +615,27 @@ The ladder of basic design §8.3, with one accept test.
 
 | Rung | Root | Accepted when |
 |---|---|---|
-| 1 | the first of `main`, `[role="main"]`, `article` that exists | its eligible text is at least `MIN_ROOT_CHARS` |
-| 2 | the highest scoring candidate | the same test |
+| 1 | the first of `main`, `[role="main"]`, `article` that exists | the sum of text lengths of blocks retained by §7.2, excluding the title `h1`, is at least `MIN_ROOT_CHARS` |
+| 2 | the highest scoring candidate | the same retained-block test |
 | 3 | `document.body` | always; the test is applied to the material instead (§9.1) |
 
-**Eligible text** is what block collection below would go on to keep from that
-element: every descendant text node, except one inside a subtree that is
-hidden, furniture, or non-content by the same three tests §7.2 skips a
-candidate for. An element that is itself hidden, furniture or non-content
-measures as empty text, not as whatever it happens to contain — a `main` with
-a lot of hidden text is not mistaken for a `main` with a lot of content, and
-raw `textContent` is never used for this measurement. The recursive walk that
-gathers it never trims a descendant's own contribution before concatenating
-it into its parent's — only the whole result, at the end, is trimmed once —
-so an inline descendant's own leading or trailing whitespace, exactly as in
-container-owned text below, is not lost at its own boundary.
+The acceptance test for rungs 1 and 2 measures the blocks that §7.2 would
+actually emit from the candidate root. It runs the same collection rules
+provisionally, reserves the first eligible `h1` for the title, and sums the
+`text.length` of the retained blocks. The title and separators between blocks
+contribute no characters. This is measured before shaping, normalization,
+repetition removal, and rendering; the final `too-little-text` verdict remains
+§9.1's responsibility. Paragraph and list-item blocks discarded for link
+density do not count, while headings, quotes, code blocks, and table cells
+retain their existing link-density exemptions. A provisional collection never
+contributes a block to the final output.
+
+For rung 2 scoring only, eligible text is formed from descendant text nodes
+excluding hidden, furniture, and non-content subtrees. The recursive walk
+preserves an inline descendant's authored leading or trailing whitespace until
+the complete eligible text is trimmed once. This scoring input may contain
+linked text that block collection will later discard; it is not the acceptance
+measure. The candidate set, scoring formula, and tie handling remain unchanged.
 
 Rung 2 scores every element matching `article, section, div` that contains at
 least one `p`:
@@ -832,11 +838,13 @@ For every block but `code`:
 3. collapse runs of U+0020 to one,
 4. trim.
 
-For a `code` block, line breaks are kept: trailing spaces are removed from each
-line, runs of three or more blank lines collapse to one, and the block is
-trimmed at both ends. **Code is the one place a line break carries meaning**,
-and basic design §8.1 keeps code blocks because a technical page is often
-unreadable without them.
+For a `code` block, line breaks are kept: trailing horizontal whitespace is
+removed from each line, runs of three or more blank lines collapse to one, and
+only empty boundary lines are removed. Leading spaces and tabs on the first
+nonempty code line, as on every other nonempty code line, are preserved; the
+whole code string is never trimmed. **Code is the one place a line break
+carries meaning**, and basic design §8.1 keeps code blocks because a technical
+page is often unreadable without them.
 
 The title is normalized by the first rule set.
 
