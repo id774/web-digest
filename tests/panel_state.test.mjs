@@ -22,6 +22,10 @@ function makeElement() {
   return {
     textContent: "",
     hidden: false,
+    children: [],
+    replaceChildren(...nodes) {
+      this.children = nodes;
+    },
     _listeners: {},
     addEventListener(type, fn) {
       this._listeners[type] = fn;
@@ -34,6 +38,9 @@ function makeFakeDocument() {
     "title",
     "status",
     "summary",
+    "sections",
+    "highlights",
+    "summary-body",
     "open-settings",
     "settings",
     "diagnostics",
@@ -43,7 +50,13 @@ function makeFakeDocument() {
   for (const id of ids) elements[id] = makeElement();
   // panel.html ships this element hidden.
   elements.diagnostics.hidden = true;
-  return { elements, getElementById: (id) => elements[id] };
+  // panel.html ships the two-region container hidden.
+  elements.sections.hidden = true;
+  return {
+    elements,
+    getElementById: (id) => elements[id],
+    createElement: () => makeElement(),
+  };
 }
 
 function makeFakeChrome(initialActiveTabId = 1) {
@@ -1082,6 +1095,245 @@ test("an empty record, the stand-in for one that could not be removed, shows not
       "session",
     );
     assert.equal(doc.elements.diagnostics.hidden, true);
+  } finally {
+    cleanup();
+  }
+});
+
+// ---- Highlights / Summary regions ----
+
+async function showStateOnPanel(summary, extra = {}) {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  await loadPanel(fake.chrome, doc);
+  await flushUntil(() => fake.pendingSendMessage.length === 1);
+  fake.pendingSendMessage
+    .shift()
+    .resolve(succeededState("Title", summary));
+  await flushUntil(() => doc.elements.title.textContent === "Title");
+  return { fake, doc, ...extra };
+}
+
+function items(doc) {
+  return doc.elements.highlights.children.map((li) => li.textContent);
+}
+
+for (const n of [1, 2, 3]) {
+  test(`a well-formed result with ${n} highlight(s) is shown as two regions`, async () => {
+    const points = ["Alpha point.", "Beta point.", "Gamma point."].slice(0, n);
+    const text = `HIGHLIGHTS\n${points.join("\n")}\n\nSUMMARY\nFirst paragraph.\n\nSecond paragraph.`;
+    try {
+      const { doc } = await showStateOnPanel(text);
+      assert.deepEqual(items(doc), points);
+      assert.equal(doc.elements.sections.hidden, false);
+      assert.equal(
+        doc.elements["summary-body"].textContent,
+        "First paragraph.\n\nSecond paragraph.",
+      );
+      assert.equal(doc.elements.summary.textContent, "");
+      assert.equal(doc.elements.summary.hidden, true);
+    } finally {
+      cleanup();
+    }
+  });
+}
+
+test("CRLF line endings and surrounding whitespace do not defeat the structure", async () => {
+  try {
+    const { doc } = await showStateOnPanel(
+      "\n HIGHLIGHTS \r\nOne.\r\nTwo.\r\n\r\nSUMMARY\r\nBody.\r\n\r\n",
+    );
+    assert.deepEqual(items(doc), ["One.", "Two."]);
+    assert.equal(doc.elements["summary-body"].textContent, "Body.");
+  } finally {
+    cleanup();
+  }
+});
+
+test("the markers do not depend on the language of the text", async () => {
+  try {
+    const { doc } = await showStateOnPanel(
+      "HIGHLIGHTS\n第一の要点。\n\nSUMMARY\n本文です。",
+    );
+    assert.deepEqual(items(doc), ["第一の要点。"]);
+    assert.equal(doc.elements["summary-body"].textContent, "本文です。");
+  } finally {
+    cleanup();
+  }
+});
+
+test("the same marker words inside the body are not reinterpreted", async () => {
+  try {
+    const body = "Intro.\n\nHIGHLIGHTS\nnot a list\n\nSUMMARY\nnot a split";
+    const { doc } = await showStateOnPanel(`HIGHLIGHTS\nOne.\n\nSUMMARY\n${body}`);
+    assert.deepEqual(items(doc), ["One."]);
+    assert.equal(doc.elements["summary-body"].textContent, body);
+  } finally {
+    cleanup();
+  }
+});
+
+const malformed = {
+  "four highlights": "HIGHLIGHTS\na\nb\nc\nd\n\nSUMMARY\nBody.",
+  "no highlight": "HIGHLIGHTS\n\nSUMMARY\nBody.",
+  "no blank line": "HIGHLIGHTS\na\nSUMMARY\nBody.",
+  "two blank lines": "HIGHLIGHTS\na\n\n\nSUMMARY\nBody.",
+  "no summary marker": "HIGHLIGHTS\na\n\nBody.",
+  "empty body": "HIGHLIGHTS\na\n\nSUMMARY\n  \n",
+  "wrong first line": "Preface\nHIGHLIGHTS\na\n\nSUMMARY\nBody.",
+  "lowercase markers": "highlights\na\n\nsummary\nBody.",
+  "bulleted highlights": "HIGHLIGHTS\n- a\n- b\n\nSUMMARY\nBody.",
+  "asterisk bullet": "HIGHLIGHTS\n* a\n\nSUMMARY\nBody.",
+  "numbered highlights": "HIGHLIGHTS\n1. a\n2) b\n\nSUMMARY\nBody.",
+  "bullet on one of two lines": "HIGHLIGHTS\na\n\u2022 b\n\nSUMMARY\nBody.",
+  "legacy free-form": "One.\nTwo.\nThree.\n\nThe longer summary.",
+};
+for (const [name, text] of Object.entries(malformed)) {
+  test(`a malformed result (${name}) is shown whole as plain text`, async () => {
+    try {
+      const { doc } = await showStateOnPanel(text);
+      assert.equal(doc.elements.summary.textContent, text);
+      assert.equal(doc.elements.summary.hidden, false);
+      assert.equal(doc.elements.sections.hidden, true);
+      assert.deepEqual(items(doc), []);
+      assert.equal(doc.elements["summary-body"].textContent, "");
+    } finally {
+      cleanup();
+    }
+  });
+}
+
+test("markup and Markdown in a result stay literal text", async () => {
+  try {
+    const point = "<img src=x onerror=alert(1)> **bold** [l](http://x)";
+    const { doc } = await showStateOnPanel(
+      `HIGHLIGHTS\n${point}\n\nSUMMARY\n<b>x</b>\n# not a heading`,
+    );
+    assert.deepEqual(items(doc), [point]);
+    assert.equal(
+      doc.elements["summary-body"].textContent,
+      "<b>x</b>\n# not a heading",
+    );
+    assert.equal(doc.elements.highlights.innerHTML, undefined);
+  } finally {
+    cleanup();
+  }
+});
+
+test("running, failed and idle states clear both regions and the plain text", async () => {
+  const good = "HIGHLIGHTS\nOne.\n\nSUMMARY\nBody.";
+  for (const next of [
+    runningState("T"),
+    failedState("T", ErrorKind.PROVIDER_ERROR, ""),
+    idleState(),
+  ]) {
+    try {
+      const { fake, doc } = await showStateOnPanel(good);
+      fake.listeners.message({
+        type: MessageType.STATE_CHANGED,
+        tabId: 1,
+        state: next,
+      });
+      assert.equal(doc.elements.sections.hidden, true);
+      assert.deepEqual(items(doc), []);
+      assert.equal(doc.elements["summary-body"].textContent, "");
+      assert.equal(doc.elements.summary.textContent, "");
+    } finally {
+      cleanup();
+    }
+  }
+});
+
+test("a legacy result replacing a structured one leaves no old region behind, and the reverse", async () => {
+  const good = "HIGHLIGHTS\nOne.\n\nSUMMARY\nBody.";
+  try {
+    const { fake, doc } = await showStateOnPanel(good);
+    fake.listeners.message({
+      type: MessageType.STATE_CHANGED,
+      tabId: 1,
+      state: succeededState("T", "Plain legacy text."),
+    });
+    assert.equal(doc.elements.sections.hidden, true);
+    assert.deepEqual(items(doc), []);
+    assert.equal(doc.elements.summary.textContent, "Plain legacy text.");
+    fake.listeners.message({
+      type: MessageType.STATE_CHANGED,
+      tabId: 1,
+      state: succeededState("T", good),
+    });
+    assert.equal(doc.elements.summary.textContent, "");
+    assert.equal(doc.elements.summary.hidden, true);
+    assert.deepEqual(items(doc), ["One."]);
+  } finally {
+    cleanup();
+  }
+});
+
+test("switching tabs does not leave the previous tab's regions on screen", async () => {
+  const good = "HIGHLIGHTS\nOne.\n\nSUMMARY\nBody.";
+  try {
+    const { fake, doc } = await showStateOnPanel(good);
+    fake.setActiveTab(2);
+    fake.listeners.activated({ tabId: 2 });
+    await flushUntil(() => fake.pendingSendMessage.length === 1);
+    fake.pendingSendMessage.shift().resolve(idleState());
+    await flushUntil(() => doc.elements.sections.hidden === true);
+    assert.deepEqual(items(doc), []);
+    assert.equal(doc.elements["summary-body"].textContent, "");
+    // A late live update for the old tab is ignored.
+    fake.listeners.message({
+      type: MessageType.STATE_CHANGED,
+      tabId: 1,
+      state: succeededState("T", good),
+    });
+    assert.equal(doc.elements.sections.hidden, true);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a late snapshot does not replace a structured live update", async () => {
+  const good = "HIGHLIGHTS\nLive.\n\nSUMMARY\nLive body.";
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  try {
+    await loadPanel(fake.chrome, doc);
+    await flushUntil(() => fake.pendingSendMessage.length === 1);
+    fake.listeners.message({
+      type: MessageType.STATE_CHANGED,
+      tabId: 1,
+      state: succeededState("T", good),
+    });
+    fake.pendingSendMessage.shift().resolve(succeededState("Old", "Old plain."));
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    assert.deepEqual(items(doc), ["Live."]);
+    assert.equal(doc.elements.summary.textContent, "");
+  } finally {
+    cleanup();
+  }
+});
+
+test("panel.html and panel.css carry the fixed headings, list, rule and spacing", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const html = await readFile(new URL("../src/panel/panel.html", import.meta.url), "utf8");
+  const css = await readFile(new URL("../src/panel/panel.css", import.meta.url), "utf8");
+  assert.match(html, /<h2[^>]*>Highlights<\/h2>\s*<ul id="highlights"/);
+  assert.match(html, /<hr class="divider" \/>/);
+  assert.match(html, /<h2[^>]*>Summary<\/h2>\s*<div id="summary-body"/);
+  assert.ok(html.indexOf("Highlights</h2>") < html.indexOf('class="divider"'));
+  assert.ok(html.indexOf('class="divider"') < html.indexOf("Summary</h2>"));
+  assert.match(css, /\.divider\s*\{[^}]*border-top:\s*1px solid var\(--edge\)/);
+  assert.match(css, /\.divider\s*\{[^}]*margin:\s*20px 0/);
+  assert.match(css, /\.highlights\s*\{[^}]*list-style:\s*disc/);
+  assert.match(css, /\.summary\s*\{[^}]*white-space:\s*pre-wrap/);
+});
+
+test("a highlight that merely starts with a sign or number is not mistaken for a list marker", async () => {
+  try {
+    const { doc } = await showStateOnPanel(
+      "HIGHLIGHTS\n-5 degrees is the limit.\n2024 was the year.\n\nSUMMARY\nBody.",
+    );
+    assert.deepEqual(items(doc), ["-5 degrees is the limit.", "2024 was the year."]);
   } finally {
     cleanup();
   }

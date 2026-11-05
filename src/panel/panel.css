@@ -57,6 +57,41 @@ body {
   margin: 0 0 16px;
 }
 
+/* A well-formed final result is shown as two regions, told apart by their
+   English headings, the list, a rule and the space around it — never by
+   colour alone. */
+.sections {
+  margin: 0 0 16px;
+}
+
+.section-heading {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.highlights {
+  margin: 0;
+  padding-left: 1.4em;
+  list-style: disc;
+}
+
+.highlights li {
+  margin: 0 0 6px;
+  overflow-wrap: break-word;
+}
+
+.divider {
+  margin: 20px 0;
+  border: none;
+  border-top: 1px solid var(--edge);
+}
+
+.sections .summary {
+  margin: 0;
+}
+
 .controls {
   display: flex;
   flex-wrap: wrap;

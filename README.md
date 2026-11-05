@@ -241,11 +241,13 @@ Navigating to another page never starts a run: the panel returns to "nothing run
 
 What the summary keeps follows from what the page is, and no stage decides which kind of page it is first — there is no classifier, no per-kind branch and no mode to select. A page that is a mixture is summarized as the mixture it is.
 
-The result starts with a brief overview, normally three short sentences on
-separate lines, followed by a blank line and the full summary. If the page
-supports fewer than three distinct points, nothing is invented or repeated to
-fill the count. The full summary still preserves the necessary detail and has
-no fixed length.
+The result has two parts under the page title. **Highlights** lists at most
+three bullet points, normally three, chosen for how much they change what you
+understand about the page. If the page supports fewer than three distinct
+points, nothing is invented or repeated to fill the count. A rule then
+separates it from **Summary**, which is a self-contained semantic compression
+that keeps the necessary detail and has no fixed length. If a result does not
+come back in this form, it is shown in full as plain text instead.
 
 | The page is | What is kept |
 | --- | --- |

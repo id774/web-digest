@@ -236,12 +236,23 @@ not produce summaries of the same length.
 The summary is shown where the reader can read it without leaving the page it
 came from, and reading it is the whole of what is required.
 
-The final result begins with a brief, source-grounded overview of the page.
-It normally consists of three concise sentences on separate text lines, without
-a heading or list markers. If the page does not support three distinct points,
-the overview uses fewer lines rather than inventing or repeating content. One
-blank line separates it from the full summary, whose length and preservation
-of important conditions remain determined by the substance of the page.
+The final result is shown in two clearly separated regions under the page
+title, headed in English, whatever language the summary is written in:
+**Highlights** and **Summary**.
+
+- **Highlights** is a bulleted list of at most three items: normally three, and
+  one or two when the page does not support three independent, substantive
+  points. Nothing is invented, repeated or padded to fill the count. The items
+  are chosen by their importance to the page, not by their position in it, and
+  are brief without changing a scope, a negation, a condition or a quantity.
+- **Summary** is the full semantic compression of §12. It is complete without
+  the highlights, keeps the conditions, grounds, reservations and unresolved
+  points the page makes essential, and has no fixed length.
+- The two regions are told apart by their headings, the list, a horizontal rule
+  and the space around it, not by colour alone.
+- A result that does not have the expected structure, including one stored
+  before this layout existed, is shown whole as plain text. Nothing is
+  dropped, repaired or requested again.
 
 **The initial version needs no more than a result that can be read easily.**
 Several display modes, a comparison view, an analysis screen, an export format
