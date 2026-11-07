@@ -388,7 +388,13 @@ when it loaded:
   `getState` snapshot and renders it, but only if no `stateChanged` for that
   same new binding has already arrived and been rendered first, and only if
   no still-newer rebind has started since. A snapshot belonging to a tab this
-  panel no longer follows is never applied, however late it resolves.
+  panel no longer follows is never applied, however late it resolves. Binding
+  clears no rendered content: until the new snapshot is applied, the title
+  and summary last drawn for the previous tab remain displayed, and this is
+  intended; once it is applied, the new tab's state replaces them. The
+  diagnostics record is read by its own request, started alongside the
+  snapshot request and guarded by the same generation, so it may be shown
+  (or hidden, when the new tab has none) before the title and summary change.
 - `stateChanged` is applied only when its `tabId` matches the tab currently
   bound — exactly as before switching tabs was accounted for — which is what
   keeps a live update for the tab just left from reaching the new one.
@@ -709,7 +715,12 @@ above already uses) straight into the prose run currently being collected,
 so `Hello <strong>world</strong>!` stays the one paragraph `Hello world!`
 rather than three, and an inline anchor's text is counted into that
 paragraph's own link/text ratio rather than standing alone as a 100%-link
-paragraph the density rule (below) would then drop. This contributed text
+paragraph the density rule (below) would then drop. An inline element that
+encloses a nested independent candidate — `<a><h2>Title</h2></a>` — is not
+absorbed this way, because absorbing it would skip that candidate: the walk
+enters it in place, keeping the wrapper's own text and anchor context in the
+current run and emitting the candidate as its own block, once, in document
+order. This contributed text
 is not trimmed at its own two edges before the concatenation: an inline
 element's authored leading or trailing whitespace —
 `Hello<strong> world</strong>!` — is part of the adjacency the surrounding
@@ -851,7 +862,10 @@ The title is normalized by the first rule set.
 ### 8.2 Drop what carries nothing
 
 A block is dropped when, after normalizing, it is empty, or is shorter than two
-characters, or consists only of punctuation, symbols and spaces.
+characters, or consists only of punctuation, symbols and spaces. A
+`table-cell` block is the one exception to the last two tests: it is dropped
+only when empty after normalizing, so a one-character value such as `0`, `N`
+or `✓` survives. The tests for every other kind are unchanged.
 
 ### 8.3 Remove repetition that is the page's
 
@@ -873,7 +887,7 @@ repeat meaningfully — the same status word, unit or category value in several
 rows, or the same value in several cells of one row — and this design would
 rather keep an intentional repetition than discard one the page meant to
 carry. No row-level or column-level comparison is added to decide which
-repeats are meaningful; every `table-cell` block that survives §8.1 and §8.2
+repeats are meaningful; every non-empty `table-cell` block that survives §8.1 and §8.2
 is kept.
 
 ### 8.4 Render

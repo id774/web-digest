@@ -49,8 +49,12 @@ export function normalizeCode(text) {
     .replace(/^\n+|\n+$/g, "");
 }
 
-function carriesNothing(text) {
-  return text === "" || text.length < 2 || NOTHING_BUT_MARKS.test(text);
+// A table cell is the one kind whose single character, or lone symbol, is
+// still a value (`0`, `N`, `✓`): it is dropped only when empty.
+function carriesNothing(block, text) {
+  if (text === "") return true;
+  if (block.kind === "table-cell") return false;
+  return text.length < 2 || NOTHING_BUT_MARKS.test(text);
 }
 
 // At least three backticks, and one longer than the longest run already in
@@ -313,7 +317,7 @@ export function shape(extracted) {
       block.kind === "code"
         ? normalizeCode(block.text)
         : normalizeText(block.text);
-    if (carriesNothing(text)) continue;
+    if (carriesNothing(block, text)) continue;
 
     // A heading's structural identity is its level as well as its text: the
     // hierarchy `render` (§8.4) actually draws from `level` is what a

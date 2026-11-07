@@ -26,6 +26,7 @@ function webDigestExtract(doc) {
   const INDEPENDENT_UNIT_TAGS = new Set(
     [...CANDIDATE_TAGS].filter((tag) => tag !== "p"),
   );
+  const INDEPENDENT_UNIT_SELECTOR = [...INDEPENDENT_UNIT_TAGS].join(", ");
   // Outer semantic containers whose kind and direct text must survive an
   // ordinary prose wrapper (typically a `p`) placed inside them.
   const CONTAINER_TAGS = new Set(["li", "blockquote", "th", "td"]);
@@ -543,6 +544,22 @@ function webDigestExtract(doc) {
         }
 
         if (!absorbingP && !CANDIDATE_TAGS.has(tag)) {
+          // An inline wrapper (typically `<a>`) that encloses an independent
+          // unit, such as a heading, cannot be absorbed: `ownedContent` skips
+          // that unit, so it would never be visited. Walk the wrapper in
+          // place instead, as for `display: contents`, keeping its own text
+          // and anchor context in this buffer and finding the unit in order.
+          if (
+            isInlineDisplay(child) &&
+            child.querySelector(INDEPENDENT_UNIT_SELECTOR)
+          ) {
+            processChildren(
+              child,
+              isVisibilityHidden(child),
+              insideAnchor || tag === "a",
+            );
+            continue;
+          }
           if (isInlineDisplay(child)) {
             const owned = ownedContent(child, insideAnchor || tag === "a");
             buffer += owned.text;

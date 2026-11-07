@@ -1069,3 +1069,97 @@ test("extraction feeds shaping with the first code line's indentation intact", (
   assert.equal(code.text, "    first()\n        second()");
   assert.ok(result.material.text.includes("    first()\n        second()"));
 });
+
+const INLINE = { display: "inline" };
+
+test("an inline link wrapping a heading keeps the heading once, in order, with its prose", () => {
+  const doc = page([
+    el("div", {}, [
+      "Before the link. ",
+      el("a", { href: "/s", style: INLINE }, [el("h2", {}, ["Section"])]),
+      "After the link.",
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+
+  assert.deepEqual(
+    result.blocks.map((b) => [b.kind, b.level, b.text]),
+    [
+      ["paragraph", undefined, "Before the link."],
+      ["heading", 2, "Section"],
+      ["paragraph", undefined, "After the link."],
+    ],
+  );
+});
+
+test("an inline link's own text beside a nested heading is kept and not duplicated", () => {
+  const doc = page([
+    el("div", {}, [
+      "Plain prose leads the line, ",
+      el("a", { href: "/s", style: INLINE }, [
+        "read more: ",
+        el("h3", {}, ["Details"]),
+      ]),
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+
+  assert.deepEqual(
+    result.blocks.map((b) => [b.kind, b.text]),
+    [
+      ["paragraph", "Plain prose leads the line, read more:"],
+      ["heading", "Details"],
+    ],
+  );
+});
+
+test("an h1 inside an inline link is the title and is not emitted again", () => {
+  const doc = page(
+    [
+      el("div", {}, [
+        el("a", { href: "/", style: INLINE }, [el("h1", {}, ["Linked Title"])]),
+        el("h2", {}, ["Sub"]),
+      ]),
+    ],
+    { title: "Linked Title - Site" },
+  );
+
+  const result = runExtract(doc);
+
+  assert.equal(result.title, "Linked Title");
+  assert.deepEqual(
+    result.blocks.map((b) => [b.kind, b.text]),
+    [["heading", "Sub"]],
+  );
+});
+
+test("a hidden heading inside an inline link is still excluded", () => {
+  const doc = page([
+    el("div", {}, [
+      "Visible prose.",
+      el("a", { href: "/s", style: INLINE }, [
+        el("h2", { hidden: true }, ["Hidden Section"]),
+      ]),
+    ]),
+  ]);
+
+  const result = runExtract(doc);
+
+  assert.deepEqual(
+    result.blocks.map((b) => [b.kind, b.text]),
+    [["paragraph", "Visible prose."]],
+  );
+});
+
+test("a link-dense run of inline links without headings is still dropped", () => {
+  const doc = page([
+    el("div", {}, [
+      el("a", { href: "/a", style: INLINE }, ["Alpha"]),
+      el("a", { href: "/b", style: INLINE }, ["Beta"]),
+    ]),
+  ]);
+
+  assert.deepEqual(runExtract(doc).blocks, []);
+});

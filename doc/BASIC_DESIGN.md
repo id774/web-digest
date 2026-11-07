@@ -326,8 +326,12 @@ yet" for the new page, and waits to be asked.
 
 Switching to a different tab while the panel stays open **never starts a run**
 either. The panel follows whichever tab is active and shows that tab's own
-state — the summary of a tab left behind does not linger on screen for a tab
-that has none of its own.
+state. While the new tab's state is still being fetched, the title and summary
+last drawn for the previous tab may stay on screen briefly; nothing clears
+them early. The diagnostics record is fetched separately and may switch to the
+new tab's record first. Once the new tab's state is adopted it replaces the
+title and summary, and a late answer for the tab left behind never overwrites
+it.
 
 When Chrome replaces a tab identity, the removed tab's run and state are
 discarded rather than transferred to the added identity. If the replaced tab
@@ -386,7 +390,7 @@ An ordered list of blocks, each carrying a kind and its text:
 | Kind | Taken from |
 |---|---|
 | title | the document title, or the page's own main heading where that is more faithful, chosen under the same §8.2 rule — a heading dropped as not displayed is never preferred over a displayed one or over the document title |
-| heading | `h1`–`h6`, with the level kept |
+| heading | `h1`–`h6`, with the level kept, including a heading wrapped in an inline element such as a link |
 | paragraph | ordinary prose blocks |
 | list item | items of ordered and unordered lists |
 | table cell | the significant text of table rows |
@@ -466,7 +470,9 @@ blocks, in order.
 - **Normalizes whitespace.** Runs of spaces, tabs and blank lines collapse; the
   block boundaries survive.
 - **Drops what carries nothing** — empty blocks, and blocks that are a single
-  stray character or punctuation mark.
+  stray character or punctuation mark. A table cell is the one exception: any
+  non-empty cell text is kept, however short, since a one-character cell such
+  as `0`, `N` or `✓` is a value.
 - **Removes repetition that is an artifact of the page**, not of the argument:
   a block repeated identically elsewhere in the document, which is how headers,
   captions and site furniture usually survive extraction. This exact-repetition
