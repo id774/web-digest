@@ -521,3 +521,45 @@ test("shaping does not reorder or rewrite what it keeps", () => {
   );
   assert.deepEqual(order, [...order].sort((a, b) => a - b));
 });
+
+test("a table cell keeps a one-character or lone-symbol value", () => {
+  const values = ["0", "1", "N", "✓", "-", "%"];
+  const result = shape({
+    title: "T",
+    blocks: [
+      ...values.map((text) => ({ kind: "table-cell", row: 1, text })),
+      filler("body."),
+    ],
+  });
+  assert.equal(result.ok, true);
+  assert.match(result.material.text, /^0 \| 1 \| N \| ✓ \| - \| %$/m);
+});
+
+test("an empty or whitespace-only table cell is still dropped", () => {
+  const result = shape({
+    title: "T",
+    blocks: [
+      { kind: "table-cell", row: 1, text: "" },
+      { kind: "table-cell", row: 1, text: " " + NBSP + " " },
+      { kind: "table-cell", row: 1, text: "A" },
+      filler("body."),
+    ],
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.material.blockCount, 2);
+});
+
+test("one-character and symbol-only blocks of other kinds are still dropped", () => {
+  const result = shape({
+    title: "T",
+    blocks: [
+      { kind: "list-item", text: "x" },
+      { kind: "quote", text: "—" },
+      { kind: "heading", level: 2, text: "#" },
+      { kind: "code", text: "}" },
+      filler("body."),
+    ],
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.material.blockCount, 1);
+});
