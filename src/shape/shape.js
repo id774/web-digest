@@ -162,7 +162,9 @@ function splitCodeBlock(block, limit) {
   let remaining = block.text;
   while (remaining.length > limit) {
     let point = -1;
-    for (const match of remaining.slice(0, limit + 1).matchAll(/\n/g)) {
+    // The newline stays with the piece before the cut, so only a newline
+    // that ends at or before `limit` keeps that piece within its budget.
+    for (const match of remaining.slice(0, limit).matchAll(/\n/g)) {
       point = match.index + match[0].length;
     }
     // No line boundary within reach: a single line longer than the limit.
