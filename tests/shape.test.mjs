@@ -563,3 +563,29 @@ test("one-character and symbol-only blocks of other kinds are still dropped", ()
   assert.equal(result.ok, true);
   assert.equal(result.material.blockCount, 1);
 });
+
+test("a newline exactly at the code budget does not push a piece over the limit", () => {
+  const code = "x".repeat(92) + "\n" + "y".repeat(150);
+  const chunks = chunkMaterial(
+    { title: "", blocks: [{ kind: "code", text: code }] },
+    100,
+  );
+  assert.ok(chunks.length >= 2);
+  for (const chunk of chunks) assert.ok(chunk.charCount <= 100);
+  const joined = chunks.flatMap((c) => c.blocks.map((b) => b.text)).join("");
+  assert.equal(joined, code);
+  assert.equal(joined.split("\n").length - 1, 1);
+  assert.equal(joined.indexOf("\n"), 92);
+});
+
+test("a newline that fits within the code budget is still the preferred cut", () => {
+  const code = "x".repeat(91) + "\n" + "y".repeat(150);
+  const chunks = chunkMaterial(
+    { title: "", blocks: [{ kind: "code", text: code }] },
+    100,
+  );
+  assert.ok(chunks.length >= 2);
+  assert.equal(chunks[0].blocks[0].text, "x".repeat(91) + "\n");
+  for (const chunk of chunks) assert.ok(chunk.charCount <= 100);
+  assert.equal(chunks.flatMap((c) => c.blocks.map((b) => b.text)).join(""), code);
+});
