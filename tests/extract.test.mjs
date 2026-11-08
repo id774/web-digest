@@ -1163,3 +1163,81 @@ test("a link-dense run of inline links without headings is still dropped", () =>
 
   assert.deepEqual(runExtract(doc).blocks, []);
 });
+
+const hiddenStyle = { visibility: "hidden" };
+const visibleStyle = { visibility: "visible", display: "inline" };
+
+function visibleBreakRun() {
+  return [
+    el("span", { style: visibleStyle }, ["Alpha"]),
+    el("br", { style: visibleStyle }),
+    el("span", { style: visibleStyle }, ["Beta"]),
+  ];
+}
+
+test("a visible <br> under a hidden container keeps its break", () => {
+  const doc = page([el("div", { style: hiddenStyle }, visibleBreakRun())]);
+
+  const texts = runExtract(doc).blocks.map((b) => b.text);
+
+  assert.deepEqual(texts, ["Alpha\nBeta"]);
+});
+
+test("a visible <br> under a hidden paragraph keeps its break", () => {
+  const doc = page([el("p", { style: hiddenStyle }, visibleBreakRun())]);
+
+  const texts = runExtract(doc).blocks.map((b) => b.text);
+
+  assert.deepEqual(texts, ["Alpha\nBeta"]);
+});
+
+test("a visible <br> under hidden owned text keeps its break", () => {
+  const doc = page([
+    el("li", { style: hiddenStyle }, [
+      ...visibleBreakRun(),
+      el("ul", {}, [el("li", {}, ["Nested item"])]),
+    ]),
+  ]);
+
+  const texts = runExtract(doc).blocks.map((b) => b.text);
+
+  assert.ok(texts.includes("Alpha\nBeta"), JSON.stringify(texts));
+  assert.ok(texts.includes("Nested item"));
+});
+
+test("a visible <br> under a hidden pre keeps its break", () => {
+  const doc = page([
+    el("pre", { style: hiddenStyle }, [
+      el("span", { style: visibleStyle }, ["  Alpha"]),
+      el("br", { style: visibleStyle }),
+      el("span", { style: visibleStyle }, ["  Beta"]),
+    ]),
+  ]);
+
+  const code = runExtract(doc).blocks.find((b) => b.kind === "code");
+
+  assert.equal(code.text, "  Alpha\n  Beta");
+});
+
+test("a hidden or excluded <br> is still dropped", () => {
+  const cases = [
+    el("br", { style: hiddenStyle }),
+    el("br", { style: { visibility: "collapse" } }),
+    el("br", { style: { display: "none" } }),
+    el("br", { hidden: true }),
+    el("br", { "aria-hidden": "true" }),
+  ];
+  for (const brk of cases) {
+    for (const parentStyle of [hiddenStyle, visibleStyle]) {
+      const doc = page([
+        el("div", { style: parentStyle }, [
+          el("span", { style: visibleStyle }, ["Alpha"]),
+          brk,
+          el("span", { style: visibleStyle }, ["Beta"]),
+        ]),
+      ]);
+      const texts = runExtract(doc).blocks.map((b) => b.text);
+      assert.deepEqual(texts, ["AlphaBeta"]);
+    }
+  }
+});

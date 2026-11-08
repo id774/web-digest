@@ -395,6 +395,8 @@ when it loaded:
   diagnostics record is read by its own request, started alongside the
   snapshot request and guarded by the same generation, so it may be shown
   (or hidden, when the new tab has none) before the title and summary change.
+  Until the current binding's own state is confirmed, the previous tab's
+  phase is never used to classify that record (§19.5).
 - `stateChanged` is applied only when its `tabId` matches the tab currently
   bound — exactly as before switching tabs was accounted for — which is what
   keeps a live update for the tab just left from reaching the new one.
@@ -1475,12 +1477,14 @@ The same shape for every adapter. `detail` is present only for
 `provider-error` and is one of seven fixed values. `status` is present only
 for an HTTP-originated failure: the numeric status code from the provider's
 own response, carried through unchanged as internal diagnostic metadata for
-the worker to log (§19) — never shown to the reader (§18), and never part
-of the reader-facing message built from `kind`/`detail` alone. The response
-body, the wording of the provider's own error, and any exception text go no
-further than the classification below; none of them crosses this boundary,
-and nothing in the returned shape names which provider produced it — the
-caller already knows, from the `provider` it passed to the dispatcher.
+the worker to log and, when the reader has opted in, to record in the
+diagnostics (§19) — never part of the reader-facing message (§18) built from
+`kind`/`detail` alone, and never part of the `RunState`. It is not the
+response body. The response body, the wording of the provider's own error, and
+any exception text go no further than the classification below; none of them
+crosses this boundary, and nothing in the returned shape names which provider
+produced it — the caller already knows, from the `provider` it passed to the
+dispatcher.
 
 ### 11.6 Mapping a failure
 
@@ -1597,14 +1601,14 @@ content is read before any output text, and a `"failed"` status before either,
 so a response that happens to carry both a refusal and other content is still
 classified as refusal, never as a partial success.
 
-The HTTP status code, once mapped through this table, travels with the
-result as `status` (§11.5) — reaching the log (§19), never the reader
-(§18). OpenAI's body-level `"failed"` status and either provider's explicit
-refusal content carry no HTTP status at all, since both arrive on an
-ordinary 2xx response: the mapped result for these two carries no `status`
-field, and the end-of-run log line records nothing beyond what it always
-does. The wording of the provider's own error goes no further than deciding
-that mapping: it is not itself carried anywhere beyond it.
+The HTTP status code, once mapped through this table, travels with the result
+as `status` (§11.5) — reaching the log and the opt-in diagnostics (§19), never
+the reader-facing message (§18). OpenAI's body-level `"failed"` status and
+either provider's explicit refusal content carry no HTTP status at all, since
+both arrive on an ordinary 2xx response: the mapped result for these two
+carries no `status` field, and the end-of-run log line records nothing beyond
+what it always does. The wording of the provider's own error goes no further
+than deciding that mapping: it is not itself carried anywhere beyond it.
 
 ## 12. The credential
 
@@ -2021,7 +2025,7 @@ selected AI provider" rather than assuming which one it is.
 |---|---|---|---|---|
 | `credential-missing` | the worker, before extraction (§22 step 5) | the run stops before the tab is touched | "No API credential is configured for the selected AI provider. Open Settings and enter one." | yes, that provider's credential |
 | `permission-missing` | the worker, before extraction (§22 step 6) | the run stops before the tab is touched | "Browser permission for the selected AI provider is missing. Open Settings to grant it again." | yes, the provider's permission |
-| `credential-rejected` | the selected provider's adapter, HTTP 401 (§11.6) | the status is logged, not shown | "The selected AI provider refused the credential. Check it in Settings." | yes, that provider's credential |
+| `credential-rejected` | the selected provider's adapter, HTTP 401 (§11.6) | the status is logged, not part of the message | "The selected AI provider refused the credential. Check it in Settings." | yes, that provider's credential |
 | `provider-unreachable` | the selected provider's adapter, `fetch` rejects | the exception is not carried further | "The selected AI provider could not be reached. Check your connection and try again." | no |
 | `timeout` | the selected provider's adapter, the abort at `REQUEST_TIMEOUT_MS` (§11.3), or Claude's HTTP 504 (§11.6) | the elapsed time, or the status, is logged | "The selected AI provider took too long to answer. Trying again is reasonable." | no |
 | `provider-error` / `rate-limited` | the selected provider's adapter, HTTP 429 without a documented account-limit signal | the status is logged | "The selected AI provider reported a rate limit. Try again later." | no |
@@ -2045,8 +2049,9 @@ another run only by clicking the toolbar action again (§6.1, §22).
 Three rules hold across the table.
 
 - **A message names the cause, not the internals.** The reader is told what to
-  do next. Of what the reader is not told, only the status code — for an
-  HTTP-originated failure — reaches the log (§19); the wording of the
+  do next. Of what the message does not say, only the status code — for an
+  HTTP-originated failure — reaches the log and, when the reader has opted
+  in, the diagnostics (§19); the wording of the
   endpoint's error and the exception itself go no further than deciding the
   kind and detail above, and are not themselves recorded anywhere.
 - **Distinguishable causes stay distinguishable** (requirement §18). "No
@@ -2267,13 +2272,18 @@ value shows nothing. A `RunState` of `idle` clears the record on screen.
 #5 +4.2s request-end task=chunk depth=0 part=1/3 chars=198204 outcome=failed kind=provider-error detail=rate-limited status=429 took=3.3s
 ```
 
-followed, when it applies, by one of: "This run has not ended yet. Events appear
-as they are recorded." (no result yet, the run still going); "Incomplete: no
-final result was recorded for this run." (the run has ended in a visible
-success or failure but its record has no result event); or "Incomplete: N
-later events were not retained." with "Last observed: ..." (a bound was
-reached, §19.3). The text is written with `textContent` into a `<pre>`, so
-nothing in it is ever markup, and the reader can select and copy it.
+followed, when it applies, by one of: "This run has not ended yet. Events
+appear as they are recorded." (no result yet, the run still going);
+"Incomplete: no final result was recorded for this run." (the run has ended in
+a visible success or failure but its record has no result event); or
+"Incomplete: N later events were not retained." with "Last observed: ..." (a
+bound was reached, §19.3). The first two are chosen only from a `RunState`
+confirmed for the tab currently bound — its `getState` answer or its own
+`stateChanged`. Until then, for instance when the record arrives before the
+state, or when the state read failed, the events are shown with neither line,
+since the run can be called neither ended nor still going. The text is written
+with `textContent` into a `<pre>`, so nothing in it is ever markup, and the
+reader can select and copy it.
 
 ## 20. Security
 

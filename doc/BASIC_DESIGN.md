@@ -717,8 +717,10 @@ Whichever adapter is called, the caller receives one of two shapes:
 what actually happened; nothing above the dispatcher ever sees a provider's
 own response body or the wording of its error. An HTTP-originated failure's
 numeric status code is the one exception: it travels with the result as
-internal diagnostic metadata, for the worker to record — never shown to the
-reader, and never itself a response body or wording.
+internal diagnostic metadata, for the worker to record. It never appears in a
+reader-facing error message or in the `RunState`; it can be shown only as the
+number in the opt-in diagnostic record (§7.3), and it is never itself a
+response body or wording.
 
 ### 11.5 Timeout and retries
 
@@ -977,7 +979,8 @@ taxonomy beyond this table, and no failure is silent.
 Two rules hold across the table.
 
 - **A message names the cause, not the internals.** No status line, no response
-  body, no credential, no stack.
+  body, no credential, no stack. The opt-in diagnostics may show a numeric
+  status, and nothing else of the response.
 - **Distinguishable causes stay distinguishable** (requirements §18): "no
   credential" and "credential rejected" lead to different actions, so they are
   never merged into one message about the API. Every message names "the

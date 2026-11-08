@@ -1338,3 +1338,149 @@ test("a highlight that merely starts with a sign or number is not mistaken for a
     cleanup();
   }
 });
+
+// --- diagnostics before the new tab's state is confirmed ---
+
+const NO_RESULT = { ...RECORD, events: [RECORD.events[0]] };
+const NOT_ENDED = /This run has not ended yet/;
+const INCOMPLETE = /Incomplete: no final result/;
+
+function diagText(doc) {
+  return doc.elements["diagnostics-text"].textContent;
+}
+
+async function switchToTabTwo(fake, doc, record) {
+  await bindToTab(fake, doc, succeededState("A title", "A summary"));
+  fake.sessionStore.set(diagnosticsKey(2), record);
+  fake.setActiveTab(2);
+  fake.listeners.activated();
+  await flushUntil(() => fake.pendingSendMessage.length === 1);
+  await flushUntil(() => doc.elements.diagnostics.hidden === false);
+}
+
+test("diagnostics before the new tab's state are not classified", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  try {
+    await switchToTabTwo(fake, doc, NO_RESULT);
+    const text = diagText(doc);
+    assert.match(text, /settings outcome=ok/);
+    assert.doesNotMatch(text, INCOMPLETE);
+    assert.doesNotMatch(text, NOT_ENDED);
+    // The earlier tab's summary stays until the new state arrives.
+    assert.equal(doc.elements.summary.textContent, "A summary");
+
+    fake.pendingSendMessage.shift().resolve(runningState("B title"));
+    await flushUntil(() => NOT_ENDED.test(diagText(doc)));
+    assert.doesNotMatch(diagText(doc), INCOMPLETE);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a finished state without a result reads incomplete", async () => {
+  const finishedStates = [
+    succeededState("B", "B summary"),
+    failedState("B", ErrorKind.TIMEOUT),
+  ];
+  for (const state of finishedStates) {
+    const fake = makeFakeChrome(1);
+    const doc = makeFakeDocument();
+    try {
+      await switchToTabTwo(fake, doc, NO_RESULT);
+      assert.doesNotMatch(diagText(doc), INCOMPLETE);
+      fake.pendingSendMessage.shift().resolve(state);
+      await flushUntil(() => INCOMPLETE.test(diagText(doc)));
+      assert.doesNotMatch(diagText(doc), NOT_ENDED);
+    } finally {
+      cleanup();
+    }
+  }
+});
+
+test("a live stateChanged before the diagnostics confirms state", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  try {
+    await bindToTab(fake, doc, succeededState("A title", "A summary"));
+    fake.setActiveTab(2);
+    fake.listeners.activated();
+    await flushUntil(() => fake.pendingSendMessage.length === 1);
+    fake.listeners.message({
+      type: MessageType.STATE_CHANGED,
+      tabId: 2,
+      state: runningState("B title"),
+    });
+    fake.listeners.storageChanged(
+      { [diagnosticsKey(2)]: { newValue: NO_RESULT } },
+      "session",
+    );
+    assert.match(diagText(doc), NOT_ENDED);
+    assert.doesNotMatch(diagText(doc), INCOMPLETE);
+  } finally {
+    cleanup();
+  }
+});
+
+test("live diagnostics before the state wait for it to classify", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  try {
+    await bindToTab(fake, doc, succeededState("A title", "A summary"));
+    fake.setActiveTab(2);
+    fake.listeners.activated();
+    await flushUntil(() => fake.pendingSendMessage.length === 1);
+    fake.listeners.storageChanged(
+      { [diagnosticsKey(2)]: { newValue: NO_RESULT } },
+      "session",
+    );
+    assert.doesNotMatch(diagText(doc), INCOMPLETE);
+    assert.doesNotMatch(diagText(doc), NOT_ENDED);
+    fake.listeners.message({
+      type: MessageType.STATE_CHANGED,
+      tabId: 2,
+      state: failedState("B", ErrorKind.TIMEOUT),
+    });
+    assert.match(diagText(doc), INCOMPLETE);
+  } finally {
+    cleanup();
+  }
+});
+
+test("an earlier tab's late state does not classify the new tab", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  try {
+    await loadPanel(fake.chrome, doc);
+    await flushUntil(() => fake.pendingSendMessage.length === 1);
+    const first = fake.pendingSendMessage.shift();
+    fake.sessionStore.set(diagnosticsKey(2), NO_RESULT);
+    fake.setActiveTab(2);
+    fake.listeners.activated();
+    await flushUntil(() => fake.pendingSendMessage.length === 1);
+    await flushUntil(() => doc.elements.diagnostics.hidden === false);
+    first.resolve(succeededState("A", "A summary"));
+    for (let i = 0; i < 30; i++) await Promise.resolve();
+    assert.doesNotMatch(diagText(doc), INCOMPLETE);
+    assert.doesNotMatch(diagText(doc), NOT_ENDED);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a failed state read does not claim the run ended", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  try {
+    await switchToTabTwo(fake, doc, NO_RESULT);
+    fake.pendingSendMessage.shift().reject(new Error("boom"));
+    const internal = messageFor(ErrorKind.INTERNAL_ERROR, "");
+    await flushUntil(() => doc.elements.status.textContent === internal);
+    const text = diagText(doc);
+    assert.match(text, /settings outcome=ok/);
+    assert.doesNotMatch(text, INCOMPLETE);
+    assert.doesNotMatch(text, NOT_ENDED);
+  } finally {
+    cleanup();
+  }
+});

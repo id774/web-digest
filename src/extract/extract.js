@@ -165,10 +165,12 @@ function webDigestExtract(doc) {
       } else if (child.nodeType === 1) {
         // A visible line break is a text boundary an author actually wrote:
         // `foo<br>bar` must not read as `foobar` once these two runs are
-        // concatenated. Later shaping is free to fold this into a space with
-        // every other line break; only the boundary must survive here.
+        // concatenated. The break's own computed visibility decides, so a
+        // visible `<br>` stays even under a visibility-hidden parent. Later
+        // shaping is free to fold this into a space with every other line
+        // break; only the boundary must survive here.
         if (child.tagName.toLowerCase() === "br") {
-          if (!ownContentHidden && !isExcluded(child)) text += "\n";
+          if (!isExcluded(child)) text += "\n";
           continue;
         }
         text += rawEligibleText(child);
@@ -309,7 +311,7 @@ function webDigestExtract(doc) {
         // Same visible-boundary rule as eligibleText: a `<br>` must not let
         // two authored text runs merge into one word.
         if (tag === "br") {
-          if (!hiddenBySelf && !childHidden) text += "\n";
+          if (!childHidden) text += "\n";
           continue;
         }
         if (INDEPENDENT_UNIT_TAGS.has(tag)) continue;
@@ -424,7 +426,7 @@ function webDigestExtract(doc) {
         if (!ownContentHidden) text += child.textContent;
       } else if (child.nodeType === 1) {
         if (child.tagName.toLowerCase() === "br") {
-          if (!ownContentHidden && !isExcluded(child)) text += "\n";
+          if (!isExcluded(child)) text += "\n";
           continue;
         }
         text += codeText(child);
@@ -506,9 +508,9 @@ function webDigestExtract(doc) {
     }
 
     // `parentHidden` is `parent`'s own effective visibility: it gates only
-    // `parent`'s direct text nodes and a direct `<br>`, which carry no
-    // style of their own. The loop gates recursion by
-    // `isStructurallyExcluded` alone, never by visibility, so a `display:
+    // `parent`'s direct text nodes, which carry no style of their own; a
+    // direct `<br>` has its own and is judged by it. The loop gates recursion
+    // by `isStructurallyExcluded` alone, never by visibility, so a `display:
     // contents` child's own visibility override (passed back in below) or
     // a candidate/container's own visibility (resolved independently by
     // `tryEmitLeaf`/`tryEmitContainer` through `eligibleText`/
@@ -537,7 +539,7 @@ function webDigestExtract(doc) {
         const tag = child.tagName.toLowerCase();
 
         if (tag === "br") {
-          if (!absorbingP && !parentHidden && !isVisibilityHidden(child)) {
+          if (!absorbingP && !isVisibilityHidden(child)) {
             buffer += "\n";
           }
           continue;
