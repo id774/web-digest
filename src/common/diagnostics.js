@@ -211,7 +211,13 @@ function describe(event) {
 // Plain text, one line per event. `finished` says whether the run has ended
 // in a result the reader can see; a record with no recorded result then is
 // reported as incomplete rather than presented as the whole story.
-export function formatDiagnostics(record, { finished = false } = {}) {
+// `stateKnown: false` says the caller has not yet confirmed the run's state:
+// the events seen so far are shown, and the run is called neither ended nor
+// still going. Events that were dropped are reported either way.
+export function formatDiagnostics(
+  record,
+  { finished = false, stateKnown = true } = {},
+) {
   const lines = record.events.map(describe);
   const hasResult = record.events.some((e) => e.step === DiagStep.RESULT);
   if (record.dropped > 0) {
@@ -219,6 +225,8 @@ export function formatDiagnostics(record, { finished = false } = {}) {
       `Incomplete: ${record.dropped} later event${record.dropped === 1 ? " was" : "s were"} not retained.`,
     );
     if (record.last) lines.push(`Last observed: ${describe(record.last)}`);
+  } else if (!stateKnown) {
+    // Neither ended nor still running can be claimed yet.
   } else if (finished && !hasResult) {
     lines.push("Incomplete: no final result was recorded for this run.");
   } else if (!finished && !hasResult) {

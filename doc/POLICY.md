@@ -844,12 +844,13 @@ that the requirements are incomplete, and that is where it is taken.
   listener, a state removal for a tab that has gone.
 - Every outbound request is made under an explicit bounded wait, which covers
   reading the body as well as the response. There is no request without one.
-- A failure crossing a module boundary is one of the design's error kinds
-  and, for `provider-error`, carries its fixed `detail`. An HTTP-originated
-  failure may additionally carry the numeric status as internal diagnostic
-  metadata for the worker's own log line (§1.10); it travels no further than
-  that log line, and never reaches a reader-facing message, `RunState` or the
-  panel. An exception, a raw response or a message fragment does not cross
+- A failure crossing a module boundary is one of the design's error kinds and,
+  for `provider-error`, carries its fixed `detail`. An HTTP-originated failure
+  may additionally carry the numeric status as internal diagnostic metadata
+  for the worker's own log line and, only when the reader has opted in, for
+  the session-only diagnostic record (§1.10); it never reaches a reader-facing
+  message or `RunState`, and the panel shows it only as part of that opt-in
+  record. An exception, a raw response or a message fragment does not cross
   that boundary at all, in any form.
 - **A failed run is never retried automatically.** Retrying is the reader
   clicking again.
@@ -880,9 +881,9 @@ that the requirements are incomplete, and that is where it is taken.
   downstream asserts the kind and, where applicable, that detail, rather than
   a message fragment or an exception. A test may also assert the internal
   diagnostic status an HTTP-originated failure carries (§3.4) exists for
-  logging, but never treats it as something a reader-facing message or
-  `RunState` also carries. The messages themselves are tested where they are
-  defined.
+  logging and the opt-in diagnostic record, but never treats it as something a
+  reader-facing message or `RunState` also carries. The messages themselves
+  are tested where they are defined.
 - A test writes nothing outside a temporary directory.
 - Test material is invented. No real page content and no real credential is
   used, and a defect found on a real page is reproduced with material written

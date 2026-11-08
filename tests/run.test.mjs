@@ -1634,3 +1634,46 @@ test("when neither the remove nor the fallback write works, the run still comple
   assert.deepEqual(second.state, reference.state);
   assert.equal(second.consoleLines.length, 1);
 });
+
+test("an unconfirmed state makes no ended or not-ended claim", () => {
+  const record = emptyRecord();
+  appendEvent(
+    record,
+    sanitizeEvent({ seq: 0, ms: 0, step: "settings", outcome: "ok" }),
+  );
+  const unknown = formatDiagnostics(record, { stateKnown: false });
+  const unknownFinished = formatDiagnostics(record, {
+    stateKnown: false,
+    finished: true,
+  });
+  assert.equal(unknown, unknownFinished);
+  assert.match(unknown, /settings outcome=ok/);
+  assert.doesNotMatch(unknown, /Incomplete|has not ended yet/);
+  // Confirmed states and the default keep their wording.
+  assert.match(formatDiagnostics(record), /has not ended yet/);
+  const running = formatDiagnostics(record, {
+    finished: false,
+    stateKnown: true,
+  });
+  assert.match(running, /has not ended yet/);
+  const ended = formatDiagnostics(record, { finished: true, stateKnown: true });
+  assert.match(ended, /Incomplete: no final result was recorded/);
+});
+
+test("dropped events are still reported when the state is unconfirmed", () => {
+  const record = emptyRecord();
+  appendEvent(
+    record,
+    sanitizeEvent({ seq: 0, ms: 0, step: "settings", outcome: "ok" }),
+  );
+  record.dropped = 2;
+  record.last = sanitizeEvent({
+    seq: 9,
+    ms: 5,
+    step: "request-end",
+    status: 429,
+  });
+  const text = formatDiagnostics(record, { stateKnown: false });
+  assert.match(text, /Incomplete: 2 later events were not retained/);
+  assert.match(text, /Last observed: .*status=429/);
+});

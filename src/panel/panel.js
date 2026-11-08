@@ -52,6 +52,12 @@ let liveSeenThisGeneration = false;
 // them, so one tab's record is never shown for another.
 let currentDiagnostics = null;
 let renderedPhase = "idle";
+// Whether the state last rendered was confirmed for the *current* binding —
+// by its snapshot or by its own live update — rather than left over from a
+// tab followed earlier, or only a stand-in for a read that failed. Reset on
+// every rebind. Diagnostics are classified as ended or not ended only once
+// it is set.
+let stateConfirmedThisGeneration = false;
 let diagnosticsLiveSeenThisGeneration = false;
 
 function show(element, text) {
@@ -124,11 +130,20 @@ function renderDiagnostics() {
     return;
   }
   const finished = renderedPhase === "succeeded" || renderedPhase === "failed";
-  show(elements.diagnosticsText, formatDiagnostics(currentDiagnostics, { finished }));
+  show(
+    elements.diagnosticsText,
+    formatDiagnostics(currentDiagnostics, {
+      finished,
+      stateKnown: stateConfirmedThisGeneration,
+    }),
+  );
   elements.diagnostics.hidden = false;
 }
 
-function render(state) {
+// `confirmed` is false for a stand-in state shown because the real one could
+// not be read: it is what is displayed, not evidence of what the run did.
+function render(state, confirmed = true) {
+  stateConfirmedThisGeneration = confirmed;
   renderedPhase = state && state.phase ? state.phase : "idle";
   // A tab with no run has no diagnostics, whatever was last shown for it.
   if (renderedPhase === "idle") currentDiagnostics = null;
@@ -219,6 +234,7 @@ function invalidateBinding() {
   liveSeenThisGeneration = false;
   currentDiagnostics = null;
   diagnosticsLiveSeenThisGeneration = false;
+  stateConfirmedThisGeneration = false;
 }
 
 // Reads this binding's diagnostics once. Like the state snapshot, it is
@@ -252,6 +268,7 @@ async function bindTo(tabId) {
   liveSeenThisGeneration = false;
   currentDiagnostics = null;
   diagnosticsLiveSeenThisGeneration = false;
+  stateConfirmedThisGeneration = false;
   loadDiagnostics(tabId, generation);
 
   function stale() {
@@ -263,7 +280,7 @@ async function bindTo(tabId) {
     snapshot = await requestState(tabId);
   } catch {
     if (stale()) return;
-    render(internalErrorState());
+    render(internalErrorState(), false);
     return;
   }
   if (stale()) return;
@@ -289,7 +306,7 @@ async function followActiveTab() {
   } catch {
     if (lookupGeneration !== tabLookupGeneration) return;
     invalidateBinding();
-    render(internalErrorState());
+    render(internalErrorState(), false);
     return;
   }
   if (lookupGeneration !== tabLookupGeneration) return;
