@@ -1484,3 +1484,107 @@ test("a failed state read does not claim the run ended", async () => {
     cleanup();
   }
 });
+
+// The worker's explicit read-failure response for getState: no RunState field.
+const READ_FAILURE = { errorKind: ErrorKind.INTERNAL_ERROR };
+
+test("a read-failure getState response shows internal-error but does not claim the run ended", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  try {
+    await switchToTabTwo(fake, doc, NO_RESULT);
+    fake.pendingSendMessage.shift().resolve(READ_FAILURE);
+    const internal = messageFor(ErrorKind.INTERNAL_ERROR, "");
+    await flushUntil(() => doc.elements.status.textContent === internal);
+    const text = diagText(doc);
+    assert.match(text, /settings outcome=ok/);
+    assert.doesNotMatch(text, INCOMPLETE);
+    assert.doesNotMatch(text, NOT_ENDED);
+    assert.equal(doc.elements["open-settings"].hidden, true);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a confirmed failed internal-error RunState with no result still reads incomplete", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  try {
+    await switchToTabTwo(fake, doc, NO_RESULT);
+    fake.pendingSendMessage
+      .shift()
+      .resolve(failedState("B", ErrorKind.INTERNAL_ERROR));
+    await flushUntil(() => INCOMPLETE.test(diagText(doc)));
+    assert.doesNotMatch(diagText(doc), NOT_ENDED);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a live update after a read-failure response confirms the state", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  try {
+    await switchToTabTwo(fake, doc, NO_RESULT);
+    fake.pendingSendMessage.shift().resolve(READ_FAILURE);
+    const internal = messageFor(ErrorKind.INTERNAL_ERROR, "");
+    await flushUntil(() => doc.elements.status.textContent === internal);
+    fake.listeners.message({
+      type: MessageType.STATE_CHANGED,
+      tabId: 2,
+      state: runningState("B title"),
+    });
+    assert.match(diagText(doc), NOT_ENDED);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a late read-failure response does not replace a live update", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  try {
+    await switchToTabTwo(fake, doc, NO_RESULT);
+    const pending = fake.pendingSendMessage.shift();
+    fake.listeners.message({
+      type: MessageType.STATE_CHANGED,
+      tabId: 2,
+      state: runningState("B title"),
+    });
+    pending.resolve(READ_FAILURE);
+    for (let i = 0; i < 30; i++) await Promise.resolve();
+    assert.notEqual(
+      doc.elements.status.textContent,
+      messageFor(ErrorKind.INTERNAL_ERROR, ""),
+    );
+    assert.match(diagText(doc), NOT_ENDED);
+  } finally {
+    cleanup();
+  }
+});
+
+test("a late read-failure response for an earlier binding does not touch the new tab", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  try {
+    await loadPanel(fake.chrome, doc);
+    await flushUntil(() => fake.pendingSendMessage.length === 1);
+    const first = fake.pendingSendMessage.shift();
+    fake.sessionStore.set(diagnosticsKey(2), NO_RESULT);
+    fake.setActiveTab(2);
+    fake.listeners.activated();
+    await flushUntil(() => fake.pendingSendMessage.length === 1);
+    await flushUntil(() => doc.elements.diagnostics.hidden === false);
+    fake.pendingSendMessage.shift().resolve(runningState("B title"));
+    await flushUntil(() => NOT_ENDED.test(diagText(doc)));
+    first.resolve(READ_FAILURE);
+    for (let i = 0; i < 30; i++) await Promise.resolve();
+    assert.notEqual(
+      doc.elements.status.textContent,
+      messageFor(ErrorKind.INTERNAL_ERROR, ""),
+    );
+    assert.match(diagText(doc), NOT_ENDED);
+  } finally {
+    cleanup();
+  }
+});

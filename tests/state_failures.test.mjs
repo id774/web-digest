@@ -92,7 +92,7 @@ async function flushUntil(predicate, maxTicks = 200) {
   assert.ok(predicate(), "condition was not met within the tick budget");
 }
 
-test("a storage.session read failure answers getState with a bounded internal-error state, not a rejection", async () => {
+test("a storage.session read failure answers getState with an explicit internal-error response, not a rejection or a RunState", async () => {
   const { chrome, listeners } = makeFakeChrome();
   try {
     chrome.storage.session.get = async () => {
@@ -111,13 +111,10 @@ test("a storage.session read failure answers getState with a bounded internal-er
     assert.equal(handled, true);
     await flushUntil(() => response !== undefined);
 
-    assert.deepEqual(response, {
-      phase: "failed",
-      title: "",
-      summary: "",
-      errorKind: ErrorKind.INTERNAL_ERROR,
-      errorDetail: "",
-    });
+    // An explicit read-failure response, not a stored-looking RunState: it
+    // carries no phase, so it cannot be taken as the run having ended.
+    assert.deepEqual(response, { errorKind: ErrorKind.INTERNAL_ERROR });
+    assert.equal("phase" in response, false);
   } finally {
     delete globalThis.chrome;
   }

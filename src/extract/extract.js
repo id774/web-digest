@@ -86,9 +86,10 @@ function webDigestExtract(doc) {
 
   // Every reason a subtree is skipped *whole* — nothing inside it is ever
   // examined once one of these holds, because nothing inside can undo it.
-  // `hidden`, `aria-hidden` and a computed `display: none` are structural
-  // this way; so is being furniture, non-content, or a page-banner header,
-  // since no CSS a descendant carries lets it stop being any of those.
+  // `hidden`, `aria-hidden`, a computed `display: none` and a computed
+  // `content-visibility: hidden` are structural this way; so is being
+  // furniture, non-content, or a page-banner header, since no CSS a
+  // descendant carries lets it stop being any of those.
   function isStructurallyExcluded(element) {
     for (let node = element; node && node.nodeType === 1; node = node.parentElement) {
       if (node.hidden === true) return true;
@@ -98,6 +99,9 @@ function webDigestExtract(doc) {
       if (view && typeof view.getComputedStyle === "function") {
         const style = view.getComputedStyle(node);
         if (style && style.display === "none") return true;
+        // `content-visibility: hidden` skips rendering of everything the
+        // element contains, whatever a descendant's own `visibility` says.
+        if (style && style.contentVisibility === "hidden") return true;
       }
     }
     return (
@@ -381,11 +385,19 @@ function webDigestExtract(doc) {
   function retainedCharsForRoot(candidate) {
     blocks.length = 0;
     titleElement = findTitleElement(candidate);
-    collectBlocks(candidate, false, false);
+    collectFromRoot(candidate);
     const total = blocks.reduce((sum, block) => sum + block.text.length, 0);
     blocks.length = 0;
     titleElement = null;
     return total;
+  }
+
+  // A candidate root is checked itself, not only its children: its own
+  // direct text has no child element to carry the check, so a root that is
+  // structurally excluded contributes nothing.
+  function collectFromRoot(candidate) {
+    if (isStructurallyExcluded(candidate)) return;
+    collectBlocks(candidate, false, false);
   }
 
   const root = chooseRoot();
@@ -605,7 +617,7 @@ function webDigestExtract(doc) {
     flush();
   }
 
-  collectBlocks(root, false, false);
+  collectFromRoot(root);
 
   return { title, blocks };
 }

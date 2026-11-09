@@ -334,10 +334,10 @@ export async function keepServiceWorkerAlive(
   }
 }
 
-// Never rejects: a getState response the panel can bound into an
-// internal-error presentation is what a storage read failure becomes here,
-// not a dropped message port the panel would otherwise have to infer a
-// meaning for.
+// Never rejects: a storage read failure becomes an explicit internal-error
+// response, `{ errorKind }` with no RunState field, not a dropped message
+// port and not a stored-looking failed RunState: the panel can show the
+// error without taking it as evidence that a run ended.
 async function readState(tabId) {
   try {
     // If a mutation for this tab is already queued when this read begins,
@@ -348,7 +348,7 @@ async function readState(tabId) {
     const stored = await chrome.storage.session.get(stateKey(tabId));
     return stored[stateKey(tabId)] || idleState();
   } catch {
-    return failedState("", ErrorKind.INTERNAL_ERROR, "");
+    return { errorKind: ErrorKind.INTERNAL_ERROR };
   }
 }
 
