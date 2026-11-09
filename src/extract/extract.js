@@ -93,7 +93,10 @@ function webDigestExtract(doc) {
   function isStructurallyExcluded(element) {
     for (let node = element; node && node.nodeType === 1; node = node.parentElement) {
       if (node.hidden === true) return true;
-      if (node.getAttribute && node.getAttribute("aria-hidden") === "true") {
+      if (
+        node.getAttribute &&
+        node.getAttribute("aria-hidden")?.toLowerCase() === "true"
+      ) {
         return true;
       }
       if (view && typeof view.getComputedStyle === "function") {
