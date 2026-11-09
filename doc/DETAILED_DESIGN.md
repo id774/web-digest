@@ -435,8 +435,9 @@ adds nothing to what `getState` or `stateChanged` carry.
 
 ### 6.1.2 What the panel does when it cannot learn a tab's state
 
-A `chrome.tabs.query` rejection, or a `getState` message that never resolves
-into a response, is not the same thing as a tab genuinely having no summary
+A `chrome.tabs.query` rejection, a `getState` message that never resolves
+into a response, or the worker's `{ errorKind: "internal-error" }` read-failure
+response (§16), is not the same thing as a tab genuinely having no summary
 yet. Either is caught and rendered as the panel's `failed` phase, carrying
 `internal-error` — the same kind and message an unexpected exception inside
 a run already produces — so the reader is told something went wrong rather
@@ -445,7 +446,11 @@ may well have one. A `chrome.tabs.query` that resolves without a valid tab id
 is rendered the same way `followActiveTab` renders no tab at all: the idle
 phase, "No summary has been run for this tab yet.". Nothing here is written
 to `chrome.storage.session`: it is a state the panel renders locally, not one
-`getState` or `stateChanged` ever carries.
+`getState` or `stateChanged` ever carries. It is rendered with
+`stateKnown=false` (§19.5), so it is never taken as the run having ended; only
+a valid snapshot or a live `stateChanged` for the current binding sets
+`stateKnown=true`, and the existing generation rules apply to a late
+read-failure response as to any other snapshot.
 
 A `chrome.tabs.query` rejection or no-valid-tab-id result additionally
 invalidates whatever tab the panel was bound to before it (§6.1.1): the tab
@@ -638,8 +643,15 @@ density do not count, while headings, quotes, code blocks, and table cells
 retain their existing link-density exemptions. A provisional collection never
 contributes a block to the final output.
 
+A candidate root is itself subject to the same exclusion: one that is not
+displayed, or has `content-visibility: hidden` on it or an ancestor, retains
+no blocks even when it holds direct text, so it is never accepted and the
+ladder continues to the next rung. The final collection applies the same
+check to the root it was given.
+
 For rung 2 scoring only, eligible text is formed from descendant text nodes
-excluding hidden, furniture, and non-content subtrees. The recursive walk
+excluding hidden (`content-visibility: hidden` included), furniture, and
+non-content subtrees. The recursive walk
 preserves an inline descendant's authored leading or trailing whitespace until
 the complete eligible text is trimmed once. This scoring input may contain
 linked text that block collection will later discard; it is not the acceptance
@@ -676,7 +688,7 @@ these holds:
 | Skipped | Test |
 |---|---|
 | it is inside dropped furniture | it has an ancestor matching `nav, footer, aside, form, dialog, [role="navigation"], [role="banner"], [role="contentinfo"], [role="complementary"], [role="search"], [role="form"]`, or an ancestor `header` with no `article`, `aside`, `main`, `nav` or `section` ancestor of its own — the page-banner landmark HTML gives such a `header` implicitly, never a content-local one such as an `article`'s own title-and-byline `header` |
-| it is not being displayed | `hidden`, `aria-hidden="true"`, or a computed `display: none`, on it or an ancestor — none of these three can be undone by anything inside — or its own computed `visibility: hidden` or `visibility: collapse`. `visibility` inherits, but a descendant can override an ancestor's `hidden`/`collapse` back to `visible`, so only the element's own resolved value decides this, never an ancestor's independently: an ancestor's `visibility: hidden` does not, by itself, exclude a descendant that has overridden it |
+| it is not being displayed | `hidden`, `aria-hidden="true"`, a computed `display: none`, or a computed `content-visibility: hidden`, on it or an ancestor — none of these four can be undone by anything inside, a descendant's own `visibility` included — or its own computed `visibility: hidden` or `visibility: collapse`. `visibility` inherits, but a descendant can override an ancestor's `hidden`/`collapse` back to `visible`, so only the element's own resolved value decides this, never an ancestor's independently: an ancestor's `visibility: hidden` does not, by itself, exclude a descendant that has overridden it |
 | it is not content | it is inside, or is, `script, style, noscript, template, iframe, svg, canvas, button, select, textarea, input, label` |
 
 Four of the candidate tags — `li`, `blockquote`, `th`, `td` — are
@@ -1904,7 +1916,7 @@ Two messages, both `chrome.runtime.sendMessage`, both shaped
 
 | Type | From | To | Payload | Response | On failure |
 |---|---|---|---|---|---|
-| `getState` | panel | worker | `{ tabId }` | the `RunState` for that tab, or an `idle` one when there is none — and, if reading `chrome.storage.session` itself fails, a `failed` one carrying `internal-error`, never a rejected message | the panel renders that response's `failed`/`internal-error` state; if the message itself never gets a response, the panel renders the same locally instead (§6.1.2) |
+| `getState` | panel | worker | `{ tabId }` | the `RunState` for that tab, or an `idle` one when there is none — and, if reading `chrome.storage.session` itself fails, `{ errorKind: "internal-error" }` with no `RunState` field, never a rejected message | the panel recognizes that response by its missing `phase` and renders the internal error locally with `stateKnown=false`; if the message itself never gets a response, the panel renders the same locally instead (§6.1.2) |
 | `stateChanged` | worker | any listening panel | `{ tabId, state }` | none | a broadcast with no listener rejects, and the worker ignores that: the state is already stored, and a panel that opens later reads it with `getState` |
 
 The diagnostic record is not a message either. The panel reads it from
@@ -2280,7 +2292,8 @@ a visible success or failure but its record has no result event); or
 bound was reached, §19.3). The first two are chosen only from a `RunState`
 confirmed for the tab currently bound — its `getState` answer or its own
 `stateChanged`. Until then, for instance when the record arrives before the
-state, or when the state read failed, the events are shown with neither line,
+state, or when the state read failed (the `internal-error` read-failure
+response of §16 included), the events are shown with neither line,
 since the run can be called neither ended nor still going. The text is written
 with `textContent` into a `<pre>`, so nothing in it is ever markup, and the
 reader can select and copy it.

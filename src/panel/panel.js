@@ -201,6 +201,17 @@ function internalErrorState() {
   };
 }
 
+// The worker answers getState with `{ errorKind: "internal-error" }` and no
+// `phase` when it could not read the stored state; a RunState always has one.
+function isStateReadFailure(response) {
+  return (
+    !!response &&
+    typeof response === "object" &&
+    response.phase === undefined &&
+    response.errorKind === ErrorKind.INTERNAL_ERROR
+  );
+}
+
 function openOptions() {
   chrome.runtime.openOptionsPage().catch(() => {
     // Bounded and local: the stored RunState is untouched, and nothing about
@@ -284,6 +295,12 @@ async function bindTo(tabId) {
     return;
   }
   if (stale()) return;
+  // The worker's explicit read-failure response is not a RunState: it is
+  // shown as the usual internal error but is no evidence of the run's phase.
+  if (isStateReadFailure(snapshot)) {
+    render(internalErrorState(), false);
+    return;
+  }
   render(snapshot);
 }
 

@@ -95,7 +95,14 @@ test("doc/VERSIONS keeps the unreleased entry's number and records the diagnosti
   assert.equal(bullets.length, 5);
   assert.match(bullets[0], /extension icon legibility/);
   assert.match(bullets[1], /up to three Highlights above a clearly separated full Summary/);
-  assert.match(top, /Added optional, session-only diagnostics for summarization runs/);
+  assert.match(
+    bullets[2],
+    /Added optional, session-only diagnostics with accurate tab-bound state/,
+  );
+  assert.match(
+    top,
+    /avoided link-dominated roots and non-rendered content\./,
+  );
   assert.match(bullets[4], /Preserved Unicode characters when dividing long pages/);
   for (const line of top.split("\n")) assert.ok(line.length <= 80, line);
 });

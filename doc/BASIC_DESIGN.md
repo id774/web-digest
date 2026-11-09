@@ -370,6 +370,12 @@ The summary is rendered as text. **No markup from the page and no markup from
 the model is put into the panel's DOM** (§18), and no summary is written to
 disk. The diagnostic text is rendered the same way.
 
+A failure to read a tab's stored state is shown as the usual internal error,
+but it is not evidence about the run: it does not show that the run has ended,
+so a diagnostic record with no result is then shown without saying whether the
+run has ended or is still going. Only a state actually read, or reported
+live, for the tab currently shown decides that.
+
 ### 7.4 The options page
 
 A provider selector, the selected provider's credential and model fields, a
@@ -407,9 +413,11 @@ As far as it can be recognized, and never by naming a site:
 - structural furniture — navigation, banners, menus, footers, complementary
   regions, and the elements HTML already labels as such,
 - anything not being displayed — hidden elements, elements marked hidden from
-  assistive technology, collapsed regions — dropped even when they sit inside
+  assistive technology, collapsed regions, and regions whose rendering is
+  skipped (`content-visibility: hidden`) — dropped even when they sit inside
   a block that is itself displayed, so a visible paragraph or heading never
-  carries a hidden descendant's text into its own,
+  carries a hidden descendant's text into its own, and a candidate root that
+  is itself not displayed contributes nothing, not even its own direct text,
 - scripts, styles, embedded frames and form controls,
 - link-dense blocks that are lists of links rather than prose, which is what
   most advertising and most site-common furniture looks like from inside the
@@ -426,6 +434,9 @@ text:
      against how much of it is links and furniture
   3. the body, with §8.2 applied
 ```
+
+A root that is not displayed, or whose rendering is skipped, never satisfies a
+rung: a displayed region with enough text is preferred to it.
 
 **Each rung is more permissive and less accurate than the one above it.** A page
 that reaches the third rung produces a noisier summary; a page that yields too

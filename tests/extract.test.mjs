@@ -1241,3 +1241,144 @@ test("a hidden or excluded <br> is still dropped", () => {
     }
   }
 });
+
+// --- a candidate root's own exclusion, and content-visibility: hidden ---
+
+// Both are well past MIN_ROOT_CHARS.
+const LONG_HIDDEN = "Hidden direct text that nobody can see. ".repeat(8);
+const LONG_VISIBLE = "Visible article content, plenty of it. ".repeat(8);
+
+function assertNoHidden(result) {
+  for (const block of result.blocks) {
+    assert.doesNotMatch(block.text, /Hidden|SECRET/);
+  }
+}
+
+for (const [name, attrs] of [
+  ["hidden", { hidden: true }],
+  ['aria-hidden="true"', { "aria-hidden": "true" }],
+  ["display:none", { style: { display: "none" } }],
+]) {
+  test(`a ${name} main with direct text neither is selected nor contributes blocks`, () => {
+    const doc = page([
+      el("main", attrs, [LONG_HIDDEN]),
+      el("article", {}, [el("p", {}, [LONG_VISIBLE])]),
+    ]);
+    const result = runExtract(doc);
+    assertNoHidden(result);
+    assert.ok(result.blocks.some((b) => b.text.includes("Visible article")));
+  });
+}
+
+test("a hidden role=main with direct text does not outrank a visible article", () => {
+  const doc = page([
+    el("div", { role: "main", hidden: true }, [LONG_HIDDEN]),
+    el("article", {}, [el("p", {}, [LONG_VISIBLE])]),
+  ]);
+  const result = runExtract(doc);
+  assertNoHidden(result);
+  assert.ok(result.blocks.some((b) => b.text.includes("Visible article")));
+});
+
+test("a visible main with direct text is still selected, and a hidden child alone does not exclude it", () => {
+  const doc = page([
+    el("main", {}, [LONG_VISIBLE, el("span", { hidden: true }, ["SECRET"])]),
+  ]);
+  const result = runExtract(doc);
+  assertNoHidden(result);
+  assert.ok(result.blocks.some((b) => b.text.includes("Visible article")));
+});
+
+test("a hidden body yields no blocks from its direct text", () => {
+  const doc = page([LONG_HIDDEN]);
+  doc.body._computedStyle = { display: "none" };
+  assert.deepEqual(runExtract(doc).blocks, []);
+});
+
+const CV_HIDDEN = { contentVisibility: "hidden" };
+
+test("content-visibility:hidden content is excluded from every block kind, visible siblings are kept", () => {
+  const doc = page([
+    el("main", {}, [
+      el("section", {}, [el("p", {}, [LONG_VISIBLE])]),
+      el("section", { style: CV_HIDDEN }, [
+        el("h2", {}, ["SECRET heading"]),
+        el("p", {}, ["SECRET paragraph. ".repeat(20)]),
+        el("pre", {}, ["SECRET code"]),
+        el("ul", {}, [el("li", {}, ["SECRET item"])]),
+        el("table", {}, [el("tr", {}, [el("td", {}, ["SECRET cell"])])]),
+        "SECRET loose text",
+        el("div", { style: { visibility: "visible" } }, [
+          el("p", { style: { visibility: "visible" } }, ["SECRET override"]),
+        ]),
+      ]),
+    ]),
+  ]);
+  const result = runExtract(doc);
+  assertNoHidden(result);
+  assert.ok(result.blocks.some((b) => b.text.includes("Visible article")));
+});
+
+test("content-visibility:hidden on a candidate itself excludes its own text", () => {
+  const doc = page([
+    el("main", {}, [
+      el("p", {}, [LONG_VISIBLE]),
+      el("p", { style: CV_HIDDEN }, ["SECRET own text"]),
+      el("h2", { style: CV_HIDDEN }, ["SECRET own heading"]),
+    ]),
+  ]);
+  const result = runExtract(doc);
+  assertNoHidden(result);
+  assert.equal(result.blocks.length, 1);
+});
+
+test("content-visibility visible and auto are not treated as hidden", () => {
+  for (const value of ["visible", "auto"]) {
+    const doc = page([
+      el("main", {}, [
+        el("section", { style: { contentVisibility: value } }, [
+          el("p", {}, [LONG_VISIBLE]),
+        ]),
+      ]),
+    ]);
+    const result = runExtract(doc);
+    assert.ok(
+      result.blocks.some((b) => b.text.includes("Visible article")),
+      `content-visibility:${value} should stay extracted`,
+    );
+  }
+});
+
+test("a content-visibility:hidden main with direct text is not selected over a visible article", () => {
+  const doc = page([
+    el("main", { style: CV_HIDDEN }, [LONG_HIDDEN]),
+    el("article", {}, [el("p", {}, [LONG_VISIBLE])]),
+  ]);
+  const result = runExtract(doc);
+  assertNoHidden(result);
+  assert.ok(result.blocks.some((b) => b.text.includes("Visible article")));
+});
+
+test("content-visibility:hidden text does not win the fallback root scoring", () => {
+  const doc = page([
+    el("div", { style: CV_HIDDEN }, [
+      el("p", {}, ["SECRET scoring text. ".repeat(60)]),
+    ]),
+    el("div", {}, [el("p", {}, [LONG_VISIBLE])]),
+  ]);
+  const result = runExtract(doc);
+  assertNoHidden(result);
+  assert.ok(result.blocks.some((b) => b.text.includes("Visible article")));
+});
+
+test("a content-visibility:hidden ancestor of the declared root removes its content", () => {
+  const doc = page([
+    el("div", { style: CV_HIDDEN }, [
+      el("main", {}, [el("p", {}, ["SECRET nested main. ".repeat(20)])]),
+    ]),
+    el("article", {}, [el("p", {}, [LONG_VISIBLE])]),
+  ]);
+  const result = runExtract(doc);
+  assertNoHidden(result);
+  assert.ok(result.blocks.some((b) => b.text.includes("Visible article")));
+});
