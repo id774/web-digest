@@ -101,7 +101,7 @@ test("doc/VERSIONS keeps the unreleased entry's number and records the diagnosti
   );
   assert.match(
     top,
-    /avoided link-dominated roots and non-rendered content\./,
+    /avoided link-dominated roots and hidden or non-rendered content\./,
   );
   assert.match(bullets[4], /Preserved Unicode characters when dividing long pages/);
   for (const line of top.split("\n")) assert.ok(line.length <= 80, line);

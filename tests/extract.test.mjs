@@ -1280,6 +1280,41 @@ test("a hidden role=main with direct text does not outrank a visible article", (
   assert.ok(result.blocks.some((b) => b.text.includes("Visible article")));
 });
 
+test("mixed-case aria-hidden on a declared root does not select or emit it", () => {
+  for (const value of ["TRUE", "True", "tRuE"]) {
+    const doc = page([
+      el("main", { "aria-hidden": value }, [LONG_HIDDEN]),
+      el("article", {}, [el("p", {}, [LONG_VISIBLE])]),
+    ]);
+    const result = runExtract(doc);
+    assertNoHidden(result);
+    assert.ok(result.blocks.some((b) => b.text.includes("Visible article")));
+  }
+});
+
+test("a mixed-case aria-hidden ancestor excludes its descendants", () => {
+  const doc = page([
+    el("main", {}, [
+      el("p", {}, [LONG_VISIBLE]),
+      el("section", { "aria-hidden": "tRuE" }, [
+        "SECRET direct text",
+        el("p", { "aria-hidden": "false" }, ["SECRET paragraph".repeat(20)]),
+      ]),
+    ]),
+  ]);
+  const result = runExtract(doc);
+  assertNoHidden(result);
+  assert.ok(result.blocks.some((b) => b.text.includes("Visible article")));
+});
+
+test("non-true aria-hidden values do not suppress visible content", () => {
+  for (const value of ["false", "FALSE", "undefined"]) {
+    const doc = page([el("main", { "aria-hidden": value }, [LONG_VISIBLE])]);
+    const result = runExtract(doc);
+    assert.ok(result.blocks.some((b) => b.text.includes("Visible article")));
+  }
+});
+
 test("a visible main with direct text is still selected, and a hidden child alone does not exclude it", () => {
   const doc = page([
     el("main", {}, [LONG_VISIBLE, el("span", { hidden: true }, ["SECRET"])]),
