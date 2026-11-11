@@ -6,11 +6,13 @@ v1.1.2 (Release Date: TBD)
 - Improved extension icon legibility at small sizes in Chrome's toolbar.
 - Added up to three Highlights above a clearly separated full Summary.
 - Added optional, session-only diagnostics with accurate tab-bound state and
-  unknown-state handling; no page content or credentials.
+  unknown-state handling, with no page content or credentials.
 - Preserved code indentation, line breaks, linked headings, short table values
-  and nested reading order; avoided link-dense roots and hidden content.
+  and nested reading order. Avoided link-dense roots and hidden content.
 - Preserved Unicode characters when dividing long pages and avoided
   false size failures at code-block split boundaries.
+- Stopped following HTTP redirects from the selected AI provider, so a request
+  goes only to that provider's fixed address.
 
 v1.1.1 (2026-09-23)
 -------------------
@@ -29,10 +31,10 @@ v1.1.1 (2026-09-23)
 
 v1.1.0 (2026-08-31)
 -------------------
-- Added an opt-in "Summarize in Japanese" setting; off by default, summaries
+- Added an opt-in "Summarize in Japanese" setting. Off by default, summaries
   continue to use the page's own language.
 - Added OpenAI and Claude alongside Sakura as selectable AI providers with
-  independent credentials; Sakura stays the default, no migration needed.
+  independent credentials. Sakura stays the default, no migration needed.
 - Raised the per-request material budget from 40,000 to 200,000 characters, so
   larger pages use the one-request path before staged summarization.
 

@@ -6,7 +6,7 @@
 //
 // This uses OpenAI's native Responses API, never the Chat Completions API,
 // the Assistants API or a compatibility layer. Every request carries
-// `store: false`; no tool, no web or file search, no conversation state and
+// `store: false`. No tool, no web or file search, no conversation state and
 // no streaming is used.
 
 import { ErrorKind, ProviderErrorDetail } from "../common/errors.js";
@@ -25,7 +25,7 @@ const LENGTH_MARKERS = ["context_length", "context length", "maximum context"];
 
 // A free-form message counts as a size refusal only when it names a size
 // target — context, input, prompt or request — close to "too long" / "too
-// large". "input too long" matches; "model name is too long" does not, since
+// large". "input too long" matches, but "model name is too long" does not, since
 // "model" and "name" are not size targets.
 const SIZE_TARGET_TOO_LONG =
   /\b(context|input|prompt|request)\b[\s\S]{0,20}\b(too long|too large)\b/;
@@ -53,7 +53,7 @@ function isAccountLimit(data) {
   );
 }
 
-// The trusted instruction becomes `instructions`; the material — the page,
+// The trusted instruction becomes `instructions`. The material — the page,
 // chunk or integration text — becomes `input`. Nothing of this project's own
 // protocol is invented: this is the documented shape of a Responses request.
 export function buildRequest({ model, instruction, content, credential }) {

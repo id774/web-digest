@@ -73,7 +73,7 @@ export function validateModel(value) {
 // Switching to a provider whose host permission is optional (OpenAI, Claude,
 // Kimi) requests that permission, through the reader's own action on this page,
 // before the provider selection is saved. Sakura needs none. Granting saves
-// the new selection; denying leaves the previous provider selected and
+// the new selection. Denying leaves the previous provider selected and
 // touches no credential or model of any provider.
 //
 // `readSnapshot`, when given, is awaited after permission is granted and

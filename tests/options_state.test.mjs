@@ -184,7 +184,7 @@ async function loadOptionsPage(chrome) {
   globalThis.chrome = chrome;
   globalThis.document = fakeDocument;
   await import(`../src/options/options.js?options-state-${Math.random()}`);
-  // load() runs unawaited from wire(); every read it uses resolves on its
+  // load() runs unawaited from wire(). Every read it uses resolves on its
   // own microtask. The provider control is re-enabled only once every read
   // — provider, model, credential status and the Japanese summary
   // preference — has landed, so draining until it is no longer disabled is
@@ -430,7 +430,7 @@ test("a successful provider change reads target settings before committing the s
     await resolveNextGet(pendingGets);
     await flushUntil(() => els.provider.disabled === false);
     // The diagnostic recording preference is read on its own once the
-    // settings above are loaded; it is settled here so that the reads counted
+    // settings above are loaded. It is settled here so that the reads counted
     // below are only the provider change's own.
     await flushUntil(() => pendingGets.length === 1);
     await resolveNextGet(pendingGets);
@@ -628,7 +628,7 @@ test("two overlapping Japanese summary toggles are serialized, so the later one 
 
     // The reader toggles again before the first save has landed. A bare
     // generation check on the UI would let this second save start racing
-    // the first one in storage; queuing must keep it from even being
+    // the first one in storage. Queuing must keep it from even being
     // issued until the first one settles.
     els["japanese-summary"].checked = false;
     const secondChange = fire(els["japanese-summary"], "change");
@@ -770,7 +770,7 @@ test("a provider change and a Save attempted before the initial load resolves ar
   try {
     const els = await loadOptionsPageWithoutWaiting(chrome);
 
-    // load() has started; its first read (the stored provider) is pending.
+    // load() has started. Its first read (the stored provider) is pending.
     await flushUntil(() => pendingGets.length >= 1);
     assert.equal(els.provider.disabled, true);
 

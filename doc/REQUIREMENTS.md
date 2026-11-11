@@ -106,7 +106,7 @@ document for the sake of a store review, and none is to be added on the
 assumption that publication is coming.
 
 Firefox, Safari and Edge are not supported in the initial version. Nothing here
-requires the implementation to be hostile to them; it simply does not promise
+requires the implementation to be hostile to them. It simply does not promise
 them.
 
 Because the extension is taken straight from a repository rather than from a
@@ -308,7 +308,7 @@ nothing anywhere and asks for no new permission.
 
 The summarization is performed by one AI provider the reader has selected:
 the Sakura AI Engine (さくらの AI Engine), OpenAI, Claude, or Kimi. The extension
-prepares the material, asks for the summary and displays what comes back; the
+prepares the material, asks for the summary and displays what comes back. The
 inference happens at the endpoint of whichever provider was selected.
 
 - **The reader's own API credential is used — bring your own key.** This
@@ -325,7 +325,7 @@ inference happens at the endpoint of whichever provider was selected.
 - **Exactly one provider is selected at a time, and one run uses exactly that
   one.** Nothing in this design tries more than one provider for the same
   run, compares their answers, or falls back from one to another
-  automatically. Selecting a provider is the reader's own explicit choice; it
+  automatically. Selecting a provider is the reader's own explicit choice. It
   is never inferred from a credential or from the content of a page.
 - **An unset or unrecognized provider selection resolves to the Sakura AI
   Engine.** This is what lets a reader who configured the extension before it
@@ -378,7 +378,9 @@ because it happened to be open.
 What is extracted is sent to the one AI provider the reader selected, to the
 extent the summary requires, and to nowhere else — not to any other
 supported provider, whether or not the reader has configured a credential or
-granted a permission for them.
+granted a permission for them. A provider's answer that redirects the
+request elsewhere is not followed, to the same origin or to another one, so
+the request goes only where the selected provider's own address says.
 
 A server belonging to this project collects and stores none of the following:
 
@@ -427,7 +429,7 @@ The reader is told when any of these happens, in terms they can act on:
 - the selected provider returned an error, or refused the request,
 - a browser permission the selected provider needs is missing — the reader can
   request that permission again directly from settings, for the selected
-  provider, without switching to another provider first; that request is made
+  provider, without switching to another provider first. That request is made
   only from the reader's own explicit action there, never during a run,
 - the content of the page could not be obtained,
 - there is not enough text on the page to summarize,
@@ -446,8 +448,8 @@ messages name the selected provider generically — "the selected AI
 provider" — rather than assuming which one it is, since a run may
 use any of them.
 
-An error message carries no API credential and no internal detail that the reader has
-no use for.
+An error message carries no API credential and no internal detail that the
+reader has no use for.
 
 ## 19. Maintainability
 
@@ -500,7 +502,7 @@ the extension's composition and responsibilities. `DETAILED_DESIGN.md` states
 the concrete behavior and interfaces of those parts. `POLICY.md` states how the
 repository is implemented and maintained. `VERSIONS` is the release history.
 
-These are the product and maintenance documents relevant to this section; the
+These are the product and maintenance documents relevant to this section. The
 listing is not intended to enumerate licensing files or every file under
 `doc/`.
 

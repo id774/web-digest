@@ -202,7 +202,7 @@ function internalErrorState() {
 }
 
 // The worker answers getState with `{ errorKind: "internal-error" }` and no
-// `phase` when it could not read the stored state; a RunState always has one.
+// `phase` when it could not read the stored state. A RunState always has one.
 function isStateReadFailure(response) {
   return (
     !!response &&

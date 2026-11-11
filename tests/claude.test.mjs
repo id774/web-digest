@@ -295,6 +295,7 @@ test("the call sends what buildRequest built", async () => {
   });
   assert.equal(seen.url, `${ANTHROPIC_BASE_URL}/messages`);
   assert.equal(seen.init.headers["x-api-key"], CALL.credential);
+  assert.equal(seen.init.redirect, "error");
 });
 
 test("HTTP failures reach the caller as their kind", async () => {

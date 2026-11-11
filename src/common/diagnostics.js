@@ -51,7 +51,7 @@ const ERROR_KINDS = new Set(Object.values(ErrorKind));
 const DETAILS = new Set(Object.values(ProviderErrorDetail));
 
 // The integer fields an event may carry. `ms` is elapsed time since the run
-// began; `requestMs` is the duration of one provider request.
+// began. `requestMs` is the duration of one provider request.
 const NUMBER_FIELDS = [
   "depth",
   "index",
@@ -66,10 +66,10 @@ const NUMBER_FIELDS = [
 const MAX_NUMBER = 1e12;
 
 // Retention bounds. They were chosen from measured sizes of the longest
-// realistic runs; see doc/DETAILED_DESIGN.md §19.3 for the measurements.
+// realistic runs. See doc/DETAILED_DESIGN.md §19.3 for the measurements.
 // Events past MAX_EVENTS - RESERVED_FOR_RESULT, or past MAX_BYTES less
 // RESERVED_BYTES_FOR_RESULT, are counted, not kept, so the final result
-// always has room; MAX_BYTES bounds the stored record.
+// always has room. MAX_BYTES bounds the stored record.
 export const MAX_EVENTS = 400;
 export const RESERVED_FOR_RESULT = 4;
 export const MAX_BYTES = 49152;
@@ -133,7 +133,7 @@ export function recordBytes(record) {
 }
 
 // Appends a sanitized event. The record gains the event only while it fits
-// the event and byte bounds; otherwise the event is counted in `dropped` and
+// the event and byte bounds. Otherwise the event is counted in `dropped` and
 // remembered as `last`, so a reader still learns how far the run got. The
 // final result alone may use the room kept back for it.
 export function appendEvent(record, event) {
@@ -151,7 +151,7 @@ export function appendEvent(record, event) {
 
 // The recorder a run uses. When diagnostics are off it is inert: it holds no
 // record and calls nothing. `persist` receives the record after each change
-// and is the caller's business; a failure there is never this module's.
+// and is the caller's business. A failure there is never this module's.
 export function createRecorder({
   enabled,
   started,
@@ -209,7 +209,7 @@ function describe(event) {
 }
 
 // Plain text, one line per event. `finished` says whether the run has ended
-// in a result the reader can see; a record with no recorded result then is
+// in a result the reader can see. A record with no recorded result then is
 // reported as incomplete rather than presented as the whole story.
 // `stateKnown: false` says the caller has not yet confirmed the run's state:
 // the events seen so far are shown, and the run is called neither ended nor

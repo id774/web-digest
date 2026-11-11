@@ -124,7 +124,7 @@ export function judgeSize(charCount) {
 
 // A cut forced at a code-unit offset must not fall between the two halves of
 // a surrogate pair, or the character would reach two requests as two invalid
-// halves. The cut moves back by one unit; when that leaves no progress (the
+// halves. The cut moves back by one unit. When that leaves no progress (the
 // pair sits at the very start), it moves past the pair instead, so the
 // piece exceeds its limit and the whole call fails closed downstream.
 function pairSafePoint(text, point) {
@@ -247,7 +247,7 @@ export function chunkMaterial(material, limit = MAX_REQUEST_MATERIAL_CHARS) {
   // block's fence length depends on its own text — a longer backtick run
   // inside it demands a longer fence — so its overhead is measured from the
   // fence the *whole, unsplit* block's text actually requires, never from
-  // an empty-text stand-in; splitting only ever cuts a backtick run
+  // an empty-text stand-in. Splitting only ever cuts a backtick run
   // shorter, never longer, so every split piece's own, independently
   // computed fence is never longer than the one this reserve already
   // accounted for. The actual per-position overhead of heading context

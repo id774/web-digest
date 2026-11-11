@@ -24,19 +24,33 @@ to be relaxed to match a more general rule.
 
 This principle governs the following implementation and maintenance rules. It
 does not permit dropping required behavior, security, compatibility, or
-validation; satisfy those obligations without unnecessary complexity.
+validation. Satisfy those obligations without unnecessary complexity.
 
 ### 0.1 Browser Extension Design Principles
 
-A browser extension exists to assist the user with a specific operation, not to assume responsibilities beyond that operation. Its behavior must remain within the purpose, scope, and boundaries established by the requirements.
+A browser extension exists to assist the user with a specific operation, not to
+assume responsibilities beyond that operation. Its behavior must remain within
+the purpose, scope, and boundaries established by the requirements.
 
-Keep responsibilities, permissions, data access, external communication, persistence, dependencies, and execution contexts to the minimum necessary for the approved operation. A capability must not be added merely because it is technically possible or might make the result more comprehensive.
+Keep responsibilities, permissions, data access, external communication,
+persistence, dependencies, and execution contexts to the minimum necessary for
+the approved operation. A capability must not be added merely because it is
+technically possible or might make the result more comprehensive.
 
-Treat web page content, external responses, and AI-generated output as untrusted data. None of them may authorize additional operations, broaden permissions, introduce communication destinations, or cross an established trust boundary.
+Treat web page content, external responses, and AI-generated output as untrusted
+data. None of them may authorize additional operations, broaden permissions,
+introduce communication destinations, or cross an established trust boundary.
 
-Before adding external resource retrieval, navigation, authentication, broader site access, unrequested background processing, or new data transmission, establish why the capability is necessary for the stated purpose. Identify its security, privacy, and maintenance consequences, and obtain an explicit specification decision before implementation.
+Before adding external resource retrieval, navigation, authentication, broader
+site access, unrequested background processing, or new data transmission,
+establish why the capability is necessary for the stated purpose. Identify its
+security, privacy, and maintenance consequences, and obtain an explicit
+specification decision before implementation.
 
-When the intended operation cannot be completed within the established boundaries, report the limitation or fail safely. Do not silently expand the extension's responsibilities or permissions to overcome that limitation. Do not claim a level of verification that the operation has not actually performed.
+When the intended operation cannot be completed within the established
+boundaries, report the limitation or fail safely. Do not silently expand the
+extension's responsibilities or permissions to overcome that limitation. Do not
+claim a level of verification that the operation has not actually performed.
 
 ## 1. General Policy
 
@@ -52,7 +66,7 @@ When the intended operation cannot be completed within the established boundarie
 - What the extension is for, what it accepts, what it produces and where its
   responsibility ends belong to the requirements. Its composition, its contexts,
   its permissions, its states, its error table and the shape of a request belong
-  to the designs. This document does not restate them; it decides how they are
+  to the designs. This document does not restate them. It decides how they are
   carried out.
 
 ### 1.2 Relation to the Requirements and the Designs
@@ -62,7 +76,7 @@ When the intended operation cannot be completed within the established boundarie
 - Where this policy contradicts one of them, this policy is what is corrected. A
   requirement or a design decision is never bent to suit a rule written here.
 - Behaviour those documents do not allow is introduced by changing them first.
-  The implementation follows them; it does not lead them.
+  The implementation follows them. It does not lead them.
 - Where this document is silent, the design policy of the basic design and the
   order of priorities in the requirements decide.
 
@@ -89,7 +103,7 @@ When the intended operation cannot be completed within the established boundarie
   where doing so would defeat the repository's stated purpose, intended
   behavior, compatibility, safety, or approved change scope. Where the
   applicable specifications and policy leave a legitimate choice open, an
-  explicit maintainer decision governs that choice; general conventions do not
+  explicit maintainer decision governs that choice. General conventions do not
   override it.
 
 ### 1.4 Invariants
@@ -125,7 +139,7 @@ These lines are not crossed by a setting or by an extension.
 - Do not truncate, sample or rank material to fit a request. Split long pages
   at structural boundaries, semantically compress every part, and integrate
   all parts into one whole-page summary.
-- Do not retry a failed run automatically. One action click is one run; the
+- Do not retry a failed run automatically. One action click is one run. The
   requests of a staged long-page run are not retries.
 
 ### 1.5 Deciding During Implementation
@@ -199,14 +213,14 @@ prompt, to extraction or to shaping is allowed to do.
 
 - **The task is semantic compression, not shortening.** Reducing a character
   count is not the purpose and is not the measure. A summary that is short and
-  has lost the condition a claim depends on has failed; a summary that is long
+  has lost the condition a claim depends on has failed. A summary that is long
   because the page carried little redundancy has not.
 - The central claim of the page is kept.
 - The main grounds for it, and the causal relations that matter, are kept.
 - The conditions and reservations that could change the conclusion are kept.
 - What matters for the kind of page it is, is kept: the purpose, the mechanism,
   the significant parts of a specification and the constraints of an explanatory
-  page; the problem, the points at issue, where it stands and what is unresolved
+  page. The problem, the points at issue, where it stands and what is unresolved
   of a discussion.
 - What is reduced, where it is not itself the substance, is repetition, several
   examples of one proposition, rhetorical elaboration, introductory
@@ -228,8 +242,8 @@ prompt, to extraction or to shaping is allowed to do.
   shows the reader one message.
 - Classify what happened, decide whether the run may continue, and decide what
   the reader or log needs to be told as separate questions. In this repository
-  the established answer for an actual failure remains fail-fast for that run;
-  this rule does not introduce partial continuation inside one reader action.
+  the established answer for an actual failure remains fail-fast for that run.
+  This rule does not introduce partial continuation inside one reader action.
 - A normal no-op, guard, or branch that is inapplicable by design is not a
   failure and does not need a reader-facing message merely because it performed
   no work.
@@ -264,9 +278,9 @@ prompt, to extraction or to shaping is allowed to do.
   its detail, the HTTP status of a failure, the number of blocks, the character
   count and the elapsed time.
 - **Never logged, at any level:** any provider's API credential and the
-  header or field it travels in; the text of the page, whole or in part,
-  including any block or excerpt; the page's title and its URL; the prompt;
-  the request body; the response body; the summary; which of the
+  header or field it travels in, the text of the page, whole or in part,
+  including any block or excerpt, the page's title and its URL, the prompt,
+  the request body, the response body, the summary, and which of the
   providers a run used.
 - An exception object is never logged whole, because what it carries is not
   bounded by this design.
@@ -325,7 +339,7 @@ prompt, to extraction or to shaping is allowed to do.
     [`COPYING.LESSER`](COPYING.LESSER) hold the official licence texts.
 - A change to behaviour updates the documents it makes wrong, in the same
   change. Leaving a design document describing what the code no longer does is
-  not a smaller change; it is an incorrect one.
+  not a smaller change. It is an incorrect one.
 - **A change to a document does not change the implementation's specification.**
   Where a document and the code disagree, which one is wrong is decided by the
   order in §1.2, and the wrong one is corrected as its own change.
@@ -365,8 +379,8 @@ prompt, to extraction or to shaping is allowed to do.
   rule has no exception: independent release items, separate commits, pull
   requests, features, bug fixes, security fixes, compatibility changes or
   breaking changes made on the same date do not permit a second version. A
-  same-date change joins that day's single entry as its own bullet;
-  independence decides bullet grouping, never a second version number.
+  same-date change joins that day's single entry as its own bullet.
+  Independence decides bullet grouping, never a second version number.
 - A correction to a version already released today is prepared but released
   under a new version only on a later calendar date.
 - **A documentation-only change does not become a version of its own**, and
@@ -395,8 +409,8 @@ prompt, to extraction or to shaping is allowed to do.
 - Where the file has settled on a width of its own, predating this limit, a
   new entry is wrapped to that width and balanced against the lines already
   standing, so that the history stays of a piece. Wrapping to hold an
-  established form does not overturn the two-line, 80-column limit above;
-  entries already written are not reflowed to suit a new one.
+  established form does not overturn the two-line, 80-column limit above.
+  Entries already written are not reflowed to suit a new one.
 - When an entry runs long, look first for what can be dropped or abstracted —
   the implementation detail, the example, the detailed reason, the secondary
   effect. Wrap onto the second line only when the abstracted entry still
@@ -418,7 +432,7 @@ prompt, to extraction or to shaping is allowed to do.
 - A document named with `.md` is written, displayed and maintained as Markdown:
   headings, lists, tables, code blocks and links make its structure explicit,
   and it may assume it will be rendered. Prose is wrapped near the width the
-  document already uses; a URL, a table row, a code block or an identifier may
+  document already uses. A URL, a table row, a code block or an identifier may
   run long, and the roughly 80 columns plain text aims at is not applied to it.
 - A document that carries no extension is a plain text document, read raw in a
   terminal, a pager or a diff. Its prose stays near 80 columns as far as it
@@ -573,14 +587,14 @@ that the requirements are incomplete, and that is where it is taken.
 - **The host permissions name exactly the supported AI providers'
   origins and nothing else**, so that a request anywhere else is refused by
   Chrome rather than by this policy being obeyed. Sakura's stays
-  `host_permissions` (required, always present); OpenAI's, Claude's and
+  `host_permissions` (required, always present). OpenAI's, Claude's and
   Kimi's are `optional_host_permissions`.
 - **An optional host permission is requested only from the reader's own
   action in the options page**, never from a run and never speculatively:
   either when they select OpenAI, Claude or Kimi as the provider, or, for
   whichever of the three is currently selected, by choosing `Grant or restore
   permission` there. A denial or a rejected request leaves the currently selected
-  provider in place and touches no stored credential or model; there is no
+  provider in place and touches no stored credential or model. There is no
   fallback.
 - **No host permission for the sites the reader visits.** Access to a page comes
   from `activeTab`, granted by the reader's click and lasting no longer.
@@ -594,7 +608,7 @@ that the requirements are incomplete, and that is where it is taken.
   reader.
 - **No permission is requested at run time to widen what the manifest
   declares.** A run only ever checks whether an already-declared optional
-  permission currently holds (§1.4); it never calls
+  permission currently holds (§1.4). It never calls
   `chrome.permissions.request`.
 
 ### 2.3 Only on the Reader's Action
@@ -618,7 +632,7 @@ that the requirements are incomplete, and that is where it is taken.
 - **Nothing received from a provider is ever executed**, and nothing received
   from a page is either.
 - **No provider SDK is used.** Every adapter speaks its provider's HTTP API
-  directly with the browser's own `fetch`; a dependency for this is refused
+  directly with the browser's own `fetch`. A dependency for this is refused
   by §1.11.
 - The only `fetch` calls to a network origin are the provider adapters',
   one origin each, and the dispatcher calls exactly one of them per run. A
@@ -684,7 +698,7 @@ that the requirements are incomplete, and that is where it is taken.
   any other. It reaches no URL, no page, no document of this
   extension other than the field it is entered in, no message shown to the
   reader and no log line.
-- The credential field is never prefilled from storage; whether a credential
+- The credential field is never prefilled from storage. Whether a credential
   is configured for the selected provider is stated instead.
 - **Each provider's own official documentation is the authority** for its
   API, its endpoint and its models. Each adapter's request is the documented
@@ -724,7 +738,7 @@ that the requirements are incomplete, and that is where it is taken.
   survives the service worker being terminated and is gone when the browser
   closes. No state management framework, no store, no persisted history. The
   optional diagnostic record (§1.10) lives in the same area under its own key
-  for the tab and has the same lifetime; it is never a field of the run state.
+  for the tab and has the same lifetime. It is never a field of the run state.
 - One place names the storage keys, and nothing else names one.
 
 ### 2.9 The Prompt
@@ -738,7 +752,7 @@ that the requirements are incomplete, and that is where it is taken.
   worker-controlled trusted instruction composes the prompt text with a
   run-level `LANGUAGE MODE` line, decided once when the run starts, and a
   request-level `TASK` line, chosen by the worker for each individual
-  request; the prompt's own wording reaches the request unchanged. The
+  request. The prompt's own wording reaches the request unchanged. The
   page's title, body, chunk text and integration material are never composed
   into the trusted instruction — they stay on the untrusted content side of
   the boundary every adapter maps to its own provider's protocol.
@@ -778,7 +792,7 @@ that the requirements are incomplete, and that is where it is taken.
     the question is what happened.
   - **Extraction** turns one document into an ordered list of blocks, and does
     nothing else. It is injected as a file, so it takes no import and is
-    self-contained; it takes the document as an argument rather than reaching
+    self-contained. It takes the document as an argument rather than reaching
     for a global.
   - **Shaping** turns blocks into the material, and judges its size. It is pure:
     no `chrome` API, no storage, no clock, no randomness, no network.
@@ -814,7 +828,7 @@ that the requirements are incomplete, and that is where it is taken.
 
 ### 3.3 State and Side Effects
 - **Do not grow durable global state.** A run's own persisted result is
-  contained in the call that performs it; what has to outlive the call, or be
+  contained in the call that performs it. What has to outlive the call, or be
   read back after the worker restarts, goes to the state the design provides,
   keyed by tab, never to a module variable.
 - Module-level bindings are constants by default — a key, a limit, a pattern, a
@@ -848,7 +862,7 @@ that the requirements are incomplete, and that is where it is taken.
   for `provider-error`, carries its fixed `detail`. An HTTP-originated failure
   may additionally carry the numeric status as internal diagnostic metadata
   for the worker's own log line and, only when the reader has opted in, for
-  the session-only diagnostic record (§1.10); it never reaches a reader-facing
+  the session-only diagnostic record (§1.10). It never reaches a reader-facing
   message or `RunState`, and the panel shows it only as part of that opt-in
   record. An exception, a raw response or a message fragment does not cross
   that boundary at all, in any form.
@@ -862,8 +876,8 @@ that the requirements are incomplete, and that is where it is taken.
   25 seconds, for the duration of that operation only. The scope is bounded, the
   cleanup is a `finally`, and a continuous indefinite heartbeat, `chrome.alarms`
   or any other background scheduling is not what this is. The keepalive changes
-  no provider timeout, causes no retry and changes no failure classification;
-  its own pulse is never left as an unhandled rejection and never classified as
+  no provider timeout, causes no retry and changes no failure classification.
+  Its own pulse is never left as an unhandled rejection and never classified as
   a provider failure.
 
 ### 3.5 Tests
@@ -890,7 +904,7 @@ that the requirements are incomplete, and that is where it is taken.
   for the test.
 - A fix for a defect arrives with the test that fails without it.
 - The runner exits `0` only when every test passed. A passing suite says
-  nothing about a provider's endpoint being reachable; only an actual run
+  nothing about a provider's endpoint being reachable. Only an actual run
   does.
 - Some tests guard an Invariant rather than a feature — that a credential
   appears in nothing an adapter returns, and that a run against one provider

@@ -1,7 +1,7 @@
 // The service worker: one run, start to finish.
 //
 // Every decision in a run is taken here, so that there is one place to read
-// when the question is what happened. The panel renders; it decides nothing.
+// when the question is what happened. The panel renders. It decides nothing.
 
 import {
   BLOCK_KINDS,
@@ -322,7 +322,7 @@ export async function keepServiceWorkerAlive(
 ) {
   const keepAlive = setIntervalImpl(() => {
     runtimeApi.getPlatformInfo().catch(() => {
-      // The pulse has no application result to surface; the run's own
+      // The pulse has no application result to surface. The run's own
       // provider result, timeout, or failure remains authoritative.
     });
   }, SERVICE_WORKER_KEEPALIVE_INTERVAL_MS);
@@ -387,7 +387,7 @@ async function discardState(tabId) {
     try {
       await chrome.storage.session.set({ [stateKey(tabId)]: idleState() });
     } catch {
-      // Storage is not answering either write; the broadcast below is the
+      // Storage is not answering either write. The broadcast below is the
       // only signal left to try.
     }
   }
@@ -402,7 +402,7 @@ async function discardState(tabId) {
 }
 
 // Removes the tab's diagnostics if there are any. The record is looked for
-// first so that a tab that never recorded one costs no remove; when the look
+// first so that a tab that never recorded one costs no remove. When the look
 // itself fails, the remove is attempted anyway, since leaving a record behind
 // is the worse outcome. A failure here is the diagnostics' own and is never
 // surfaced.
@@ -442,7 +442,7 @@ function clearDiagnostics(tabId) {
 // a navigation or closure can never be followed by a late diagnostic write.
 // Writes coalesce: while one is in flight, further changes only mark the
 // record dirty, and the latest record is written once the current write ends.
-// A failed write is dropped; the run neither waits for it nor learns of it.
+// A failed write is dropped. The run neither waits for it nor learns of it.
 function diagnosticsPersister(tabId, run) {
   let writing = false;
   let dirty = false;
@@ -528,7 +528,7 @@ export async function fail(
     await writeState(tabId, state, run);
   } catch {
     // The write itself failed. Retrying the same failing storage helper
-    // would not help; broadcasting the state directly, best-effort, is the
+    // would not help. Broadcasting the state directly, best-effort, is the
     // only way a reader watching this tab's panel can still learn the run
     // ended.
     chrome.runtime
@@ -815,7 +815,7 @@ export async function openPanelAndRun(
   try {
     opened = sidePanel.open({ tabId });
   } catch (error) {
-    // setOptions() already returned its own Promise; observe it right away
+    // setOptions() already returned its own Promise. Observe it right away
     // so a later rejection from it cannot become an unhandled rejection now
     // that nothing else is going to await it.
     Promise.resolve(configured).catch(() => {});
@@ -873,7 +873,7 @@ function registerListeners() {
     startDiscard(tabId, () => discardState(tabId)).catch(() => {});
   });
 
-  // A replacement retires removedTabId as a tab identity; the added identity
+  // A replacement retires removedTabId as a tab identity. The added identity
   // is not a migration target. Cleanup targets removedTabId only, the same
   // invalidate-then-discard ordering onRemoved uses, and starts no run.
   chrome.tabs.onReplaced.addListener((_addedTabId, removedTabId) => {

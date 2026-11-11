@@ -33,7 +33,7 @@ export const MAX_OUTPUT_TOKENS = 32768;
 // appear in validation errors unrelated to size, so a generic marker would
 // misclassify them as too-much-text. "prompt is too long" and
 // "request_too_large" are Anthropic's own documented wordings and stay as
-// exact phrases; `SIZE_TARGET_TOO_LONG` below covers other free-form size
+// exact phrases. `SIZE_TARGET_TOO_LONG` below covers other free-form size
 // refusals that still name what is too long.
 const LENGTH_MARKERS = [
   "context_length",
@@ -45,12 +45,12 @@ const LENGTH_MARKERS = [
 
 // A free-form message counts as a size refusal only when it names a size
 // target — context, input, prompt or request — close to "too long" / "too
-// large". "input too long" matches; "identifier is too long" does not, since
+// large". "input too long" matches, but "identifier is too long" does not, since
 // "identifier" is not a size target.
 const SIZE_TARGET_TOO_LONG =
   /\b(context|input|prompt|request)\b[\s\S]{0,20}\b(too long|too large)\b/;
 
-// The trusted instruction becomes the top-level `system`; the material — the
+// The trusted instruction becomes the top-level `system`. The material — the
 // page, chunk or integration text — becomes the one user message. Nothing of
 // this project's own protocol is invented: this is the documented shape of a
 // Messages request.

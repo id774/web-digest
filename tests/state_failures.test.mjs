@@ -7,9 +7,9 @@ import { MessageType } from "../src/common/messages.js";
 // These tests reproduce the storage.session read/write/remove failure
 // scenarios the worker must contain: a read failure must answer getState
 // with a bounded internal-error RunState rather than an unhandled
-// rejection; a write failure must not be mistaken for success and must not
+// rejection. A write failure must not be mistaken for success and must not
 // recurse into the same failing helper, nor permanently block later writes
-// for the same tab; a cleanup remove failure must not swallow the idle
+// for the same tab. A cleanup remove failure must not swallow the idle
 // notification with it, and its one fallback write must not be retried.
 // The listeners are registered at import time, so a fresh fake chrome is
 // installed before each fresh instance of the module is loaded.

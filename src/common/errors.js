@@ -1,9 +1,9 @@
 // The error kinds and the reader-facing messages they carry.
 //
 // Nothing else in the extension composes a message. An ordinary kind has its
-// message chosen by the kind alone; `provider-error` is the one exception,
+// message chosen by the kind alone. `provider-error` is the one exception,
 // refined by its fixed `detail` into one of seven messages. A message names
-// the cause and what would address it; it carries no raw status, no response
+// the cause and what would address it. It carries no raw status, no response
 // body, no exception, no stack and no credential, and nothing is
 // interpolated into it from the page, the answer or the settings.
 //
@@ -74,7 +74,7 @@ const PROVIDER_ERROR_MESSAGES = {
     "The selected AI provider reported an error.",
 };
 
-// The message for a kind. An ordinary kind is chosen by the kind alone;
+// The message for a kind. An ordinary kind is chosen by the kind alone.
 // `provider-error` is refined by its fixed detail. A kind with no message is
 // a fault of this repository, and the internal-error message stands in for it
 // rather than leaving the panel blank.

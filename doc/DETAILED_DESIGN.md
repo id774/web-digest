@@ -19,7 +19,7 @@ this one is the one to correct.** Nothing here adds a feature, a screen, a
 setting, a permission or a stored value that they do not already require.
 
 It contains no implementation. Data shapes, message shapes, the request body
-and the prompt appear as the smallest examples that state an interface; the
+and the prompt appear as the smallest examples that state an interface. The
 JavaScript, the HTML and the CSS are written against them and are not written
 here. Neither is a test: section 23 states what has to be observable so that a
 test specification can be written next, and stops there.
@@ -40,9 +40,9 @@ The words used below, fixed so that one concept has one name.
 | the worker | the service worker |
 | provider | one of the supported AI providers: `sakura`, `openai`, `anthropic`, `kimi` (§13) |
 | the dispatcher | `src/engine/dispatcher.js`, which selects one adapter by provider (§11) |
-| adapter | the one module per provider that speaks that provider's protocol (§11); "the selected AI provider" in text shown to the reader |
+| adapter | the one module per provider that speaks that provider's protocol (§11). "The selected AI provider" in text shown to the reader |
 
-The reader is the person using the extension; requirements §6 has only one.
+The reader is the person using the extension. Requirements §6 has only one.
 
 ## 3. Layout and files
 
@@ -102,17 +102,17 @@ of the repository but are outside this architectural view.
 | File | What it is | Responsible for | Depends on |
 |---|---|---|---|
 | `manifest.json` | the MV3 declaration | permissions, the action, the panel, the options page, the CSP (§4) | names the entry points |
-| `src/background/service_worker.js` | the worker, an ES module | one run start to finish: the action click, settings, the permission check, injection, shaping, the prompt, the request, the state, telling the panel (§22); the service-worker lifetime keepalive held only while the summarization operation runs (§22); and, when the reader enabled it, the observation points and the session write of the diagnostic record (§19.1) | `shape.js`, `dispatcher.js`, `settings.js`, `permissions.js`, `errors.js`, `messages.js`, `diagnostics.js`, `prompts/summarize.md` |
+| `src/background/service_worker.js` | the worker, an ES module | one run start to finish: the action click, settings, the permission check, injection, shaping, the prompt, the request, the state, telling the panel (§22), the service-worker lifetime keepalive held only while the summarization operation runs (§22), and, when the reader enabled it, the observation points and the session write of the diagnostic record (§19.1) | `shape.js`, `dispatcher.js`, `settings.js`, `permissions.js`, `errors.js`, `messages.js`, `diagnostics.js`, `prompts/summarize.md` |
 | `src/extract/extract.js` | the injected pass | reading one document into blocks (§7) | nothing |
-| `src/shape/shape.js` | a pure module | blocks in, material out; the two size verdicts (§8, §9) | nothing |
-| `src/engine/dispatcher.js` | a pure module of its own logic | selecting one adapter by provider and calling it; no fallback path (§11.1) | `sakura.js`, `openai.js`, `claude.js`, `kimi.js`, `transport.js`, `settings.js`, `errors.js` |
+| `src/shape/shape.js` | a pure module | blocks in, material out. The two size verdicts (§8, §9) | nothing |
+| `src/engine/dispatcher.js` | a pure module of its own logic | selecting one adapter by provider and calling it. No fallback path (§11.1) | `sakura.js`, `openai.js`, `claude.js`, `kimi.js`, `transport.js`, `settings.js`, `errors.js` |
 | `src/engine/transport.js` | a pure module but for `fetch` | the one bounded-wait request every adapter sends through, shared rather than reimplemented once per adapter (§11.5) | nothing |
 | `src/engine/sakura.js` | a pure module but for `fetch` (via `transport.js`) | the Sakura AI Engine request, reading the answer, mapping a failure to an error kind (§11.2, §11.3) | `errors.js`, `transport.js` |
 | `src/engine/openai.js` | a pure module but for `fetch` (via `transport.js`) | the OpenAI Responses request, reading the answer, mapping a failure to an error kind (§11.2, §11.3) | `errors.js`, `transport.js` |
 | `src/engine/claude.js` | a pure module but for `fetch` (via `transport.js`) | the Claude Messages request, reading the answer, mapping a failure to an error kind (§11.2, §11.3) | `errors.js`, `transport.js` |
 | `src/engine/kimi.js` | a pure module but for `fetch` (via `transport.js`) | the Kimi Chat Completions request, reading the answer, mapping a failure to an error kind (§11.2, §11.3) | `errors.js`, `transport.js` |
 | `src/panel/panel.html` | the panel document | the four state regions, the collapsible diagnostics section and the way to the options page | `panel.js`, `panel.css` |
-| `src/panel/panel.js` | the panel's script | asking for the state and rendering it (§16, §17); reading and showing the tab's diagnostic record (§19.5) | `errors.js`, `messages.js`, `diagnostics.js` |
+| `src/panel/panel.js` | the panel's script | asking for the state and rendering it (§16, §17), and reading and showing the tab's diagnostic record (§19.5) | `errors.js`, `messages.js`, `diagnostics.js` |
 | `src/panel/panel.css` | the panel's stylesheet | legibility of the result beside the page | nothing |
 | `src/options/options.html` | the settings document | the provider selector, the credential field, the model field, the Japanese summary checkbox, the diagnostic recording checkbox, save, delete, status | `options.js`, `options.css` |
 | `src/options/options.js` | the settings script | validation, the provider-change/permission flow, reading and writing the settings (§6.2, §12, §13, §13.1) | `settings.js`, `permissions.js` |
@@ -144,10 +144,10 @@ and the worker already exchange there, and the optional diagnostic record
 ```
 
 **No arrow points back.** `common/` imports nothing but `settings.js` from
-`permissions.js`; `shape.js` and the adapters know only the shapes in
-§15; the dispatcher knows only which adapter a provider identifier selects;
-the worker is the only file that knows all of them. Adding or changing a
-provider touches its own adapter file and the settings; improving the prompt
+`permissions.js`. `shape.js` and the adapters know only the shapes in
+§15. The dispatcher knows only which adapter a provider identifier selects.
+The worker is the only file that knows all of them. Adding or changing a
+provider touches its own adapter file and the settings. Improving the prompt
 touches `prompts/summarize.md` and nothing else — which is what requirement
 §19 asks for.
 
@@ -220,7 +220,7 @@ needed to use them.
 | Key | Why |
 |---|---|
 | `manifest_version` | 3. Requirement §7 and basic design §5 |
-| `name` | the repository name; the extension is not published, so no store title is needed |
+| `name` | the repository name. The extension is not published, so no store title is needed |
 | `version` | the extension's own version string, tracked in `doc/VERSIONS`. This document settles no release scheme and no tag convention |
 | `description` | one line naming what it does and which providers it can use a credential for, because the reader installs it from a clone and this line is what Chrome shows them |
 | `minimum_chrome_version` | `116`. `chrome.sidePanel` arrived in 114, but `sidePanel.open()`, which §5.1 uses, requires 116. Stated so that an older browser refuses the extension instead of failing at the first click |
@@ -244,7 +244,7 @@ needed to use them.
 | `<all_urls>` or any site host permission | the reach into the web is `activeTab` and nothing else |
 | `externally_connectable` | no web page and no other extension may message this one |
 | `declarative_net_request`, `webRequest` | nothing observes or rewrites traffic |
-| `commands` | a keyboard shortcut would be a second way in; requirement §9 asks for one |
+| `commands` | a keyboard shortcut would be a second way in. Requirement §9 asks for one |
 | `default_locale` and `_locales/` | the interface is English, and translating it is not a requirement |
 
 ## 5. The reader's operation
@@ -274,7 +274,7 @@ preserves the click gesture for the `open()` call while still preventing the
 run from continuing unless both panel operations succeed. A synchronous
 exception from either side-panel call, or a rejection from either returned
 operation, releases the identity claimed by this click and ends the action
-path with no run. `open()` is still invoked before any `await`; if `open()`
+path with no run. `open()` is still invoked before any `await`. If `open()`
 throws after `setOptions()` has already returned a Promise, that earlier
 operation is observed so its later rejection cannot become unhandled.
 
@@ -283,19 +283,19 @@ the same identity the run uses after both calls succeed. Navigation, closure
 or replacement can therefore invalidate the click while the panel operations
 are pending. If that happens, their later success does not start extraction,
 write a failure state or transfer the request to whatever page the tab now
-contains. A duplicate click does not claim a second identity; it may still
+contains. A duplicate click does not claim a second identity. It may still
 open the panel, but it starts no second run.
 
 ### 5.2 The whole of the reader's path
 
 | # | The reader does | What happens |
 |---|---|---|
-| 1 | installs the unpacked extension | the install hook configures the side-panel action behavior; no summary run starts and no page is read; an unset provider later resolves to Sakura AI Engine (§13, §14) |
-| 2 | opens the options page, optionally chooses a different provider, and saves its credential | the provider selection and that provider's credential are in `storage.local` (§12, §13); choosing OpenAI, Claude or Kimi first asks Chrome's own permission prompt for that provider's origin |
+| 1 | installs the unpacked extension | the install hook configures the side-panel action behavior. No summary run starts and no page is read. An unset provider later resolves to Sakura AI Engine (§13, §14) |
+| 2 | opens the options page, optionally chooses a different provider, and saves its credential | the provider selection and that provider's credential are in `storage.local` (§12, §13). Choosing OpenAI, Claude or Kimi first asks Chrome's own permission prompt for that provider's origin |
 | 3 | opens a page and clicks the action | the panel opens and one run starts, using the provider selected in step 2 (§22) |
 | 4 | waits | the panel shows the run is in progress |
 | 5 | reads the summary beside the page | the panel shows it as text |
-| 6 | clicks the action again | a second run, against the same selected provider; one request for a normal page |
+| 6 | clicks the action again | a second run, against the same selected provider. One request for a normal page |
 
 Step 2 can be skipped for a reader content with the default: clicking the
 action with no credential configured for the selected provider is a run that
@@ -308,7 +308,7 @@ badge.
 
 A second run starts only when the reader clicks the toolbar action again. This
 renews the `activeTab` grant for the current page before extraction. The panel
-has no run control and no message that can start a run; no broader host
+has no run control and no message that can start a run. No broader host
 permission is added. A second click while work for that tab is live in the same
 worker is ignored. If the worker was terminated mid-run, its in-memory record
 of live work is gone and the next click can start a new run even though the
@@ -340,7 +340,7 @@ One document, four regions, one visible at a time, chosen by the phase in §17.
 | `idle` | "No summary has been run for this tab yet." | **Settings** |
 | `running` | the title, when the state carries one, and "Summarizing… this can take a while." | **Settings** |
 | `succeeded` | the title and the summary | **Settings** |
-| `failed` | the title, when the state carries one, and the message for the error kind (§18) | **Settings**; additionally **Open settings** for `credential-missing` or `permission-missing` |
+| `failed` | the title, when the state carries one, and the message for the error kind (§18) | **Settings**. Additionally **Open settings** for `credential-missing` or `permission-missing` |
 
 `Settings` in the header calls `chrome.runtime.openOptionsPage()` and is
 available in every phase.
@@ -354,7 +354,7 @@ available in every phase.
   differences and surrounding whitespace are tolerated. When it matches, a
   region with static `Highlights` and `Summary` headings is shown: each item is
   a `<li>` of a `<ul>` and the body is a `<div>` with `white-space: pre-wrap`,
-  separated by an `<hr>`; every string is written with `textContent`. When it
+  separated by an `<hr>`. Every string is written with `textContent`. When it
   does not match, including a free-form string stored before this layout, the
   whole string is written with one assignment to `textContent` into the single
   plain-text element with `white-space: pre-wrap`, and nothing is dropped,
@@ -391,7 +391,7 @@ when it loaded:
   panel no longer follows is never applied, however late it resolves. Binding
   clears no rendered content: until the new snapshot is applied, the title
   and summary last drawn for the previous tab remain displayed, and this is
-  intended; once it is applied, the new tab's state replaces them. The
+  intended. Once it is applied, the new tab's state replaces them. The
   diagnostics record is read by its own request, started alongside the
   snapshot request and guarded by the same generation, so it may be shown
   (or hidden, when the new tab has none) before the title and summary change.
@@ -447,7 +447,7 @@ is rendered the same way `followActiveTab` renders no tab at all: the idle
 phase, "No summary has been run for this tab yet.". Nothing here is written
 to `chrome.storage.session`: it is a state the panel renders locally, not one
 `getState` or `stateChanged` ever carries. It is rendered with
-`stateKnown=false` (§19.5), so it is never taken as the run having ended; only
+`stateKnown=false` (§19.5), so it is never taken as the run having ended. Only
 a valid snapshot or a live `stateChanged` for the current binding sets
 `stateKnown=true`, and the existing generation rules apply to a late
 read-failure response as to any other snapshot.
@@ -474,18 +474,18 @@ the summary.
 
 | Element | Kind | Notes |
 |---|---|---|
-| AI provider | `<select>` | one of `sakura`, `openai`, `anthropic`, `kimi`; changing it may request an optional host permission (§12.2) before the selection is saved |
+| AI provider | `<select>` | one of `sakura`, `openai`, `anthropic`, `kimi`. Changing it may request an optional host permission (§12.2) before the selection is saved |
 | provider status | text | the result of the last provider change or restore action, or why it was not made |
-| Grant or restore permission | button | visible for OpenAI, Claude or Kimi; requests that selected provider's optional host permission without changing the provider or any stored credential/model |
-| API credential | `<input type="password">` | for the selected provider; **never prefilled**, whatever is stored |
+| Grant or restore permission | button | visible for OpenAI, Claude or Kimi. Requests that selected provider's optional host permission without changing the provider or any stored credential/model |
+| API credential | `<input type="password">` | for the selected provider. **Never prefilled**, whatever is stored |
 | credential status | text | "A credential is configured." or "No credential is configured.", for the selected provider |
-| Model | `<input type="text">` | for the selected provider; the placeholder is that provider's default of §13 |
+| Model | `<input type="text">` | for the selected provider. The placeholder is that provider's default of §13 |
 | Save | button | validates, then writes the credential and the model for the selected provider only |
-| Delete credential | button | removes the selected provider's credential; its model, every other provider's settings, the provider selection and the Japanese summary preference are left alone |
+| Delete credential | button | removes the selected provider's credential. Its model, every other provider's settings, the provider selection and the Japanese summary preference are left alone |
 | status line | text | the result of the last Save or Delete action, or the reason it was refused |
-| Japanese summary | `<input type="checkbox">` | reflects the stored preference (§13.1), shared by every provider; saved on change |
+| Japanese summary | `<input type="checkbox">` | reflects the stored preference (§13.1), shared by every provider. Saved on change |
 | Japanese summary status | text | the result of the last change to that preference |
-| Record diagnostics for each summary | `<input type="checkbox">` | reflects the stored diagnostic preference (§19.1); off by default; saved on change |
+| Record diagnostics for each summary | `<input type="checkbox">` | reflects the stored diagnostic preference (§19.1). Off by default. Saved on change |
 | diagnostic status | text | the result of the last change to that preference, or why it could not be loaded |
 
 Validation, all of it local — **nothing is checked by contacting a provider**
@@ -495,12 +495,12 @@ Validation, all of it local — **nothing is checked by contacting a provider**
 |---|---|---|
 | credential | non-empty after trimming | "Enter a credential." |
 | credential | no whitespace, no line break inside | "A credential contains no spaces or line breaks." |
-| model | may be empty; empty means that provider's default | — |
+| model | may be empty. Empty means that provider's default | — |
 | model | no whitespace inside when given | "A model name contains no spaces." |
 
 Saving with an empty credential field is refused rather than treated as a
 deletion, so that an accidental save cannot silently clear a working
-credential; deleting is its own button. The credential field is not prefilled
+credential. Deleting is its own button. The credential field is not prefilled
 because requirement §15 asks that a credential is not displayed where it does
 not have to be, and a field the reader is about to overwrite does not have to
 be.
@@ -552,7 +552,7 @@ never one from an attempt that lost the race to start.
 Save and Delete credential likewise treat a `storage.local` write failure as
 the operation not having happened: Save leaves the entered credential and
 model in place and shows "The settings could not be saved." rather than
-clearing the field or claiming success; Delete credential leaves the
+clearing the field or claiming success. Delete credential leaves the
 credential status exactly as it read before and shows "The credential could
 not be deleted." rather than reporting removal. When the write or removal
 succeeds, that success is itself the confirmed state: Save clears the
@@ -568,7 +568,7 @@ OpenAI, Claude or Kimi, and hidden for Sakura. Clicking it calls
 `requestProviderPermission(currentProvider)` directly, without first awaiting
 `chrome.permissions.contains` — the click itself is the user gesture the
 request needs, and checking first would spend it. A grant leaves the selected
-provider unchanged and the provider status line says permission is granted; a
+provider unchanged and the provider status line says permission is granted. A
 denial or a rejected request leaves the selected provider unchanged and the
 provider status line says permission was not granted. Neither outcome touches
 any provider's stored credential, model or the Japanese summary preference,
@@ -587,7 +587,7 @@ checkbox and its status only when it belongs to the latest requested
 generation. An older success therefore cannot overwrite a newer pending
 choice, and an older failure cannot revert it. If the latest write fails,
 the checkbox returns to the last successfully confirmed value and shows
-"The Japanese summary preference could not be saved."; if the latest write
+"The Japanese summary preference could not be saved.". If the latest write
 succeeds, the checkbox is set to that confirmed value and shows "Saved.".
 
 The diagnostic recording checkbox follows the same shape as the Japanese
@@ -618,7 +618,7 @@ chrome.scripting.executeScript({
 ```
 
 and runs once, in the isolated world, in the top frame only. It **reads** the
-document and returns; it adds no node, sets no attribute, registers no
+document and returns. It adds no node, sets no attribute, registers no
 listener, calls no function of the page, makes no request and holds no setting
 and no credential.
 
@@ -630,14 +630,14 @@ The ladder of basic design §8.3, with one accept test.
 |---|---|---|
 | 1 | the first of `main`, `[role="main"]`, `article` that exists | the sum of text lengths of blocks retained by §7.2, excluding the title `h1`, is at least `MIN_ROOT_CHARS` |
 | 2 | the highest scoring candidate | the same retained-block test |
-| 3 | `document.body` | always; the test is applied to the material instead (§9.1) |
+| 3 | `document.body` | always. The test is applied to the material instead (§9.1) |
 
 The acceptance test for rungs 1 and 2 measures the blocks that §7.2 would
 actually emit from the candidate root. It runs the same collection rules
 provisionally, reserves the first eligible `h1` for the title, and sums the
 `text.length` of the retained blocks. The title and separators between blocks
 contribute no characters. This is measured before shaping, normalization,
-repetition removal, and rendering; the final `too-little-text` verdict remains
+repetition removal, and rendering. The final `too-little-text` verdict remains
 §9.1's responsibility. Paragraph and list-item blocks discarded for link
 density do not count, while headings, quotes, code blocks, and table cells
 retain their existing link-density exemptions. A provisional collection never
@@ -654,7 +654,7 @@ excluding hidden (`content-visibility: hidden` included), furniture,
 non-content and closed-`details` subtrees (§7.2). The recursive walk
 preserves an inline descendant's authored leading or trailing whitespace until
 the complete eligible text is trimmed once. This scoring input may contain
-linked text that block collection will later discard; it is not the acceptance
+linked text that block collection will later discard. It is not the acceptance
 measure. The candidate set, scoring formula, and tie handling remain unchanged.
 
 Rung 2 scores every element matching `article, section, div` that contains at
@@ -688,7 +688,7 @@ these holds:
 | Skipped | Test |
 |---|---|
 | it is inside dropped furniture | it has an ancestor matching `nav, footer, aside, form, dialog, [role="navigation"], [role="banner"], [role="contentinfo"], [role="complementary"], [role="search"], [role="form"]`, or an ancestor `header` with no `article`, `aside`, `main`, `nav` or `section` ancestor of its own — the page-banner landmark HTML gives such a `header` implicitly, never a content-local one such as an `article`'s own title-and-byline `header` |
-| it is not being displayed | `hidden`, `aria-hidden="true"` (ASCII case-insensitive value), a computed `display: none`, or a computed `content-visibility: hidden`, on it or an ancestor — none of these four can be undone by anything inside, a descendant's own `visibility` included — or being inside a closed `details` (one with no `open` attribute) anywhere but its first direct `summary` child, which is likewise not undone by anything inside, a descendant's `visibility: visible`, `aria-hidden="false"` or `content-visibility: visible` included. The attribute's presence alone means open, so `open="false"` is open. A closed `details`' own direct text is not displayed either, while the first direct `summary` and its displayed descendants are examined as usual; the hiding is not visible in any ancestor's computed style, so it is a separate test on the `details` ancestor. Or its own computed `visibility: hidden` or `visibility: collapse`. `visibility` inherits, but a descendant can override an ancestor's `hidden`/`collapse` back to `visible`, so only the element's own resolved value decides this, never an ancestor's independently: an ancestor's `visibility: hidden` does not, by itself, exclude a descendant that has overridden it |
+| it is not being displayed | `hidden`, `aria-hidden="true"` (ASCII case-insensitive value), a computed `display: none`, or a computed `content-visibility: hidden`, on it or an ancestor — none of these four can be undone by anything inside, a descendant's own `visibility` included — or being inside a closed `details` (one with no `open` attribute) anywhere but its first direct `summary` child, which is likewise not undone by anything inside, a descendant's `visibility: visible`, `aria-hidden="false"` or `content-visibility: visible` included. The attribute's presence alone means open, so `open="false"` is open. A closed `details`' own direct text is not displayed either, while the first direct `summary` and its displayed descendants are examined as usual. The hiding is not visible in any ancestor's computed style, so it is a separate test on the `details` ancestor. Or its own computed `visibility: hidden` or `visibility: collapse`. `visibility` inherits, but a descendant can override an ancestor's `hidden`/`collapse` back to `visible`, so only the element's own resolved value decides this, never an ancestor's independently: an ancestor's `visibility: hidden` does not, by itself, exclude a descendant that has overridden it |
 | it is not content | it is inside, or is, `script, style, noscript, template, iframe, svg, canvas, button, select, textarea, input, label` |
 
 Four of the candidate tags — `li`, `blockquote`, `th`, `td` — are
@@ -707,7 +707,7 @@ such element, or with no text after it, emits exactly what it did before.
 Link density is judged once over all of the container's own text and applies
 to every part, so a trailing part that is only a link is kept or dropped
 together with the container, as it was when the container was one block. A
-`p` is the only candidate tag that is never independent this way; a `p` not
+`p` is the only candidate tag that is never independent this way. A `p` not
 inside one of the four containers is its own `paragraph` block, exactly as
 before.
 
@@ -728,8 +728,8 @@ two, unless either side already carries whitespace there, so
 `<blockquote>Alpha<p>Beta</p>Gamma</blockquote>` read `Alpha Beta` and
 `Alpha Beta Gamma` once shaping folds the break. An empty or excluded
 paragraph adds none.
-Inline descendants do not gain a separator merely because they are elements;
-authored whitespace is preserved here and normalized later by shaping. A
+Inline descendants do not gain a separator merely because they are elements.
+Authored whitespace is preserved here and normalized later by shaping. A
 `<br>` is the one element that does insert a boundary: it contributes a line
 break to the owned text, so the two text runs it separates are never read as
 one merged word once concatenated — shaping is free to fold that break into
@@ -763,7 +763,7 @@ Anything else — a `dl`, a `dt`, a `dd`, a `figcaption`, a `div`, or any
 other tag that renders as a block of its own — is walked by this same
 top-down pass, one level deeper. Its own direct text, by the adjacency rule
 above, is emitted as a `paragraph` block at the point the walk reaches it,
-in document order; the walk then continues into its children to find and
+in document order. The walk then continues into its children to find and
 emit whatever candidate or container is nested inside. Such a `paragraph`
 is link-density-skipped by the same rule as any other (below). This is what
 keeps a `dl`'s `dt` and `dd` texts, and a bare `figcaption`'s own caption,
@@ -774,7 +774,7 @@ again by an ancestor.
 
 `pre` preserves line breaks, but it does not bypass the visibility/content
 exclusions. Its text is collected recursively from visible content while
-preserving text-node whitespace and line breaks; raw `element.textContent`
+preserving text-node whitespace and line breaks. Raw `element.textContent`
 is not used for emission, so hidden, furniture or non-content descendants
 cannot leak into a code block. A visible `<br>` is the same authored
 boundary here it is in ordinary prose: it contributes a line break to the
@@ -785,7 +785,7 @@ so it is not a paragraph boundary either: its children are collected as if
 the wrapper itself were not there, in the very same prose run its parent is
 already collecting, rather than flushing that run and starting a fresh one
 around it. A `display: contents` wrapper holding plain text does not split
-surrounding prose into two paragraphs around itself; a candidate or
+surrounding prose into two paragraphs around itself. A candidate or
 container nested inside one is still found and emitted as its own
 independent block, by the same top-down walk, exactly as if the wrapper
 were absent. "Exactly as if the wrapper were absent" includes an `<a>`
@@ -850,7 +850,7 @@ is to never carry the URL at all.
 |---|---|---|
 | a Chrome-restricted target — `chrome://`, the Chrome Web Store, the Chrome PDF viewer | `executeScript` rejects | `page-unreadable` |
 | a `file://` page, and **Allow access to file URLs** is not granted to this extension | `executeScript` rejects | `page-unreadable` |
-| a `file://` page, and **Allow access to file URLs** is granted | injection succeeds; the page proceeds through the ordinary extraction path (§7.1–§7.4) | — |
+| a `file://` page, and **Allow access to file URLs** is granted | injection succeeds. The page proceeds through the ordinary extraction path (§7.1–§7.4) | — |
 | the `activeTab` grant has lapsed (§5.3) | `executeScript` rejects | `page-unreadable` |
 | the injected function throws | no result, or a rejected promise | `page-unreadable` |
 | it returns no result, or one that is not the shape above | a value that fails the check in §22 step 6 | `page-unreadable` |
@@ -882,7 +882,7 @@ For every block but `code`:
 For a `code` block, line breaks are kept: trailing horizontal whitespace is
 removed from each line, runs of three or more blank lines collapse to one, and
 only empty boundary lines are removed. Leading spaces and tabs on the first
-nonempty code line, as on every other nonempty code line, are preserved; the
+nonempty code line, as on every other nonempty code line, are preserved. The
 whole code string is never trimmed. **Code is the one place a line break
 carries meaning**, and basic design §8.1 keeps code blocks because a technical
 page is often unreadable without them.
@@ -915,10 +915,10 @@ normalized text.
 length, row, or how many times the same text recurs. A table's cells commonly
 repeat meaningfully — the same status word, unit or category value in several
 rows, or the same value in several cells of one row — and this design would
-rather keep an intentional repetition than discard one the page meant to
-carry. No row-level or column-level comparison is added to decide which
-repeats are meaningful; every non-empty `table-cell` block that survives §8.1 and §8.2
-is kept.
+rather keep an intentional repetition than discard one the page meant to carry.
+No row-level or column-level comparison is added to decide which repeats are
+meaningful. Every non-empty `table-cell` block that survives §8.1 and §8.2 is
+kept.
 
 ### 8.4 Render
 
@@ -953,7 +953,7 @@ measure the material and decide the two verdicts of §9.
 
 `charCount` is `title.length + text.length` — the measure the per-request
 budget of §9.2 is taken against. `blockCount` is the number of blocks kept.
-Both exist to be measured, logged (§19) and tested; neither is shown to the
+Both exist to be measured, logged (§19) and tested. Neither is shown to the
 reader. The too-little-text verdict of §9.1 is judged on `text.length` alone,
 not on `charCount`: a long title never offsets a body that is itself too
 short.
@@ -999,13 +999,13 @@ falls back to cutting mid-line only when a single line is itself longer than
 the limit — never by truncating, sampling or otherwise dropping any of that
 line. Wherever a division has to cut at the limit itself, whether in a `code`
 block or any other, it never falls between the two UTF-16 code units of a
-surrogate pair, so a supplementary character is never split across chunks;
-when no cut satisfies that together with the limit and the block's full text,
+surrogate pair, so a supplementary character is never split across chunks.
+When no cut satisfies that together with the limit and the block's full text,
 `chunkMaterial` fails closed as described below. Concatenating a `code`
 block's pieces in order always reproduces its original text exactly. A `code`
 block's fence is chosen long enough that no run of backticks already in its
 text can be mistaken for the closing fence, without altering the code text
-itself; that same delimiter's actual length is what the budget below is
+itself. That same delimiter's actual length is what the budget below is
 measured against, for the block as a whole and for each of its split pieces
 alike. Each chunk carries the page title and the
 heading context active at its start.
@@ -1201,9 +1201,9 @@ the final result, no headings, no bold, no tables and no code fences.
 ```
 
 Its semantic-compression rules implement requirements §§11–12 and basic design
-§10.1. The final result structure and the choice of highlights implement requirements
-§13 and basic design §10.1;
-the language control remains as specified in §10.4. Nothing else is in it.
+§10.1. The final result structure and the choice of highlights implement
+requirements §13 and basic design §10.1. The language control remains as
+specified in §10.4. Nothing else is in it.
 
 The `Form` section exists because the panel renders text and never markup
 (§20): asking for plain text is how the display constraint reaches the model,
@@ -1238,7 +1238,7 @@ with the run-level `LANGUAGE MODE` line already appended (§10.4). `task` —
 `"integrate"` for the integration step (§9.2) — is chosen by the worker for
 each individual request and appended to that base instruction as its own
 `TASK:` line, so the returned `instruction` carries both worker-selected
-controls. `content` carries the title and body only; the worker-added `TASK:`
+controls. `content` carries the title and body only. The worker-added `TASK:`
 line never appears in it. When the title is empty the `TITLE:` line is
 omitted and the body begins with `BODY:`.
 
@@ -1295,7 +1295,7 @@ provider, and calls exactly that one adapter with the same arguments.
 **There is no other path through this function.** A `provider` outside the
 known values is this repository's own fault, not a reader-facing case, and returns
 `internal-error` rather than guessing an adapter. Whatever the chosen adapter
-returns is returned unchanged; the dispatcher never calls a second adapter,
+returns is returned unchanged. The dispatcher never calls a second adapter,
 never races two, and never falls back from one to another.
 
 ### 11.2 The four requests
@@ -1405,7 +1405,7 @@ fixed sampling parameters — `temperature`, `top_p`, `n`, `presence_penalty`,
 `frequency_penalty` — are not sent, and neither are `reasoning_effort`,
 `stream`, `tools` or `tool_choice`: none of them is a setting this design
 offers. Kimi's answer may carry a `reasoning_content` field alongside
-`message.content`; it is never read by this adapter (§11.4).
+`message.content`. It is never read by this adapter (§11.4).
 
 No other header beyond what each table above lists is sent by any adapter. No
 `User-Agent` of this project's own, no request id, no telemetry.
@@ -1419,6 +1419,17 @@ sends its request through it — so the 120-second bound and the "no retry"
 rule below are identical across every adapter by construction, not by
 separate implementations happening to agree. An abort ends the run as
 `timeout`.
+
+The same shared call also fixes how a redirect is treated: the request is
+sent with `redirect: "error"`, so no HTTP 3xx answer with a `Location` is
+followed, whether it points to the same origin or to another one, and no
+request other than the original is ever sent. `fetch` then rejects, and that
+takes the existing unreachable path, `{ timedOut: false, unreachable: true }`,
+which the adapter maps to `provider-unreachable`. The redirect target, any
+header, the credential and the page text are not placed in an error message,
+a diagnostic event or the console, and nothing is retried or sent to another
+provider. The timeout, the abort, each adapter's URL and payload and the
+number of requests are unchanged.
 
 **A failed run is never retried automatically.** One action click is one run,
 against the one provider it started with. Staged long-page requests are parts
@@ -1448,7 +1459,7 @@ because the text happens to be non-empty.
   `finish_reason`, is `no-usable-summary`, whatever text the choice carries.
   Only once `"stop"` is confirmed is the summary read, from
   `data.choices[0].message.content`, trimmed, accepted when it is a string
-  and is not empty after trimming; missing or empty content is
+  and is not empty after trimming. Missing or empty content is
   `no-usable-summary`. `usage`, `id` and everything else in the answer is
   ignored rather than interpreted.
 - **Kimi**: success requires the first choice's `finish_reason` to be exactly
@@ -1460,7 +1471,7 @@ because the text happens to be non-empty.
 - **OpenAI**: when the top-level `status` field is `"failed"`, the provider
   itself failed to produce a Response — a provider-side `provider-error`, not
   `no-usable-summary` — and no attempt is made to classify the accompanying
-  `error` object further; an unrecognized code or message stays the generic
+  `error` object further. An unrecognized code or message stays the generic
   `unspecified` detail rather than being guessed at. Otherwise, when any
   `message` output item in `data.output` carries a `refusal` content block,
   that is the model explicitly declining to answer — a distinct
@@ -1509,7 +1520,7 @@ the worker to log and, when the reader has opted in, to record in the
 diagnostics (§19) — never part of the reader-facing message (§18) built from
 `kind`/`detail` alone, and never part of the `RunState`. It is not the
 response body. The response body, the wording of the provider's own error, and
-any exception text go no further than the classification below; none of them
+any exception text go no further than the classification below. None of them
 crosses this boundary, and nothing in the returned shape names which provider
 produced it — the caller already knows, from the `provider` it passed to the
 dispatcher.
@@ -1569,7 +1580,7 @@ OpenAI's HTTP 429 is split the same way. `error.code` values
 `organization_spend_limit_exceeded` and `project_spend_limit_exceeded`, and
 `error.type` value `insufficient_quota`, are OpenAI's own documented signals
 that the account itself — not the request rate — is what is blocking the
-call, and only these recognized values are mapped to `account-limit`; every
+call, and only these recognized values are mapped to `account-limit`. Every
 other 429, including one with no body or an unrecognized code, keeps the
 existing `rate-limited` mapping rather than being guessed at. Claude's HTTP
 402 is Anthropic's own documented `billing_error`, so it is mapped to the
@@ -1599,7 +1610,7 @@ official documentation
 (https://www.kimi.ai/help/kimi-api/api-error-codes), unlike Sakura's, does
 establish a meaning for both: HTTP 403 is an access problem with the
 account, project or model, mapped the same way as OpenAI's and Claude's
-403 to `access-denied`; HTTP 404 is the endpoint or resource refusing the
+403 to `access-denied`. HTTP 404 is the endpoint or resource refusing the
 request outright, mapped the same way as OpenAI's and Claude's 404 to
 `refused`. OpenAI's and Claude's HTTP 404 keeps its existing `refused`
 mapping. Kimi's HTTP 429 is also documented with three distinct `error.type`
@@ -1743,7 +1754,7 @@ path and a second failure mode for a field set once (basic design §11.6).
 
 Each default model constant is one line in one file. Its value is the name of
 a model from that provider's own published list, confirmed against that list
-when the constant is written; **this document deliberately does not freeze a
+when the constant is written. **This document deliberately does not freeze a
 model name**, because a name written into a document is wrong as soon as the
 service renames or withdraws it. A model name a provider does not recognize
 is refused by that provider's endpoint and reaches the reader as a
@@ -1781,7 +1792,7 @@ value, and keeps the behavior it already had — no migration is needed.
 | set by | the options page's diagnostic recording checkbox, on change |
 | unset when | the key is absent, or its value is not the boolean `true` |
 | when unset | off — no record is created and no extra session write is made |
-| read by | the worker, once per run, immediately after the settings of §13 and before anything is recorded; a failed read means off |
+| read by | the worker, once per run, immediately after the settings of §13 and before anything is recorded. A failed read means off |
 
 It is read by its own call rather than inside `readSettings`, so the keys a run
 reads for the provider, credential, model and Japanese preference are exactly
@@ -1821,24 +1832,25 @@ choose, and each one exposed would be a second decision on a path requirement
 | `ANTHROPIC_DEFAULT_MODEL` | a name from Anthropic's list | `settings.js` | what a reader who set only a Claude credential runs with (§13) |
 | `KIMI_DEFAULT_MODEL` | a name from Kimi's list | `settings.js` | what a reader who set only a Kimi credential runs with (§13) |
 
-The four diagnostic bounds are explained, with the sizes they were chosen
-from, in §19.3. Three other values are worth their reasons. `MAX_REQUEST_MATERIAL_CHARS` is counted
-in characters because shaping has no model-specific tokenizer. Its 200000
-characters are the one budget that lets large material stay on the one-request
-path, without assuming that a character equals a token. `REQUEST_TIMEOUT_MS` is two minutes
-because a non-streaming semantic-compression request is slow by nature, and a
-shorter limit could turn a succeeding summary into an error — the same reason
-holds for every provider, which is why every adapter shares the one
-constant rather than each choosing its own. `MAX_OUTPUT_TOKENS` is generous
-rather than tight, because it exists to satisfy a required field of the
-Messages API, not to cap a summary's length in practice, and it is not the
-API's own ceiling or the selected model's own maximum; the prompt's own "no
-target length" instruction is what actually governs that.
+The four diagnostic bounds are explained, with the sizes they were chosen from,
+in §19.3. Three other values are worth their reasons.
+`MAX_REQUEST_MATERIAL_CHARS` is counted in characters because shaping has no
+model-specific tokenizer. Its 200000 characters are the one budget that lets
+large material stay on the one-request path, without assuming that a character
+equals a token. `REQUEST_TIMEOUT_MS` is two minutes because a non-streaming
+semantic-compression request is slow by nature, and a shorter limit could turn a
+succeeding summary into an error — the same reason holds for every provider,
+which is why every adapter shares the one constant rather than each choosing its
+own. `MAX_OUTPUT_TOKENS` is generous rather than tight, because it exists to
+satisfy a required field of the Messages API, not to cap a summary's length in
+practice, and it is not the API's own ceiling or the selected model's own
+maximum. The prompt's own "no target length" instruction is what actually
+governs that.
 
 ## 15. Interfaces
 
 The shapes that cross a module boundary. Field names are part of the
-specification; the examples are the smallest that state the shape.
+specification. The examples are the smallest that state the shape.
 
 ### 15.1 `Block` and `ExtractResult`
 
@@ -1903,7 +1915,7 @@ callProvider({
 
 `credential` is a parameter and is never stored by the dispatcher or an
 adapter, never logged by either, and never returned from either. `provider`
-decides which one adapter is called (§11.1); it never reaches an adapter's
+decides which one adapter is called (§11.1). It never reaches an adapter's
 request as a field of its own.
 
 ### 15.5 `RunState`
@@ -1918,8 +1930,8 @@ request as a field of its own.
 }
 ```
 
-One `RunState` per tab. `summary` is empty except in `succeeded`; `errorKind`
-is empty except in `failed`; `errorDetail` is empty except for
+One `RunState` per tab. `summary` is empty except in `succeeded`. `errorKind`
+is empty except in `failed`. `errorDetail` is empty except for
 `provider-error`. **There is no URL, no timestamp, no credential, no material
 and no request or response in it, and no field naming which provider produced
 it** — it holds what the panel renders and nothing else.
@@ -1932,7 +1944,7 @@ Two messages, both `chrome.runtime.sendMessage`, both shaped
 
 | Type | From | To | Payload | Response | On failure |
 |---|---|---|---|---|---|
-| `getState` | panel | worker | `{ tabId }` | the `RunState` for that tab, or an `idle` one when there is none — and, if reading `chrome.storage.session` itself fails, `{ errorKind: "internal-error" }` with no `RunState` field, never a rejected message | the panel recognizes that response by its missing `phase` and renders the internal error locally with `stateKnown=false`; if the message itself never gets a response, the panel renders the same locally instead (§6.1.2) |
+| `getState` | panel | worker | `{ tabId }` | the `RunState` for that tab, or an `idle` one when there is none — and, if reading `chrome.storage.session` itself fails, `{ errorKind: "internal-error" }` with no `RunState` field, never a rejected message | the panel recognizes that response by its missing `phase` and renders the internal error locally with `stateKnown=false`. If the message itself never gets a response, the panel renders the same locally instead (§6.1.2) |
 | `stateChanged` | worker | any listening panel | `{ tabId, state }` | none | a broadcast with no listener rejects, and the worker ignores that: the state is already stored, and a panel that opens later reads it with `getState` |
 
 The diagnostic record is not a message either. The panel reads it from
@@ -1962,12 +1974,12 @@ The four states of basic design §14, one per tab.
 
 | Phase | Entered when | Panel shows | Allowed | Held |
 |---|---|---|---|---|
-| `idle` | there is no stored state for the tab | §6.1 | the toolbar action starts a run; the panel itself has no run control | nothing |
-| `running` | a run starts, before anything else | §6.1 | the panel itself has no run control; a duplicate toolbar click while this tab's work is live in the current worker is ignored | `title`, when the click supplied one |
+| `idle` | there is no stored state for the tab | §6.1 | the toolbar action starts a run. The panel itself has no run control | nothing |
+| `running` | a run starts, before anything else | §6.1 | the panel itself has no run control. A duplicate toolbar click while this tab's work is live in the current worker is ignored | `title`, when the click supplied one |
 | `succeeded` | a summary is read from the answer (§11.3) | §6.1 | click the toolbar action again to rerun | `title`, `summary` |
-| `failed` | any step ends the run (§18) | §6.1 | click the toolbar action again; and for `credential-missing` or `permission-missing`, the settings control | `title` when known, `errorKind`, `errorDetail` |
+| `failed` | any step ends the run (§18) | §6.1 | click the toolbar action again, and for `credential-missing` or `permission-missing`, the settings control | `title` when known, `errorKind`, `errorDetail` |
 
-- **The worker sets it; the panel reads it and renders it.** No other file
+- **The worker sets it. The panel reads it and renders it.** No other file
   writes a state.
 - It is stored in `chrome.storage.session` under the key `run:<tabId>`, which
   is held in memory and cleared when the browser closes. This survives the
@@ -1987,7 +1999,7 @@ The four states of basic design §14, one per tab.
   that the tab started loading or that its URL changed, and when Chrome
   replaces its tab identity — so the panel returns to `idle` after a
   navigation boundary and waits for a new toolbar action. The URL-change
-  notification is tested only for the presence of its `url` property; the URL
+  notification is tested only for the presence of its `url` property. The URL
   value itself is never read, stored, compared or logged. The listener that
   performs this cleanup starts nothing, reads no page and holds no URL. A
   replacement invalidates the removed identity's run first, the same ordering
@@ -2012,7 +2024,7 @@ The four states of basic design §14, one per tab.
   continues past it only if the write actually went through. Where that
   write was the run's own failure state — the outer catch of §22, or an
   earlier step's own `fail()` — retrying the same failing write is not
-  attempted; the state is instead broadcast directly over `stateChanged`,
+  attempted. The state is instead broadcast directly over `stateChanged`,
   best-effort, so a reader watching that tab can still learn the run ended
   even though storage itself could not confirm it. This is what keeps one
   failing write from producing a second, unhandled one.
@@ -2020,7 +2032,7 @@ The four states of basic design §14, one per tab.
   than left to take the `idle` broadcast down with it. One fallback write of
   the idle state is tried in its place — never a retry of the remove, and
   never more than the one fallback — so a stale stored `RunState` is not
-  left as the answer the next `getState` would read; the `idle` broadcast
+  left as the answer the next `getState` would read. The `idle` broadcast
   itself is then attempted regardless of whether either write succeeded.
 - **No summary and no page text is written to disk by this design**, which is
   what requirement §16 asks of it.
@@ -2029,10 +2041,10 @@ The four states of basic design §14, one per tab.
   cleanups (closure, loading or URL change, replacement), queued behind the
   tab's pending mutations the same way, and by the start of the tab's next
   run before that run writes `running`. Each removal first reads the key and
-  removes it only when present, so a tab that never recorded costs no remove;
-  a failed read is treated as present, and a failed remove is followed by one
+  removes it only when present, so a tab that never recorded costs no remove.
+  A failed read is treated as present, and a failed remove is followed by one
   fallback write of an empty record in its place (never a second remove), so
-  an earlier run's record cannot remain as a later run's; the panel shows an
+  an earlier run's record cannot remain as a later run's. The panel shows an
   empty record as nothing. If that write fails too, nothing more is done.
 
 No state library, no store, no reducer and no persisted history. The panel asks
@@ -2079,15 +2091,15 @@ Three rules hold across the table.
 - **A message names the cause, not the internals.** The reader is told what to
   do next. Of what the message does not say, only the status code — for an
   HTTP-originated failure — reaches the log and, when the reader has opted
-  in, the diagnostics (§19); the wording of the
+  in, the diagnostics (§19). The wording of the
   endpoint's error and the exception itself go no further than deciding the
   kind and detail above, and are not themselves recorded anywhere.
 - **Distinguishable causes stay distinguishable** (requirement §18). "No
   credential" and "credential rejected" lead to different actions and are
-  never merged; "no credential" and "permission missing" are two separate
+  never merged. "No credential" and "permission missing" are two separate
   kinds because one names Settings' credential field and the other its
   permission prompt.
-- **An ordinary kind chooses its message alone; `provider-error` is refined
+- **An ordinary kind chooses its message alone. `provider-error` is refined
   by its fixed `detail`.** Nothing interpolates a value from the page, the
   answer or the settings into a message, so no message can carry something it
   was not written to carry — including which provider was selected, or its
@@ -2179,7 +2191,7 @@ point are not recorded and nothing stands in for them: a run that fails while
 its settings are still being read has no record, and the panel shows none.
 
 Recording is observation only. The recorder is called at the points the run
-already has, with facts the run already holds; it never reads a page, a
+already has, with facts the run already holds. It never reads a page, a
 request or an answer for its own purposes, never decides anything, and never
 throws into the run — `record` swallows its own failures, and the observer
 passed into `summarizeMaterial` is called through a guard that does the same.
@@ -2202,14 +2214,14 @@ non-negative integers, and an event that does not fit is dropped whole:
 | `depth`, `index`, `total`, `chunks`, `blocks`, `chars`, `status`, `requestMs` | integers from 0 to 10^12 |
 
 The points that record, in order of a run: `settings` (`ok`, or `failed` when
-no credential is configured); `prompt` (`ok`, or `failed`); `extract` (`ok`
-with the number of blocks, or `failed`); `shape` (`ok` with block and
-character counts, or `failed` with the kind); `split` (when material exceeds
+no credential is configured), `prompt` (`ok`, or `failed`), `extract` (`ok`
+with the number of blocks, or `failed`), `shape` (`ok` with block and
+character counts, or `failed` with the kind), `split` (when material exceeds
 the per-request budget: its depth, the number of parts and its size, `ok` or
-`failed` with `too-much-text`); for each provider request a `request-start`
+`failed` with `too-much-text`), for each provider request a `request-start`
 and a `request-end` carrying the task, the depth, the part number out of the
 total for a chunk, the size, the outcome, and for a failure its kind, detail
-and HTTP status as the adapter returned them; and finally `result`.
+and HTTP status as the adapter returned them, and finally `result`.
 
 The optional-permission check records nothing, and no event distinguishes the
 providers, because whether that check applies would reveal which provider was
@@ -2240,10 +2252,10 @@ of twenty million characters is far beyond what a browser shows, and it needs
 quarter to spare, and `MAX_BYTES` is 49152 (48 KiB), which is what 400 events
 of the observed size occupy, so the two bounds engage at nearly the same
 point for ordinary runs and the byte bound alone engages first only for
-unusually large events. The last two rows are runs no summary should produce;
-they are kept as far as the bounds allow and then reported as incomplete.
+unusually large events. The last two rows are runs no summary should produce.
+They are kept as far as the bounds allow and then reported as incomplete.
 
-`chrome.storage.session` holds 10 MB in total (Chrome 112 and later; the
+`chrome.storage.session` holds 10 MB in total (Chrome 112 and later, while the
 manifest requires 116), so at 48 KiB a profile could hold well over two
 hundred full records at once. A record exists only for a tab whose last run
 had the preference on, and the next run replaces it.
@@ -2252,13 +2264,13 @@ When a bound is reached:
 
 - an event that would exceed `MAX_EVENTS - RESERVED_FOR_RESULT` events, or
   `MAX_BYTES - RESERVED_BYTES_FOR_RESULT` bytes, is not kept. `dropped` is
-  incremented and the event becomes `last`;
-- the `result` event alone may use the reserved events and bytes, so a run
-  that was cut short in the middle still ends with its outcome;
-- bytes are counted on the UTF-8 encoding of the record's JSON, so the bound
+  incremented and the event becomes `last`.
+- The `result` event alone may use the reserved events and bytes, so a run
+  that was cut short in the middle still ends with its outcome.
+- Bytes are counted on the UTF-8 encoding of the record's JSON, so the bound
   does not depend on what characters an event happens to hold (all of them
-  are ASCII by construction, and a test proves the counter measures bytes);
-- the run is unaffected: no bound is ever an error of the run.
+  are ASCII by construction, and a test proves the counter measures bytes).
+- The run is unaffected: no bound is ever an error of the run.
 
 ### 19.4 Persistence and isolation
 
@@ -2272,7 +2284,7 @@ When a bound is reached:
 - Writes coalesce. While one write is in flight, further events only mark the
   record dirty and the latest record is written when the write ends, so a
   long run causes a few writes per second at most, not one per event.
-- A write that fails is dropped and not retried; the record stays at whatever
+- A write that fails is dropped and not retried. The record stays at whatever
   last reached storage. Nothing in the run waits for the write or learns of it.
 - A new run removes the previous record of its tab (a read of the key, then a
   remove only if present) before it writes `running`, whether or not the new
@@ -2289,7 +2301,7 @@ The panel reads `diag:<tabId>` with `chrome.storage.session.get` when it binds
 to a tab, and updates from `chrome.storage.onChanged` for the `session` area
 and the bound tab's key only. The same generation rules as for the state
 apply: a snapshot read that settles after the binding has changed, or after a
-live change was already shown, is ignored; a failed read shows nothing. A
+live change was already shown, is ignored. A failed read shows nothing. A
 stored value passes `sanitizeRecord` before use, so a malformed or foreign
 value shows nothing. A `RunState` of `idle` clears the record on screen.
 
@@ -2301,9 +2313,9 @@ value shows nothing. A `RunState` of `idle` clears the record on screen.
 ```
 
 followed, when it applies, by one of: "This run has not ended yet. Events
-appear as they are recorded." (no result yet, the run still going);
+appear as they are recorded." (no result yet, the run still going),
 "Incomplete: no final result was recorded for this run." (the run has ended in
-a visible success or failure but its record has no result event); or
+a visible success or failure but its record has no result event), or
 "Incomplete: N later events were not retained." with "Last observed: ..." (a
 bound was reached, §19.3). The first two are chosen only from a `RunState`
 confirmed for the tab currently bound — its `getState` answer or its own
@@ -2327,9 +2339,11 @@ reader can select and copy it.
   `https://api.anthropic.com` and `https://api.moonshot.ai`, so a request
   anywhere else is refused by Chrome rather than by this design being
   obeyed. `sakura.js`, `openai.js`, `claude.js` and `kimi.js` are the only
-  files that call `fetch` against a network origin, one origin each; the
-  dispatcher (§11.1) calls exactly one of them per run. The only other
-  `fetch` in the extension is
+  files that call `fetch` against a network origin, one origin each. The
+  dispatcher (§11.1) calls exactly one of them per run. All of them send
+  through `transport.js` with `redirect: "error"` (§11.3), so a redirect
+  answer is never followed and the request cannot be carried on to a second
+  address. The only other `fetch` in the extension is
   `chrome.runtime.getURL("prompts/summarize.md")`, which is a packaged file.
 - **The page's text is untrusted input.** It is quoted into the content field
   of the logical request as the thing being summarized (§10.3), mapped by
@@ -2367,13 +2381,13 @@ What one run does with data, end to end.
 
 | Data | Where it comes from | Where it goes | How long it lives |
 |---|---|---|---|
-| the page's text | the tab the reader clicked on, read once | shaped, then sent in one request or structurally chunked staged requests, to the one selected provider | the run; it is in memory and is not stored |
+| the page's text | the tab the reader clicked on, read once | shaped, then sent in one request or structurally chunked staged requests, to the one selected provider | the run. It is in memory and is not stored |
 | the page's title | the same | the request, and the state the panel renders | until the browser closes, or the tab navigates or closes |
 | the summary | the selected provider's answer | the state, and the panel | the same |
 | the selected provider's credential | the reader, on the options page | `storage.local`, and that provider's one authentication header or field | until the reader deletes it |
 | the other providers' credentials, if configured | the reader, on the options page | `storage.local` only — never sent, because that run never selects them | until the reader deletes each one |
 | the model name | the reader, on the options page | `storage.local`, and the request body, for the selected provider only | the same |
-| the diagnostic record, when the reader turned it on | built by the worker from step names, counts, sizes and timings only (§19.1, §19.2) | `chrome.storage.session` under `diag:<tabId>`, and the panel; sent nowhere | until the browser closes, or the tab navigates or closes, or the tab's next run begins |
+| the diagnostic record, when the reader turned it on | built by the worker from step names, counts, sizes and timings only (§19.1, §19.2) | `chrome.storage.session` under `diag:<tabId>`, and the panel. Sent nowhere | until the browser closes, or the tab navigates or closes, or the tab's next run begins |
 | the page's URL | nowhere — it is never read, never returned by extraction, never stored and never sent |  |  |
 
 - **Only the page a summary was asked for is read**, from a toolbar click whose
@@ -2382,7 +2396,7 @@ What one run does with data, end to end.
   on navigation. Tab-lifecycle housekeeping listeners for navigation, closure
   and replacement only invalidate live work and discard session state. A
   navigation is recognized when Chrome reports loading or the presence of a
-  URL-change field; the URL value itself is never read or retained. If such a
+  URL-change field. The URL value itself is never read or retained. If such a
   lifecycle event occurs while the side panel is still opening, that click is
   stale and never reaches extraction. Every summary target is therefore the
   tab identity the toolbar action claimed and kept current through the start of
@@ -2472,7 +2486,7 @@ The steps, at the granularity they are written at:
    string, every block carrying a known `kind` and a string `text`. Anything
    else is `page-unreadable`.
 10. **Shaping produces the material** (§8).
-11. **The size is judged** (§9): `too-little-text` ends the run; material over
+11. **The size is judged** (§9): `too-little-text` ends the run. Material over
     the per-request budget is structurally chunked.
 12. **The logical request is composed** for the page or for each chunk
     (§10.3), carrying the trusted instruction and the untrusted content.
@@ -2485,13 +2499,13 @@ The steps, at the granularity they are written at:
     interval, which calls `chrome.runtime.getPlatformInfo()` every
     `SERVICE_WORKER_KEEPALIVE_INTERVAL_MS` so Chrome's worker lifetime timer
     is reset while the operation waits. One page request, or every chunk and
-    integrate request of a long page, runs inside that one scope; the
+    integrate request of a long page, runs inside that one scope. The
     interval is cleared in a `finally` when the operation reaches its final
     success, failure, timeout or exception. The 120-second bounded wait per
     request stays with the transport, and the interval itself produces no
     provider result and no state transition.
 14. **Every answer is judged** by its adapter (§11.4, §11.6). Any failure
-    ends the whole run; nothing here calls a second provider.
+    ends the whole run. Nothing here calls a second provider.
 15. **The final integrated summary is taken** from the answer.
 16. **The state becomes `succeeded`**, carrying the title and the summary, and
     `stateChanged` is broadcast. The panel renders it as text.
@@ -2500,28 +2514,28 @@ The steps, at the granularity they are written at:
     success or failure, leaves a `result` event before the state is written.
     None of this changes what the run does next.
 17. **Any step above may end the run instead.** Every way it can is a row of
-    §18; the state becomes `failed` with that kind, `stateChanged` is
+    §18. The state becomes `failed` with that kind, `stateChanged` is
     broadcast, and the panel shows the message. Another run starts only when
-    the reader clicks the toolbar action again; the panel itself has no retry
+    the reader clicks the toolbar action again. The panel itself has no retry
     control.
 
 The whole of a run is in `service_worker.js`, so the question "what happened"
-has one file to read; which provider it used is answered by what was
+has one file to read. Which provider it used is answered by what was
 selected in settings at step 5, since no later step can change it.
 
 ## 23. Testability
 
 Every unit below is written so that its input can be constructed, its output
 compared and its failure named, without a browser profile, a credential or a
-network. **This document does not write the tests**; it fixes what a test
+network. **This document does not write the tests**. It fixes what a test
 specification would be written against.
 
 | Unit | Input | Output | Error conditions |
 |---|---|---|---|
 | extraction (§7) | a `Document`, passed as a parameter rather than read from a global, so a fixture parsed from an HTML string can stand in for a page | `ExtractResult` (§15.1) | none of its own: it returns what it found, and an empty `blocks` is a valid result that §9.1 judges |
 | shaping (§8) | `ExtractResult` | `{ ok: true, material }` (§15.2) | `too-little-text` |
-| the size verdicts (§9.1) | a character count — the rendered body's `text.length`, never `charCount` | one of `judgeSize`'s two verdicts, `too-little-text` or `ok` | the `MIN_MATERIAL_CHARS` boundary, exactly; the per-request budget's boundary is a case for staged summarization / chunking, not for `judgeSize` |
-| logical request composition (§10.3) | the instruction text, a `Material` and a task label | `{ instruction, content }` | none; an empty title changes the content and is a case, not an error |
+| the size verdicts (§9.1) | a character count — the rendered body's `text.length`, never `charCount` | one of `judgeSize`'s two verdicts, `too-little-text` or `ok` | the `MIN_MATERIAL_CHARS` boundary, exactly. The per-request budget's boundary is a case for staged summarization / chunking, not for `judgeSize` |
+| logical request composition (§10.3) | the instruction text, a `Material` and a task label | `{ instruction, content }` | none. An empty title changes the content and is a case, not an error |
 | provider resolution (§13) | a stored value | one of the four providers, or Sakura for anything else | none: every input has a defined resolution |
 | the dispatcher (§11.1) | `{ provider, model, credential, instruction, content }` | whatever the selected adapter returns, unchanged | `internal-error` for an unrecognized provider |
 | each adapter's request construction (§11.2) | model, instruction, content, credential | a URL, a header set and a JSON body, in that adapter's own shape | none |
@@ -2531,9 +2545,9 @@ specification would be written against.
 | the state machine (§17) | a phase and an event | the next phase and what it carries | an event that is not allowed in a phase leaves it unchanged |
 | error kinds (§18) | a kind, and a detail | one message string | a kind with no message is a fault of this repository |
 | the service-worker keepalive (§22) | an async operation function, a fake runtime API and fake interval functions, all passed as parameters | the operation's resolved value, or its rejection propagated unchanged | none of its own: the interval period is `SERVICE_WORKER_KEEPALIVE_INTERVAL_MS`, the pulse is one `getPlatformInfo` call, and the interval is cleared on resolve as on reject, all without a browser profile, a network or a real timer |
-| run ownership at panel start (§5.1, §22) | a tab id, deferred fake side-panel Promises and a fake run starter | exactly one live identity exists from the click; invalidating it before panel completion prevents the starter from being called | a panel rejection releases the claimed identity; a synchronous exception from a panel operation releases it the same way; a duplicate click claims none |
+| run ownership at panel start (§5.1, §22) | a tab id, deferred fake side-panel Promises and a fake run starter | exactly one live identity exists from the click. Invalidating it before panel completion prevents the starter from being called | a panel rejection releases the claimed identity. A synchronous exception from a panel operation releases it the same way. A duplicate click claims none |
 | tab-update navigation boundary (§17) | a `changeInfo` object | true for `status: "loading"` or the presence of its own `url` property, false otherwise | the URL property's value is never read |
-| the diagnostic event vocabulary (§19.2) | a raw event | an event of the fixed vocabulary and integers, or null | every value outside the vocabulary is dropped; no free-form string survives |
+| the diagnostic event vocabulary (§19.2) | a raw event | an event of the fixed vocabulary and integers, or null | every value outside the vocabulary is dropped. No free-form string survives |
 | the retention bounds (§19.3) | a record and an event | the record with the event appended, or counted in `dropped` | just below, at and past each bound, with the largest events and with the result reserved |
 | the recorder and the observed run (§19.1) | a fake Chrome, a `fetch` stub and invented pages, with the preference on and off | the same state, requests and closing line either way, and an ordered record | storage failures of the record leave the run unchanged |
 | the diagnostic display (§19.5) | a fake panel document and a fake `chrome.storage.session` | the formatted text for the bound tab only | stale snapshots, other tabs, removals, unreadable and malformed values |
@@ -2544,14 +2558,14 @@ implementation rather than an observation about it:
 - **`shape.js` and the composition in §10.3 are pure.** No `chrome`, no clock,
   no randomness, no storage.
 - **`extract.js` takes its document as an argument.** The injected wrapper
-  passes `document`; a test passes a parsed fixture.
+  passes `document`. A test passes a parsed fixture.
 - **Every adapter takes `fetch` and the timeout as parameters**, through the
   shared `sendRequest` in `transport.js`, defaulting to the global and to
   `REQUEST_TIMEOUT_MS`, so a stub answers without a network and a timeout is
   provable in milliseconds, identically for every provider.
 - **The classification that crosses a boundary on failure is the kind, and,
   for `provider-error`, its fixed `detail`.** A test asserts a kind and, where
-  it applies, a detail; it never asserts a message fragment, a raw response
+  it applies, a detail. It never asserts a message fragment, a raw response
   body, a raw status or an exception's own text. An adapter's failure-mapping
   test (§11.6) may assert both the kind and the detail it produces.
 
@@ -2559,7 +2573,7 @@ What is observable from the outside, for a later acceptance run: the state
 each run leaves, the message the panel shows, the single line the log
 writes, and the fact that every outbound request of a run was a POST to the
 selected provider's own origin — never to any other. An
-ordinary page makes exactly one such request; a staged long-page run makes
+ordinary page makes exactly one such request. A staged long-page run makes
 the several chunk and integrate requests it needs, none of them a retry.
 
 ## 24. Mapping to the basic design

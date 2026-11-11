@@ -288,6 +288,7 @@ test("the call sends what buildRequest built", async () => {
   assert.equal(seen.init.method, "POST");
   assert.equal(seen.init.headers.Authorization, `Bearer ${CALL.credential}`);
   assert.ok(seen.init.signal);
+  assert.equal(seen.init.redirect, "error");
 });
 
 test("HTTP failures reach the caller as their kind", async () => {

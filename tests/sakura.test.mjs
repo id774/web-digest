@@ -200,6 +200,91 @@ test("the call sends what buildRequest built", async () => {
   assert.equal(seen.init.method, "POST");
   assert.equal(seen.init.headers.Authorization, `Bearer ${CALL.credential}`);
   assert.ok(seen.init.signal);
+  assert.equal(seen.init.redirect, "error");
+});
+
+test("the request init carries redirect: error and nothing else changed", async () => {
+  const request = buildRequest(CALL);
+  let seen = null;
+  await callSakura(CALL, {
+    fetchImpl: async (url, init) => {
+      seen = { url, init };
+      return (await answering(200, summaryBody("ok"))());
+    },
+  });
+  assert.deepEqual(Object.keys(seen.init).sort(), [
+    "body",
+    "headers",
+    "method",
+    "redirect",
+    "signal",
+  ]);
+  assert.equal(seen.init.redirect, "error");
+  assert.equal(seen.init.method, request.method);
+  assert.deepEqual(seen.init.headers, request.headers);
+  assert.equal(seen.init.body, request.body);
+  assert.ok(seen.init.signal instanceof AbortSignal);
+});
+
+// A fetch that behaves as the Fetch standard says for a 3xx answer: it
+// rejects when the request said `redirect: "error"`, and otherwise follows
+// the Location with a second request.
+function redirectingFetch(calls, status = 302) {
+  return async (url, init) => {
+    calls.push({ url, redirect: init.redirect });
+    if (calls.length > 1) {
+      return answering(200, summaryBody("from the redirect target"))();
+    }
+    if (init.redirect === "error") throw new TypeError("redirect refused");
+    return { ok: false, status, json: async () => ({}) };
+  };
+}
+
+test("a redirect is refused: one request only, provider-unreachable, nothing leaked", async () => {
+  for (const status of [301, 302, 303, 307, 308]) {
+    const calls = [];
+    const result = await callSakura(CALL, {
+      fetchImpl: redirectingFetch(calls, status),
+    });
+    assert.deepEqual(result, { ok: false, kind: "provider-unreachable" });
+    assert.equal(calls.length, 1, `status ${status}`);
+    assert.equal(calls[0].url, `${SAKURA_BASE_URL}/chat/completions`);
+    const text = JSON.stringify(result);
+    assert.ok(!text.includes(CALL.credential));
+    assert.ok(!text.includes("https://"));
+  }
+});
+
+test("success, HTTP failures, abort and unreachable stay as they were", async () => {
+  assert.deepEqual(
+    await callSakura(CALL, { fetchImpl: answering(200, summaryBody("Done.")) }),
+    { ok: true, summary: "Done." },
+  );
+  for (const [status, kind] of [
+    [401, "credential-rejected"],
+    [429, "provider-error"],
+    [503, "provider-error"],
+  ]) {
+    const result = await callSakura(CALL, {
+      fetchImpl: answering(status, { error: { message: "no" } }),
+    });
+    assert.equal(result.kind, kind);
+  }
+  assert.deepEqual(
+    await callSakura(CALL, {
+      timeoutMs: 20,
+      fetchImpl: () => new Promise(() => {}),
+    }),
+    { ok: false, kind: "timeout" },
+  );
+  assert.deepEqual(
+    await callSakura(CALL, {
+      fetchImpl: async () => {
+        throw new TypeError("network");
+      },
+    }),
+    { ok: false, kind: "provider-unreachable" },
+  );
 });
 
 test("HTTP failures reach the caller as their kind", async () => {

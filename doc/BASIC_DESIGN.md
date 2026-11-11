@@ -8,7 +8,7 @@ what each part is responsible for, how one summary proceeds from the reader's
 action to the text on the screen, and what is held between runs.
 
 It does not restate why anything is required. Where the requirements settle a
-question, this document takes the answer as given and designs to it; where they
+question, this document takes the answer as given and designs to it. Where they
 deliberately leave a question open — how a page is extracted, how the parts are
 divided, what the endpoint is called with — this document settles it.
 
@@ -23,32 +23,32 @@ for, not by the functions it will contain, and no code appears here.
 
 Seven decisions shape everything below.
 
-- **No summary work runs until the reader asks.** There is no content script declared
-  in the manifest, and no listener reads a page or starts a summary on
-  navigation. The extraction pass is injected into a tab at the moment a
-  summary is requested, and the extension has no standing presence in any
-  page. Tab-lifecycle housekeeping listeners exist for navigation, closure
-  and replacement. They only invalidate work and discard the stored state of
-  the old tab identity — they read no page, hold no URL and start no run
-  (§7.3, §16). This is the design of requirement §9, not a rule laid over it.
+- **No summary work runs until the reader asks.** There is no content script
+  declared in the manifest, and no listener reads a page or starts a summary on
+  navigation. The extraction pass is injected into a tab at the moment a summary
+  is requested, and the extension has no standing presence in any page.
+  Tab-lifecycle housekeeping listeners exist for navigation, closure and
+  replacement. They only invalidate work and discard the stored state of the old
+  tab identity — they read no page, hold no URL and start no run (§7.3, §16).
+  This is the design of requirement §9, not a rule laid over it.
 - **One action is the whole interface.** Clicking the toolbar action is the
   request to summarize. Everything else the reader can do — reading the result,
   running it again, choosing a provider and setting its credential — follows
   from that click.
 - **The service worker owns a run.** Extraction, shaping, prompt assembly, the
-  request and the state all meet in one place. The panel renders; it decides
+  request and the state all meet in one place. The panel renders. It decides
   nothing.
 - **Four concerns, four modules, one direction of dependency.** Extraction,
   shaping, the prompt and the AI provider client are separate, and each knows
   only the shape of what it is handed. Adding or changing a provider touches
-  the provider client and the settings; the prompt's wording lives in
+  the provider client and the settings. The prompt's wording lives in
   `prompts/summarize.md`, a packaged resource the service worker reads at run
   time rather than a string embedded in a module, so improving the summaries
   is editing that one file.
 - **One provider client, one dispatcher, one adapter per provider.** The
   reader selects exactly one of the four supported providers, and one run
   uses exactly that one. The provider client is a dispatcher that selects one
-  adapter — Sakura, OpenAI, Claude or Kimi — and calls it; there is no
+  adapter — Sakura, OpenAI, Claude or Kimi — and calls it. There is no
   fallback path from one adapter to another, and nothing above the dispatcher
   knows any adapter's protocol.
 - **The prompt is data, not code.** It is a packaged resource read at run time,
@@ -98,7 +98,7 @@ The extension separates into parts that each own one concern:
 The reader's browser is the only place any of this runs. **There is no server
 belonging to this project in the picture, and no arrow leaves it except the one
 to whichever single AI provider was selected for that run.** The dispatcher
-calls exactly one adapter per run; the other adapters are never invoked.
+calls exactly one adapter per run. The other adapters are never invoked.
 
 ## 4. Repository layout
 
@@ -167,7 +167,7 @@ The worker claims the tab's live run identity synchronously when the toolbar
 action is received, before it waits for either side-panel operation. That same
 identity is carried into the run after the panel is ready. Navigation, closure
 or tab replacement can therefore invalidate the reader's request even while
-the panel is still opening; an invalidated request never reaches extraction.
+the panel is still opening. An invalidated request never reaches extraction.
 The pending panel operation is not a fifth reader-visible state.
 
 A service worker can be terminated between events. The state of the last run is
@@ -225,22 +225,23 @@ Chrome replacing a tab identity is also a trigger for this same recheck. If
 the panel was bound to the identity being removed, that binding is invalidated
 first, before the recheck runs — the same invalidation an unconfirmable
 active tab already causes. The added identity from the replacement is never a
-bind source by itself; the panel instead re-queries the actual active tab, the
+bind source by itself. The panel instead re-queries the actual active tab, the
 same `currentWindow: true` check above, and follows whatever that returns.
 Replacing a tab that was not the active one leaves the current binding
 untouched, since the recheck resolves back to it.
 
 ### 5.4 The options page
 
-The provider, its credential and its model, the Japanese summary preference,
-and the diagnostic recording preference, and nothing else (§13). It is opened from the panel and from
-Chrome's extension list, and it is the only place a credential is entered.
-Selecting a provider whose host permission is optional (OpenAI, Claude, Kimi)
-asks Chrome's own permission prompt from here, before the selection is saved.
-When OpenAI, Claude or Kimi is the selected provider, the page also offers a
-`Grant or restore permission` action that requests that same permission again
-directly, without changing the provider selection, so a permission later
-revoked in Chrome can be restored from the reader's own action here.
+The provider, its credential and its model, the Japanese summary preference, and
+the diagnostic recording preference, and nothing else (§13). It is opened from
+the panel and from Chrome's extension list, and it is the only place a
+credential is entered. Selecting a provider whose host permission is optional
+(OpenAI, Claude, Kimi) asks Chrome's own permission prompt from here, before the
+selection is saved. When OpenAI, Claude or Kimi is the selected provider, the
+page also offers a `Grant or restore permission` action that requests that same
+permission again directly, without changing the provider selection, so a
+permission later revoked in Chrome can be restored from the reader's own action
+here.
 
 ## 6. Permissions
 
@@ -250,7 +251,7 @@ Least privilege, and each entry earns its place:
 |---|---|
 | `activeTab` | the right to read the tab the reader acted on, granted by that click and lasting no longer |
 | `scripting` | to inject the extraction pass once, on request |
-| `storage` | the provider selection, each provider's credential and model, and the Japanese summary preference in the profile; the state of the last run for the session |
+| `storage` | the provider selection, each provider's credential and model, and the Japanese summary preference in the profile, and the state of the last run for the session |
 | `sidePanel` | to show the result beside the page it came from |
 
 | Host permission | Required or optional | Why it is needed |
@@ -264,7 +265,7 @@ An optional host permission is requested only from the reader's own action in
 the options page, never when a run starts: either by selecting OpenAI,
 Claude or Kimi as the provider, or, for whichever of the three is currently
 selected, by choosing the options page's `Grant or restore permission`
-action. A denied request leaves the previous provider selected; a permission
+action. A denied request leaves the previous provider selected. A permission
 later revoked in Chrome's own settings fails the next run for that provider,
 before the page is read, rather than falling back to another provider (§17),
 and can be requested again through that same restore action without changing
@@ -327,7 +328,7 @@ yet" for the new page, and waits to be asked.
 Switching to a different tab while the panel stays open **never starts a run**
 either. The panel follows whichever tab is active and shows that tab's own
 state. While the new tab's state is still being fetched, the title and summary
-last drawn for the previous tab may stay on screen briefly; nothing clears
+last drawn for the previous tab may stay on screen briefly. Nothing clears
 them early. The diagnostics record is fetched separately and may switch to the
 new tab's record first. Once the new tab's state is adopted it replaces the
 title and summary, and a late answer for the tab left behind never overwrites
@@ -346,16 +347,16 @@ toolbar action. Replacement itself never starts a run.
 | not run yet | no summary has been run for this tab yet | `Settings` |
 | in progress | title when state carries one, and that summarization is in progress | `Settings` |
 | succeeded | title and summary | `Settings` |
-| failed | title when state carries one, and the §17 error message | `Settings`; additionally `Open settings` only for credential-missing or permission-missing |
+| failed | title when state carries one, and the §17 error message | `Settings`. Additionally `Open settings` only for credential-missing or permission-missing |
 
 The panel itself starts and re-runs nothing: the toolbar action (§7.2) is the
 only way a summary begins or begins again. The `Settings` header control is
-available in every phase; `Open settings` is added in the failed phase only
+available in every phase. `Open settings` is added in the failed phase only
 when the error is `credential-missing` or `permission-missing`, the two a run
 recognizes before it ever touches the page, so returning to Settings is the
 one same act either way. Other failures a setting could also address — a
 credential the provider rejected, a model name it does not recognize — are
-not exclusive to those two; the reader reaches Settings for them through the
+not exclusive to those two. The reader reaches Settings for them through the
 `Settings` header control, present in every phase, rather than through this
 shortcut. The not-run-yet phase does not fetch or show the page's title.
 
@@ -382,7 +383,7 @@ A provider selector, the selected provider's credential and model fields, a
 save, a delete, a checkbox for diagnostic recording with a statement of what
 it records, and a statement of what a credential is used for and where it
 is kept. Choosing OpenAI, Claude or Kimi requests that provider's optional
-host permission before the selection is saved (§6); choosing Sakura AI Engine
+host permission before the selection is saved (§6). Choosing Sakura AI Engine
 requests nothing. Nothing is validated by contacting a provider: a credential
 that does not work is discovered by the first run that uses it, and reported
 as §17 requires.
@@ -407,7 +408,7 @@ Order is the reading order of the document, because the argument of a page is
 carried by its sequence as much as by its sentences. Two consequences follow
 inside a quote, a list item or a table cell: separate displayed paragraphs
 keep a boundary between them, so two sentences are never read as one run of
-letters; and when an independent block is nested in the middle of such a
+letters, and when an independent block is nested in the middle of such a
 container, the text before it, the block, and the text after it come out in
 that order, each part keeping the container's own kind.
 
@@ -446,7 +447,7 @@ A root that is not displayed, or whose rendering is skipped, never satisfies a
 rung: a displayed region with enough text is preferred to it.
 
 **Each rung is more permissive and less accurate than the one above it.** A page
-that reaches the third rung produces a noisier summary; a page that yields too
+that reaches the third rung produces a noisier summary. A page that yields too
 little text even there ends as the "not enough text" case of §17.
 
 ### 8.4 No extraction library, and what changes if one is adopted
@@ -485,7 +486,7 @@ blocks, in order.
 
 ### 9.1 What shaping does
 
-- **Normalizes whitespace.** Runs of spaces, tabs and blank lines collapse; the
+- **Normalizes whitespace.** Runs of spaces, tabs and blank lines collapse. The
   block boundaries survive.
 - **Drops what carries nothing** — empty blocks, and blocks that are a single
   stray character or punctuation mark. A table cell is the one exception: any
@@ -499,7 +500,7 @@ blocks, in order.
   usually carries meaning — a repeated status, unit or category value — so
   identical cell text is never dropped on the strength of repetition alone.
   For a heading, its level is part of what makes two occurrences the same
-  repeated block; the same wording at a different level is a different
+  repeated block. The same wording at a different level is a different
   place in the hierarchy the next bullet keeps, not a repeat of it.
 - **Keeps the heading hierarchy**, marked by level, because the structure of a
   document is evidence about what its author considered subordinate — and
@@ -508,7 +509,7 @@ blocks, in order.
   which rather than leaving the model to infer it from position.
 
 **Shaping does not rewrite, translate, reorder or summarize.** Every judgement
-about what matters belongs to the model; shaping only removes what is not
+about what matters belongs to the model. Shaping only removes what is not
 content.
 
 ### 9.2 Too little content
@@ -516,8 +517,8 @@ content.
 `MIN_MATERIAL_CHARS` is a minimum amount of **rendered body text** — the title
 is not counted toward it. Below that minimum, the material is not worth a
 request. The run stops before anything is sent and reports the "not enough
-text" case of §17. A long title cannot make a too-short body pass this check;
-only body substance can.
+text" case of §17. A long title cannot make a too-short body pass this check.
+Only body substance can.
 
 **The threshold is a design constant, not a setting** (§13), because a reader
 has no way to choose a good value and no reason to want one.
@@ -528,7 +529,7 @@ The material is bounded by a conservative per-request size budget —
 `MAX_REQUEST_MATERIAL_CHARS` — that covers the title together with the
 section context and rendered body actually included in that request. Material
 within it follows the one-request path. Material over it is divided by major
-heading, lower heading and block boundaries, in that order; only a block that
+heading, lower heading and block boundaries, in that order. Only a block that
 cannot fit alone is split internally — except a heading, which is always kept
 whole, never fragmented into several heading blocks.
 
@@ -539,7 +540,7 @@ keeps every chunk within budget — the title's own length leaves no room for
 body text, a single heading is too large to fit alone, or the heading context
 carried into a chunk pushes it over — the whole page is declined as the "too
 large to process" case of §17 rather than being sent as a partial or oversized
-chunk; no partial staged summary is ever shown.
+chunk. No partial staged summary is ever shown.
 
 Every chunk that is sent is semantically compressed with the page title and
 heading context. The chunk summaries are then integrated by the model into
@@ -570,7 +571,7 @@ One instruction, carrying these principles:
   rhetorical elaboration, introductory throat-clearing, digression, redundant
   restatement, and supporting explanation that does not bear on the main line.
 - **No length is fixed.** The summary is as long as the page's substance
-  requires and no longer; a page with little redundancy compresses little.
+  requires and no longer. A page with little redundancy compresses little.
 - **Highlights precede only the final result.** The prompt owns their
   selection. A completed page or integration is a fixed plain-text structure:
   the line `HIGHLIGHTS`, one to three non-empty lines, one blank line, the line
@@ -583,7 +584,7 @@ One instruction, carrying these principles:
   structure above and, if so, shows the items as a list under a static
   `Highlights` heading and the body under a static `Summary` heading, with a
   rule between them. It judges no meaning and selects nothing. All text is
-  written with `textContent`; no Markdown or markup is interpreted. A string
+  written with `textContent`. No Markdown or markup is interpreted. A string
   without the structure is shown whole in the single plain-text region.
 - **Nothing is added.** No fact, no conclusion and no evaluation that the page
   does not carry — which is also why the page is not fact-checked or graded
@@ -593,7 +594,7 @@ One instruction, carrying these principles:
 - **The answer is the summary.** No preamble, no account of how it was produced,
   no closing remark.
 - **The output language follows a per-run preference.** By default the summary
-  is written in the page's own language; with the Japanese summary preference
+  is written in the page's own language. With the Japanese summary preference
   on (§13), it is written in Japanese instead, directly, and not by writing it
   in the page's language first and translating that draft.
 
@@ -623,7 +624,7 @@ and carried unchanged in the instruction for every request the run makes.
 `TASK` — `page`, `chunk` or `integrate` — is a request-level control: the
 service worker chooses it for each individual request and adds it to the
 trusted instruction when that request is composed. Both are worker-controlled
-and both live in the instruction; the page material can change neither. The
+and both live in the instruction. The page material can change neither. The
 material is never concatenated into the instruction as if it were part of it.
 Each provider adapter maps the trusted instruction and the untrusted content
 to its own native API's separate field or message — a system message and a
@@ -643,7 +644,7 @@ request — the trusted instruction, the untrusted material, the model, and the
 credential — and selects exactly one of four adapters by the selected
 provider identifier: Sakura, OpenAI, Claude or Kimi. **There is no fallback
 path.** A failing adapter's result is returned to the caller exactly as it
-reported it; the dispatcher never calls a second adapter for the same
+reported it. The dispatcher never calls a second adapter for the same
 logical request, never races two, and never compares their answers.
 
 ```text
@@ -664,7 +665,8 @@ shape and the answer parsing — and returns the same normalized shape (§11.4)
 regardless of which provider produced it, so nothing above the dispatcher
 ever parses a provider's own response format. The bounded wait every
 adapter's request goes through is common transport responsibility, not part
-of what an adapter owns — see §11.5.
+of what an adapter owns, and so is the refusal to follow any redirect — see
+§11.5.
 
 ### 11.2 The four calls
 
@@ -682,7 +684,7 @@ of what an adapter owns — see §11.5.
 - **No wrapper protocol of this project's own is invented, and no
   compatibility layer stands in for a provider's native API.** OpenAI is
   called through its own Responses API, never Chat Completions or the
-  Assistants API; Claude is called through Anthropic's own Messages API,
+  Assistants API. Claude is called through Anthropic's own Messages API,
   never an OpenAI-compatible endpoint. Kimi's own documented protocol is
   OpenAI-compatible Chat Completions, and its adapter calls exactly that —
   the same shape Sakura's adapter already speaks, implemented as its own
@@ -697,7 +699,7 @@ of what an adapter owns — see §11.5.
   configuration.** 32768 is this extension's own fixed request-level output
   limit — not a target summary length and not a reader-facing setting. It is
   not the Messages API's own hard output ceiling, and it is not the maximum
-  output capability of the selected Claude model; that capability is
+  output capability of the selected Claude model. That capability is
   Anthropic's own, provider-side property of the model, distinct from what
   this constant fixes for every request this adapter sends. This adapter
   never branches its behaviour on the model name. The prompt's own "no target
@@ -709,11 +711,11 @@ of what an adapter owns — see §11.5.
 Each adapter reads its provider's own documented answer shape and reduces it
 to the one usable summary text, or to no usable summary. For Sakura and for
 Kimi, that is the generated text of the first returned choice, once its
-`finish_reason` confirms `"stop"`; for Kimi, an accompanying
+`finish_reason` confirms `"stop"`. For Kimi, an accompanying
 `reasoning_content` field is never read into the summary. For OpenAI, it is the
-concatenated `output_text` of a `completed` response; an `incomplete` or
+concatenated `output_text` of a `completed` response. An `incomplete` or
 otherwise not-completed response is not shown as a summary. For Claude, it is
-the concatenated text of the answer's text blocks; a response with
+the concatenated text of the answer's text blocks. A response with
 `stop_reason` `max_tokens` or `model_context_window_exceeded` is truncated,
 and a response with `stop_reason` `refusal` is a refusal. None of those
 responses is shown as a summary, even if it carries text. In every case,
@@ -732,11 +734,11 @@ Whichever adapter is called, the caller receives one of two shapes:
 ```
 
 `kind` is one of the provider-neutral kinds of §17, chosen by the adapter from
-what actually happened; nothing above the dispatcher ever sees a provider's
+what actually happened. Nothing above the dispatcher ever sees a provider's
 own response body or the wording of its error. An HTTP-originated failure's
 numeric status code is the one exception: it travels with the result as
 internal diagnostic metadata, for the worker to record. It never appears in a
-reader-facing error message or in the `RunState`; it can be shown only as the
+reader-facing error message or in the `RunState`. It can be shown only as the
 number in the opt-in diagnostic record (§7.3), and it is never itself a
 response body or wording.
 
@@ -753,7 +755,7 @@ against a different provider either — see the no-fallback rule in §11.1.
 
 The two-minute bounded provider wait and the 25-second service-worker keepalive
 of §5.1 are separate responsibilities. The keepalive keeps Chrome's worker
-lifetime from ending a run that is still waiting; it does not change, extend or
+lifetime from ending a run that is still waiting. It does not change, extend or
 shorten the request's own deadline. A wait that expires is still the timeout
 case of §17, and the keepalive causes no retry and no fallback.
 
@@ -765,7 +767,7 @@ refers to a model**, no prompt is tuned to one, and no behaviour branches on
 which one is configured, so changing it is changing a setting (requirements
 §14).
 
-Each service publishes its own list of available models; the reader learns
+Each service publishes its own list of available models. The reader learns
 valid names from there. The extension does not fetch any provider's list — it
 would be a second call, a second error path and a second failure mode, for a
 field a reader sets once.
@@ -818,26 +820,27 @@ guarantee, and is not part of this design.
 | Setting | Held in | Notes |
 |---|---|---|
 | the selected provider | `storage.local` | absent, non-string or unrecognized resolves to the Sakura AI Engine (§14) |
-| the Sakura AI Engine API token | `storage.local` | entered by the reader; no default |
+| the Sakura AI Engine API token | `storage.local` | entered by the reader. No default |
 | the Sakura AI Engine model | `storage.local` | a documented default, so a reader who sets only a token can run |
-| the OpenAI API key | `storage.local` | entered by the reader; no default; independent of the other providers' credentials |
+| the OpenAI API key | `storage.local` | entered by the reader. No default. Independent of the other providers' credentials |
 | the OpenAI model | `storage.local` | a documented default of its own |
-| the Claude (Anthropic) API key | `storage.local` | entered by the reader; no default; independent of the other providers' credentials |
+| the Claude (Anthropic) API key | `storage.local` | entered by the reader. No default. Independent of the other providers' credentials |
 | the Claude model | `storage.local` | a documented default of its own |
-| the Kimi (Moonshot AI) API key | `storage.local` | entered by the reader; no default; independent of the other providers' credentials |
+| the Kimi (Moonshot AI) API key | `storage.local` | entered by the reader. No default. Independent of the other providers' credentials |
 | the Kimi model | `storage.local` | a documented default of its own |
-| the Japanese summary preference | `storage.local` | a boolean, off by default; shared by every provider; saved independently of the provider selection and of any provider's credential or model |
-| the diagnostic recording preference | `storage.local` | a boolean, off by default and off for any stored value but `true`; saved independently of every other setting; read once when a run begins, so a change reaches only the next run |
+| the Japanese summary preference | `storage.local` | a boolean, off by default, shared by every provider, and saved independently of the provider selection and of any provider's credential or model |
+| the diagnostic recording preference | `storage.local` | a boolean, off by default and off for any stored value but `true`, saved independently of every other setting, and read once when a run begins, so a change reaches only the next run |
 
 Reading these stored values back when the options page opens is its own
 initializing phase, distinct from any later change the reader makes. A
-provider-scoped save or delete, a provider switch, or a change to the
-Japanese summary preference is never carried out against a value this phase
-has not yet confirmed: the page accepts none of them until that initial read
-has finished (the diagnostic recording preference is read on its own, after
-these, and accepts no change until its own read has finished), so a change can never land against the wrong provider's keys
-for having started too early, and the initial read — however late it
-actually finishes — can never undo a change the reader completed after it.
+provider-scoped save or delete, a provider switch, or a change to the Japanese
+summary preference is never carried out against a value this phase has not yet
+confirmed: the page accepts none of them until that initial read has finished
+(the diagnostic recording preference is read on its own, after these, and
+accepts no change until its own read has finished), so a change can never land
+against the wrong provider's keys for having started too early, and the initial
+read — however late it actually finishes — can never undo a change the reader
+completed after it.
 
 **That is the whole of the settings.** The endpoint, the timeout, the size
 budget, the minimum length and the prompt are design constants and resources,
@@ -862,7 +865,7 @@ happened:
 State belongs to a tab, so that summarizing one page does not disturb what
 another tab is showing.
 
-- **The service worker sets it**; the panel reads it and renders it.
+- **The service worker sets it**. The panel reads it and renders it.
 - **It is kept in `chrome.storage.session`**, which is held in memory and
   cleared when the browser closes. This survives the service worker being
   terminated mid-life, which Manifest V3 permits at any time, so the panel can
@@ -872,7 +875,7 @@ another tab is showing.
   changed, and on Chrome replacing the tab identity. A URL-change notification
   is used only as a lifecycle signal: its value is never read, stored or
   compared. A replacement never moves or copies old state to the added
-  identity; an added identity with no state of its own is "not run yet", the
+  identity. An added identity with no state of its own is "not run yet", the
   same as any tab never summarized.
 - **No summary and no page text is written to disk by this design**, which is
   what §16 requires of it.
@@ -884,7 +887,7 @@ of what the run did: the step reached (settings, prompt, extraction,
 shaping), the split into parts, each request with its purpose (page, part or
 integration), its position and depth, its outcome and error kind, and
 timings and sizes. It is built only from facts the worker already has at the
-step in question, from a fixed vocabulary and integers; nothing free-form can
+step in question, from a fixed vocabulary and integers. Nothing free-form can
 enter it. It is not part of the run state and is never an input to whether a
 run succeeded or failed.
 
@@ -958,13 +961,13 @@ promissory:
 
 | Requirement | What makes it true |
 |---|---|
-| a page is read only when a summary is asked for | no declared content script; the tab-lifecycle housekeeping listeners for navigation, closure and replacement read no page, hold no URL and start no run — navigation is recognized from Chrome's loading or URL-change notification, without reading the URL value — and injection happens only after the click's still-current run identity reaches the run |
+| a page is read only when a summary is asked for | no declared content script. The tab-lifecycle housekeeping listeners for navigation, closure and replacement read no page, hold no URL and start no run — navigation is recognized from Chrome's loading or URL-change notification, without reading the URL value — and injection happens only after the click's still-current run identity reaches the run |
 | no page but the target is touched | the run reads one tab, the one `activeTab` was granted for |
 | no browsing history is collected | no `history` or `tabs` permission, and nothing records a URL beyond the state of the run |
-| no page text reaches a server of this project's | there is no such server; the only outbound origins are the four supported providers', one required and three optional, and the dispatcher sends to exactly the one selected |
+| no page text reaches a server of this project's | there is no such server. The only outbound origins are the four supported providers', one required and three optional, and the dispatcher sends to exactly the one selected |
 | no summary is stored in a cloud | the result lives in session state and is gone when the browser closes |
 | no credential reaches a server of this project's | each provider's credential is in one header or field, to that provider's one origin |
-| the optional diagnostic record leaks nothing | its events admit only a fixed vocabulary and integers, so no credential, provider, model, page text, title, address, prompt, request, response or exception can enter it; it stays in session storage per tab and is sent nowhere |
+| the optional diagnostic record leaks nothing | its events admit only a fixed vocabulary and integers, so no credential, provider, model, page text, title, address, prompt, request, response or exception can enter it. It stays in session storage per tab and is sent nowhere |
 
 **What is sent to the selected AI provider is the shaped text of the page the
 reader asked about, together with the instruction.** That is the point of the
@@ -1021,14 +1024,16 @@ Five measures, each in one place.
   no sanitizer and renders no Markdown — a decision that removes a class of
   problem instead of defending against it.
 - **No remote code, by construction.** Manifest V3's extension CSP forbids
-  remote script and `eval`; this design adds nothing that would need either. The
+  remote script and `eval`. This design adds nothing that would need either. The
   panel and the options page load only resources packaged with the extension.
-  Nothing fetched from any provider is ever executed. No provider SDK is used;
-  every adapter speaks its provider's HTTP API directly with the browser's own
+  Nothing fetched from any provider is ever executed. No provider SDK is used.
+  Every adapter speaks its provider's HTTP API directly with the browser's own
   `fetch`.
 - **Each credential is handled as in §12**, and the one origin it may be sent
   to is fixed in its own adapter, not in a setting, so no configuration can
-  redirect it to another host.
+  redirect it to another host. The request itself is sent so that a redirect
+  answer is never followed, to the same origin or to another one, so not even
+  a provider's reply can carry the credential on to a second address.
 
 The measures are sized to what this is: a personal extension, loaded unpacked,
 holding one credential that its own reader owns. **No key ceremony, no
@@ -1051,7 +1056,7 @@ Nor is there a seam for a fifth provider, a custom or reader-editable
 endpoint, a generic OpenAI-compatible or cloud-vendor-specific provider
 beyond the four named in §11, a model-list fetch for any of them, or a
 fallback, race or comparison between providers. The dispatcher in §11.1
-selects one adapter and calls it; there is no path from there to a second
+selects one adapter and calls it. There is no path from there to a second
 one.
 
 Where a decision above could have left room for one of those and chose not to —
@@ -1064,18 +1069,18 @@ session state in §14, the no-fallback rule in §11.1 — that is the reason.
 |---|---|
 | §7 Chrome, unpacked from a clone | the manifest and the absence of a build step, §4 |
 | §8 general pages, extraction not promised | the generic ladder in §8.3 and the statement in §8.5 |
-| §9 only on request, and one operation | no content script and injection on the click, §2 and §5.2; the single action, §7.2 |
+| §9 only on request, and one operation | no content script and injection on the click, §2 and §5.2. The single action, §7.2 |
 | §10 what is taken and what is left out | the block kinds in §8.1 and the exclusions in §8.2 |
 | §11 what a summary keeps | the prompt's principles in §10.1, applied without a classifier, §10.2 |
 | §12 semantic compression, no fixed length | §10.1, and the refusal to truncate in §9.3 |
 | §13 read beside the page | the side panel and the reasoning in §7.1 |
 | §14 four AI providers, one per run, model interchangeable | the dispatcher and adapters in §11, the model as a setting in §11.6 and §13 |
 | §15 the API credential, independent per provider | storage and travel in §12, its limits in §12.3, independence in §13 |
-| §16 privacy | the structural table in §16; no backend anywhere in §3 |
+| §16 privacy | the structural table in §16, and no backend anywhere in §3 |
 | §13.2 diagnostics | the preference in §13, the optional session record in §14, its display in §7.3 |
 | §17 the state of a run | the four states and their home in §14 |
 | §18 errors, distinguishable | the table in §17 |
-| §19 maintainability | four modules with one direction of dependency, §2 and §4; the prompt as a resource, §10 |
-| §20 simplicity | one action, §7.2; the settings of §13; no build step, §4 |
+| §19 maintainability | four modules with one direction of dependency, §2 and §4, and the prompt as a resource, §10 |
+| §20 simplicity | one action in §7.2, the settings of §13 and no build step in §4 |
 | §23 out of scope | §19 |
 | §24 acceptance conditions | conditions 1 and 4 by §4–§7, 2–3 by §13 and §14, 5 by §2 and §5.2, 6 by §8, 7 by §11, 8 by §10 and §11, 9 by §7.3, 10 by §14, 11 by §17, 12–13 by §12 and §16, 14 by the README work that requirement §21.1 records |
