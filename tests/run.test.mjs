@@ -915,8 +915,8 @@ test("a failed state renders the message for its kind", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Optional diagnostics. Everything below uses invented material and stubs;
-// nothing touches a network, a browser or a real credential.
+// Optional diagnostics. Everything below uses invented material and stubs.
+// Nothing touches a network, a browser or a real credential.
 // ---------------------------------------------------------------------------
 
 const SENTINELS = [

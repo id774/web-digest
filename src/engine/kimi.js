@@ -18,7 +18,7 @@ import { ErrorKind, ProviderErrorDetail } from "../common/errors.js";
 import { sendRequest, REQUEST_TIMEOUT_MS } from "./transport.js";
 
 // The service's OpenAI-compatible API base. The official Moonshot AI
-// documentation is the authority for it; this constant is the one place an
+// documentation is the authority for it. This constant is the one place an
 // implementation records what that documentation says. It is not a setting,
 // which is what lets the manifest name exactly this one optional origin for
 // it.
@@ -41,7 +41,7 @@ const LENGTH_MARKERS = [
 
 // A free-form message counts as a size refusal only when it names a size
 // target — context, input, prompt or request — close to "too long" / "too
-// large". "input too long" matches; "parameter value is too large" does not,
+// large". "input too long" matches, but "parameter value is too large" does not,
 // since "parameter" is not a size target.
 const SIZE_TARGET_TOO_LONG =
   /\b(context|input|prompt|request)\b[\s\S]{0,20}\b(too long|too large)\b/;
@@ -81,7 +81,7 @@ function namesALengthProblem(data) {
 // (https://www.kimi.ai/help/kimi-api/api-error-codes): a request denied for
 // having exhausted the account's current quota, one denied by an ordinary
 // rate limit, and one refused because the engine itself is overloaded. Only
-// these three recognized values are distinguished; an unrecognized or
+// these three recognized values are distinguished. An unrecognized or
 // missing `error.type` on a 429 stays the generic `unspecified` mapping
 // rather than being guessed at, per the same "matched, not parsed" rule the
 // length markers above follow.
@@ -96,7 +96,7 @@ function kimiErrorType(data) {
 
 // A non-2xx answer, mapped to the kind that describes it. The status
 // travels with the mapped result, an HTTP-originated failure's own
-// diagnostic metadata for the worker to log; the endpoint's wording is read
+// diagnostic metadata for the worker to log. The endpoint's wording is read
 // only to choose that mapping and goes no further than here — it is never
 // itself returned, and never itself reaches the log. 403 and 404 follow
 // Kimi's own documented meaning: 403 is an access problem with the account,

@@ -14,7 +14,7 @@ export const PROVIDER_HOST_PERMISSION = {
   [Provider.KIMI]: "https://api.moonshot.ai/*",
 };
 
-// Sakura's host permission is required in the manifest and is always present;
+// Sakura's host permission is required in the manifest and is always present.
 // OpenAI's, Claude's and Kimi's are optional and may or may not have been
 // granted.
 export function needsOptionalPermission(provider) {

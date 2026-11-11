@@ -85,7 +85,7 @@ function webDigestExtract(doc) {
   }
 
   // A `details` without an `open` attribute renders only its first `summary`
-  // child; the rest of its content sits in an internal slot whose hiding
+  // child. The rest of its content sits in an internal slot whose hiding
   // never shows up in any ancestor's computed style. The attribute's mere
   // presence means open — `open="false"` included — so `getAttribute` is
   // read, not a value.
@@ -109,7 +109,7 @@ function webDigestExtract(doc) {
   // Every reason a subtree is skipped *whole* — nothing inside it is ever
   // examined once one of these holds, because nothing inside can undo it.
   // `hidden`, `aria-hidden`, a computed `display: none` and a computed
-  // `content-visibility: hidden` are structural this way; so is being
+  // `content-visibility: hidden` are structural this way. So is being
   // furniture, non-content, or a page-banner header, since no CSS a
   // descendant carries lets it stop being any of those. So is being inside a
   // closed `details` anywhere but its first `summary` child, whatever the
@@ -198,7 +198,7 @@ function webDigestExtract(doc) {
   // Recursion into a child element happens unconditionally here — never
   // gated by `element`'s own visibility — because the child gets its own
   // independent `isStructurallyExcluded`/`isVisibilityHidden` check the
-  // moment this function is called on it; only `element`'s own direct text
+  // moment this function is called on it. Only `element`'s own direct text
   // nodes, which carry no style of their own, borrow `element`'s effective
   // visibility to decide whether they count.
   function rawEligibleText(element) {
@@ -214,7 +214,7 @@ function webDigestExtract(doc) {
         // concatenated. The break's own computed visibility decides, so a
         // visible `<br>` stays even under a visibility-hidden parent. Later
         // shaping is free to fold this into a space with every other line
-        // break; only the boundary must survive here.
+        // break. Only the boundary must survive here.
         if (child.tagName.toLowerCase() === "br") {
           if (!isExcluded(child)) text += "\n";
           continue;
@@ -237,7 +237,7 @@ function webDigestExtract(doc) {
   }
 
   // The ladder: each rung is more permissive and less accurate than the one
-  // above it. A page that reaches the third produces a noisier summary; one
+  // above it. A page that reaches the third produces a noisier summary. One
   // that yields too little text even there is judged by shaping.
   function chooseRoot() {
     const declared =
@@ -305,7 +305,7 @@ function webDigestExtract(doc) {
   // itself a candidate — contributes its text here, exactly once. A nested
   // element that is its own independent unit (another list item, a nested
   // quote, a heading, a code block or another table cell) contributes
-  // nothing here; it is collected separately, as its own block, keeping the
+  // nothing here. It is collected separately, as its own block, keeping the
   // outer container's kind and direct text intact rather than losing them to
   // the descendant's presence.
   //
@@ -314,7 +314,7 @@ function webDigestExtract(doc) {
   // space to appear, so `前<strong>後</strong>。` stays `前後。` and
   // `<a>docs</a>.` stays `docs.` rather than gaining artificial spaces. Any
   // whitespace an author actually wrote is preserved here and left to later
-  // shaping to normalize; only the two edges of the whole returned text are
+  // shaping to normalize. Only the two edges of the whole returned text are
   // trimmed.
   //
   // `insideAnchor` seeds whether `element` itself is already inside an
@@ -327,17 +327,17 @@ function webDigestExtract(doc) {
   // paragraph begins or ends beside other text, one line break stands
   // between them, so `<p>Alpha</p><p>Beta</p>` is never `AlphaBeta`. It is
   // added only between two runs that both carry text and only where the
-  // author wrote no whitespace of their own; an empty or hidden paragraph
+  // author wrote no whitespace of their own. An empty or hidden paragraph
   // adds nothing, and an inline boundary never does.
   //
   // `onUnit`, when given, is called for each independent unit met on the
   // way, in document order, with the text and link characters gathered so
-  // far; gathering then restarts. That is what lets a container's text be
+  // far. Gathering then restarts. That is what lets a container's text be
   // emitted in pieces around a nested unit instead of all before it.
   //
   // The returned `text` is untrimmed: whether an edge of it is significant
   // depends on where the caller puts it. A container emitting its own
-  // standalone block trims once, at that point (`collectContainer`); an
+  // standalone block trims once, at that point (`collectContainer`). An
   // inline element being absorbed into a surrounding prose run must not
   // trim at all, or authored whitespace at exactly its own boundary —
   // `Hello<strong> world</strong>` — is lost before the concatenation that
@@ -514,7 +514,7 @@ function webDigestExtract(doc) {
   // is still subject to the same exclusion `isExcluded` applies everywhere
   // else, so a hidden, aria-hidden, furniture or non-content descendant
   // cannot leak into a code block the way raw `element.textContent` would
-  // let it. Internal whitespace is never normalized here; only the
+  // let it. Internal whitespace is never normalized here. Only the
   // block-edge trim below still applies to the result. A visible `<br>` is
   // the same authored line-break boundary it is in ordinary prose — code
   // keeps line breaks as meaningful content, so `<pre>foo<br>bar</pre>` is
@@ -634,7 +634,7 @@ function webDigestExtract(doc) {
     }
 
     // `parentHidden` is `parent`'s own effective visibility: it gates only
-    // `parent`'s direct text nodes, which carry no style of their own; a
+    // `parent`'s direct text nodes, which carry no style of their own. A
     // direct `<br>` has its own and is judged by it. The loop gates recursion
     // by `isStructurallyExcluded` alone, never by visibility, so a `display:
     // contents` child's own visibility override (passed back in below) or

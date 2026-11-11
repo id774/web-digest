@@ -48,7 +48,7 @@ const MODEL_KEY = {
 
 // A name from each provider's own published list of models, confirmed against
 // that list when this constant was written. It is the one place a default
-// model name for that provider appears; a reader who wants another sets it in
+// model name for that provider appears. A reader who wants another sets it in
 // the options page.
 export const DEFAULT_MODEL = "gpt-oss-120b";
 export const OPENAI_DEFAULT_MODEL = "gpt-5.6-terra";

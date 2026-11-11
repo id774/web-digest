@@ -44,6 +44,12 @@ export async function sendRequest(
         headers: request.headers,
         body: request.body,
         signal: controller.signal,
+        // A 3xx answer is never followed, to the same origin or any other, so
+        // the one request sent is the only one, and it goes only where the
+        // adapter's fixed URL says. A refused redirect rejects the fetch and
+        // takes the ordinary unreachable path below, with nothing about the
+        // target carried out.
+        redirect: "error",
       });
 
       const data = await readJson(response);

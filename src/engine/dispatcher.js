@@ -5,7 +5,7 @@
 // There is no fallback path: a failure from the selected adapter is returned
 // exactly as the adapter reported it, never retried against another provider,
 // raced against one, or compared with one. The only thing a caller decides is
-// which provider is selected; this module never decides that on its own.
+// which provider is selected. This module never decides that on its own.
 
 import { Provider } from "../common/settings.js";
 import { ErrorKind } from "../common/errors.js";
@@ -26,7 +26,7 @@ const ADAPTERS = {
 
 // { provider, model, credential, instruction, content } -> a normalized
 // result, exactly as the chosen adapter returned it. `provider` must be one
-// of the supported identifiers; anything else is this repository's own
+// of the supported identifiers. Anything else is this repository's own
 // fault, not a reader-facing case, and is reported as internal-error.
 export async function callProvider(
   { provider, model, credential, instruction, content },
