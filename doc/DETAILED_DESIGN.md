@@ -650,8 +650,8 @@ ladder continues to the next rung. The final collection applies the same
 check to the root it was given.
 
 For rung 2 scoring only, eligible text is formed from descendant text nodes
-excluding hidden (`content-visibility: hidden` included), furniture, and
-non-content subtrees. The recursive walk
+excluding hidden (`content-visibility: hidden` included), furniture,
+non-content and closed-`details` subtrees (§7.2). The recursive walk
 preserves an inline descendant's authored leading or trailing whitespace until
 the complete eligible text is trimmed once. This scoring input may contain
 linked text that block collection will later discard; it is not the acceptance
@@ -688,7 +688,7 @@ these holds:
 | Skipped | Test |
 |---|---|
 | it is inside dropped furniture | it has an ancestor matching `nav, footer, aside, form, dialog, [role="navigation"], [role="banner"], [role="contentinfo"], [role="complementary"], [role="search"], [role="form"]`, or an ancestor `header` with no `article`, `aside`, `main`, `nav` or `section` ancestor of its own — the page-banner landmark HTML gives such a `header` implicitly, never a content-local one such as an `article`'s own title-and-byline `header` |
-| it is not being displayed | `hidden`, `aria-hidden="true"` (ASCII case-insensitive value), a computed `display: none`, or a computed `content-visibility: hidden`, on it or an ancestor — none of these four can be undone by anything inside, a descendant's own `visibility` included — or its own computed `visibility: hidden` or `visibility: collapse`. `visibility` inherits, but a descendant can override an ancestor's `hidden`/`collapse` back to `visible`, so only the element's own resolved value decides this, never an ancestor's independently: an ancestor's `visibility: hidden` does not, by itself, exclude a descendant that has overridden it |
+| it is not being displayed | `hidden`, `aria-hidden="true"` (ASCII case-insensitive value), a computed `display: none`, or a computed `content-visibility: hidden`, on it or an ancestor — none of these four can be undone by anything inside, a descendant's own `visibility` included — or being inside a closed `details` (one with no `open` attribute) anywhere but its first direct `summary` child, which is likewise not undone by anything inside, a descendant's `visibility: visible`, `aria-hidden="false"` or `content-visibility: visible` included. The attribute's presence alone means open, so `open="false"` is open. A closed `details`' own direct text is not displayed either, while the first direct `summary` and its displayed descendants are examined as usual; the hiding is not visible in any ancestor's computed style, so it is a separate test on the `details` ancestor. Or its own computed `visibility: hidden` or `visibility: collapse`. `visibility` inherits, but a descendant can override an ancestor's `hidden`/`collapse` back to `visible`, so only the element's own resolved value decides this, never an ancestor's independently: an ancestor's `visibility: hidden` does not, by itself, exclude a descendant that has overridden it |
 | it is not content | it is inside, or is, `script, style, noscript, template, iframe, svg, canvas, button, select, textarea, input, label` |
 
 Four of the candidate tags — `li`, `blockquote`, `th`, `td` — are
@@ -698,9 +698,18 @@ prose wrapper placed inside a list item, a quote or a table cell. A nested
 element that is a candidate in its own right — another `li`, a nested
 `blockquote`, a heading, a `pre`, or another `th`/`td` — is not prose: it
 keeps its own kind and is collected as its own block instead, in the same
-walk, immediately after the container that holds it. A `p` is the only
-candidate tag that is never independent this way; a `p` not inside one of the
-four containers is its own `paragraph` block, exactly as before.
+walk, at the point of the document where it occurs. The container's own text
+before such an element is one block of the container's kind, the element is
+collected next, and the container's text after it is another block of the
+container's kind, so `<li>Before<ul><li>Child</li></ul>After</li>` yields the
+list items `Before`, `Child` and `After`, in that order. A container with no
+such element, or with no text after it, emits exactly what it did before.
+Link density is judged once over all of the container's own text and applies
+to every part, so a trailing part that is only a link is kept or dropped
+together with the container, as it was when the container was one block. A
+`p` is the only candidate tag that is never independent this way; a `p` not
+inside one of the four containers is its own `paragraph` block, exactly as
+before.
 
 This is what lets `<li>Parent<ul><li>Child</li></ul></li>` keep both
 `Parent`, as one list item, and `Child`, as the next one — rather than either
@@ -712,6 +721,13 @@ inside them. No DOM text is ever emitted twice: a container's own text is
 exactly the text a nested independent candidate does not already claim.
 
 Container-owned text preserves the adjacency supplied by the DOM text nodes.
+The one block boundary it adds is that of a `p`: where a displayed paragraph
+begins or ends beside other owned text, a line break is placed between the
+two, unless either side already carries whitespace there, so
+`<blockquote><p>Alpha</p><p>Beta</p></blockquote>` and
+`<blockquote>Alpha<p>Beta</p>Gamma</blockquote>` read `Alpha Beta` and
+`Alpha Beta Gamma` once shaping folds the break. An empty or excluded
+paragraph adds none.
 Inline descendants do not gain a separator merely because they are elements;
 authored whitespace is preserved here and normalized later by shaping. A
 `<br>` is the one element that does insert a boundary: it contributes a line

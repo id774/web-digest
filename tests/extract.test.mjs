@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { el, page, runExtract } from "./extract-fixture.mjs";
-import { render, shape } from "../src/shape/shape.js";
+import { normalizeText, render, shape } from "../src/shape/shape.js";
 
 test("hidden text inside the declared root cannot select it, and never appears in a block", () => {
   const hiddenFiller = "Hidden filler content. ".repeat(20); // well past MIN_ROOT_CHARS
@@ -1416,4 +1416,281 @@ test("a content-visibility:hidden ancestor of the declared root removes its cont
   const result = runExtract(doc);
   assertNoHidden(result);
   assert.ok(result.blocks.some((b) => b.text.includes("Visible article")));
+});
+
+// --- collapsed details, paragraph boundaries and nested reading order ---
+
+function texts(result, kind) {
+  return result.blocks
+    .filter((b) => kind === undefined || b.kind === kind)
+    .map((b) => normalizeText(b.text));
+}
+
+const SECRET_BODY = "SECRET collapsed body text. ".repeat(12); // >= 200
+
+test("a closed details keeps its visible summary and drops everything else", () => {
+  const doc = page([
+    el("main", {}, [
+      el("p", {}, [LONG_VISIBLE]),
+      el("details", {}, [
+        el("summary", {}, ["Visible summary label"]),
+        "SECRET direct text",
+        el("p", {}, [SECRET_BODY]),
+        el("h2", {}, ["SECRET heading"]),
+        el("ul", {}, [el("li", {}, ["SECRET item"])]),
+        el("pre", { style: { visibility: "visible" } }, ["SECRET code"]),
+        el(
+          "p",
+          { "aria-hidden": "false", style: { contentVisibility: "visible" } },
+          ["SECRET override"],
+        ),
+        el("table", {}, [el("tr", {}, [el("td", {}, ["SECRET cell"])])]),
+      ]),
+    ]),
+  ]);
+  const result = runExtract(doc);
+  assertNoHidden(result);
+  assert.ok(
+    result.blocks.some((b) => b.text.includes("Visible summary label")),
+  );
+  assert.ok(result.blocks.some((b) => b.text.includes("Visible article")));
+});
+
+test("only the first direct summary of a closed details is shown, also when nested", () => {
+  const doc = page([
+    el("main", {}, [
+      el("p", {}, [LONG_VISIBLE]),
+      el("details", { open: "" }, [
+        el("summary", {}, ["Outer summary"]),
+        el("p", {}, ["Open outer body"]),
+        el("details", {}, [
+          el("summary", {}, ["Inner summary"]),
+          el("summary", {}, ["SECRET second summary"]),
+          el("p", {}, ["SECRET inner body"]),
+        ]),
+      ]),
+    ]),
+  ]);
+  const result = runExtract(doc);
+  assertNoHidden(result);
+  const all = texts(result).join("|");
+  assert.match(all, /Outer summary/);
+  assert.match(all, /Open outer body/);
+  assert.match(all, /Inner summary/);
+});
+
+test("an opened details, open=\"false\" included, keeps its body", () => {
+  for (const open of ["", "open", "false"]) {
+    const doc = page([
+      el("main", {}, [
+        el("p", {}, [LONG_VISIBLE]),
+        el("details", { open }, [
+          el("summary", {}, ["Opened summary"]),
+          el("p", {}, ["Opened body paragraph"]),
+          el("h3", {}, ["Opened heading"]),
+          "Opened direct text",
+        ]),
+      ]),
+    ]);
+    const all = texts(runExtract(doc)).join("|");
+    assert.match(all, /Opened summary/, `open=${JSON.stringify(open)}`);
+    assert.match(all, /Opened body paragraph/);
+    assert.match(all, /Opened heading/);
+    assert.match(all, /Opened direct text/);
+  }
+});
+
+test("closed details text does not decide the declared root or the scoring", () => {
+  const closed = () =>
+    el("details", {}, [
+      el("summary", {}, ["Short label"]),
+      el("p", {}, [SECRET_BODY]),
+      el("pre", { style: { visibility: "visible" } }, [
+        "SECRET code " + "x".repeat(300),
+      ]),
+    ]);
+  const declared = page([
+    el("main", {}, [closed()]),
+    el("article", {}, [el("p", {}, [LONG_VISIBLE])]),
+  ]);
+  const declaredResult = runExtract(declared);
+  assertNoHidden(declaredResult);
+  assert.ok(
+    declaredResult.blocks.some((b) => b.text.includes("Visible article")),
+  );
+
+  const scored = page([
+    el("div", {}, [el("p", {}, ["Tiny visible."]), closed()]),
+    el("div", {}, [el("p", {}, [LONG_VISIBLE])]),
+  ]);
+  const scoredResult = runExtract(scored);
+  assertNoHidden(scoredResult);
+  assert.ok(
+    scoredResult.blocks.some((b) => b.text.includes("Visible article")),
+  );
+});
+
+test("paragraphs inside a quote, list item and table cells keep a boundary", () => {
+  const doc = page([
+    el("blockquote", {}, [el("p", {}, ["Alpha"]), el("p", {}, ["Beta"])]),
+    el("ul", {}, [
+      el("li", {}, [el("p", {}, ["First"]), el("p", {}, ["Second"])]),
+    ]),
+    el("table", {}, [
+      el("tr", {}, [
+        el("th", {}, [el("p", {}, ["Head one"]), el("p", {}, ["Head two"])]),
+        el("td", {}, [el("p", {}, ["Cell one"]), el("p", {}, ["Cell two"])]),
+      ]),
+    ]),
+  ]);
+  const result = runExtract(doc);
+  assert.deepEqual(
+    result.blocks.map((b) => [b.kind, normalizeText(b.text)]),
+    [
+      ["quote", "Alpha Beta"],
+      ["list-item", "First Second"],
+      ["table-cell", "Head one Head two"],
+      ["table-cell", "Cell one Cell two"],
+    ],
+  );
+  assert.deepEqual(
+    result.blocks.filter((b) => b.kind === "table-cell").map((b) => b.row),
+    [1, 1],
+  );
+});
+
+test("a container's direct text and its paragraphs are separated, inline adjacency is not", () => {
+  const doc = page([
+    el("blockquote", {}, ["Alpha", el("p", {}, ["Beta"]), "Gamma"]),
+    el("ul", {}, [
+      el("li", {}, ["Hello", el("strong", {}, [" world"])]),
+      el("li", {}, ["前", el("strong", {}, ["後"]), "。"]),
+      el("li", {}, ["Read the ", el("a", {}, ["docs"]), "."]),
+      el("li", {}, ["foo", el("br"), "bar"]),
+      el("li", {}, [
+        el("p", {}, ["One"]),
+        "\n",
+        el("p", {}, ["Two"]),
+        el("p", {}, []),
+      ]),
+    ]),
+  ]);
+  const result = runExtract(doc);
+  assert.deepEqual(texts(result), [
+    "Alpha Beta Gamma",
+    "Hello world",
+    "前後。",
+    "Read the docs.",
+    "foo bar",
+    "One Two",
+  ]);
+  assert.equal(result.blocks[0].text.includes("AlphaBeta"), false);
+  assert.ok(result.blocks[4].text.includes("\n"));
+});
+
+test("a nested list item splits its parent's text in reading order", () => {
+  const doc = page([
+    el("ul", {}, [
+      el("li", {}, [
+        "Before",
+        el("ul", {}, [el("li", {}, ["Child"])]),
+        "After",
+      ]),
+    ]),
+  ]);
+  const result = runExtract(doc);
+  assert.deepEqual(
+    result.blocks.map((b) => [b.kind, b.text]),
+    [
+      ["list-item", "Before"],
+      ["list-item", "Child"],
+      ["list-item", "After"],
+    ],
+  );
+});
+
+test("a nested quote or heading inside a container keeps the parent's later text after it", () => {
+  const doc = page([
+    el("blockquote", {}, [
+      "Outer before",
+      el("blockquote", {}, ["Inner"]),
+      "Outer after",
+    ]),
+    el("ul", {}, [
+      el("li", {}, ["Lead", el("h3", {}, ["Embedded heading"]), "Trail"]),
+    ]),
+  ]);
+  const result = runExtract(doc);
+  assert.deepEqual(
+    result.blocks.map((b) => [b.kind, b.text]),
+    [
+      ["quote", "Outer before"],
+      ["quote", "Inner"],
+      ["quote", "Outer after"],
+      ["list-item", "Lead"],
+      ["heading", "Embedded heading"],
+      ["list-item", "Trail"],
+    ],
+  );
+});
+
+test("a container with a nested item but no later text keeps its earlier output", () => {
+  const doc = page([
+    el("ul", {}, [
+      el("li", {}, ["Parent", el("ul", {}, [el("li", {}, ["Child"])])]),
+      el("li", {}, ["Plain"]),
+    ]),
+  ]);
+  assert.deepEqual(texts(runExtract(doc)), ["Parent", "Child", "Plain"]);
+});
+
+test("an empty paragraph between texts adds no boundary", () => {
+  const doc = page([
+    el("blockquote", {}, ["Alpha", el("p", {}, []), "Beta"]),
+    el("blockquote", {}, [
+      "Gamma",
+      el("p", { hidden: true }, ["SECRET"]),
+      el("p", { style: { visibility: "hidden" } }, ["SECRET"]),
+      "Delta",
+    ]),
+  ]);
+  const result = runExtract(doc);
+  assert.deepEqual(
+    result.blocks.map((b) => b.text),
+    ["AlphaBeta", "GammaDelta"],
+  );
+});
+
+test("link text after a nested list stays with its container", () => {
+  const doc = page([
+    el("ul", {}, [
+      el("li", {}, [
+        "Some detailed text before child.",
+        el("ul", {}, [el("li", {}, ["Nested item!"])]),
+        el("a", { href: "/docs" }, ["Documentation"]),
+      ]),
+    ]),
+  ]);
+  const result = runExtract(doc);
+  assert.deepEqual(
+    result.blocks.map((b) => [b.kind, b.text]),
+    [
+      ["list-item", "Some detailed text before child."],
+      ["list-item", "Nested item!"],
+      ["list-item", "Documentation"],
+    ],
+  );
+});
+
+test("a container made of links is still dropped as a whole around a nested item", () => {
+  const doc = page([
+    el("ul", {}, [
+      el("li", {}, [
+        el("a", { href: "/a" }, ["First link"]),
+        el("ul", {}, [el("li", {}, ["Nested item!"])]),
+        el("a", { href: "/b" }, ["Second link"]),
+      ]),
+    ]),
+  ]);
+  assert.deepEqual(texts(runExtract(doc)), ["Nested item!"]);
 });

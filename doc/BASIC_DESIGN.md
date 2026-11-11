@@ -404,7 +404,12 @@ An ordered list of blocks, each carrying a kind and its text:
 | code | preformatted and code blocks, kept because a technical page is often unreadable without them |
 
 Order is the reading order of the document, because the argument of a page is
-carried by its sequence as much as by its sentences.
+carried by its sequence as much as by its sentences. Two consequences follow
+inside a quote, a list item or a table cell: separate displayed paragraphs
+keep a boundary between them, so two sentences are never read as one run of
+letters; and when an independent block is nested in the middle of such a
+container, the text before it, the block, and the text after it come out in
+that order, each part keeping the container's own kind.
 
 ### 8.2 What is dropped
 
@@ -413,11 +418,13 @@ As far as it can be recognized, and never by naming a site:
 - structural furniture — navigation, banners, menus, footers, complementary
   regions, and the elements HTML already labels as such,
 - anything not being displayed — hidden elements, elements marked hidden from
-  assistive technology, collapsed regions, and regions whose rendering is
-  skipped (`content-visibility: hidden`) — dropped even when they sit inside
-  a block that is itself displayed, so a visible paragraph or heading never
-  carries a hidden descendant's text into its own, and a candidate root that
-  is itself not displayed contributes nothing, not even its own direct text,
+  assistive technology, collapsed regions — a closed disclosure widget
+  (`details`) keeps its visible summary and loses the rest of its content —
+  and regions whose rendering is skipped (`content-visibility: hidden`) —
+  dropped even when they sit inside a block that is itself displayed, so a
+  visible paragraph or heading never carries a hidden descendant's text into
+  its own, and a candidate root that is itself not displayed contributes
+  nothing, not even its own direct text,
 - scripts, styles, embedded frames and form controls,
 - link-dense blocks that are lists of links rather than prose, which is what
   most advertising and most site-common furniture looks like from inside the
