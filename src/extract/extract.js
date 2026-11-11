@@ -84,15 +84,47 @@ function webDigestExtract(doc) {
     return null;
   }
 
+  // A `details` without an `open` attribute renders only its first `summary`
+  // child; the rest of its content sits in an internal slot whose hiding
+  // never shows up in any ancestor's computed style. The attribute's mere
+  // presence means open — `open="false"` included — so `getAttribute` is
+  // read, not a value.
+  function isClosedDetails(element) {
+    return (
+      !!element.tagName &&
+      element.tagName.toLowerCase() === "details" &&
+      element.getAttribute("open") === null
+    );
+  }
+
+  function firstSummaryChild(details) {
+    for (const child of details.children) {
+      if (child.tagName && child.tagName.toLowerCase() === "summary") {
+        return child;
+      }
+    }
+    return null;
+  }
+
   // Every reason a subtree is skipped *whole* — nothing inside it is ever
   // examined once one of these holds, because nothing inside can undo it.
   // `hidden`, `aria-hidden`, a computed `display: none` and a computed
   // `content-visibility: hidden` are structural this way; so is being
   // furniture, non-content, or a page-banner header, since no CSS a
-  // descendant carries lets it stop being any of those.
+  // descendant carries lets it stop being any of those. So is being inside a
+  // closed `details` anywhere but its first `summary` child, whatever the
+  // descendant's own styling says.
   function isStructurallyExcluded(element) {
     for (let node = element; node && node.nodeType === 1; node = node.parentElement) {
       if (node.hidden === true) return true;
+      const parent = node.parentElement;
+      if (
+        parent &&
+        isClosedDetails(parent) &&
+        node !== firstSummaryChild(parent)
+      ) {
+        return true;
+      }
       if (
         node.getAttribute &&
         node.getAttribute("aria-hidden")?.toLowerCase() === "true"
@@ -125,6 +157,13 @@ function webDigestExtract(doc) {
     if (!view || typeof view.getComputedStyle !== "function") return false;
     const style = view.getComputedStyle(element);
     return !!style && (style.visibility === "hidden" || style.visibility === "collapse");
+  }
+
+  // Whether `element`'s own direct text nodes are hidden. They carry no style
+  // of their own, so they borrow the element's: its effective `visibility`,
+  // or being a closed `details`, whose direct text is never rendered.
+  function isOwnTextHidden(element) {
+    return isVisibilityHidden(element) || isClosedDetails(element);
   }
 
   // Whether `element`'s own content should be counted at all: structurally
@@ -164,7 +203,7 @@ function webDigestExtract(doc) {
   // visibility to decide whether they count.
   function rawEligibleText(element) {
     if (isStructurallyExcluded(element)) return "";
-    const ownContentHidden = isVisibilityHidden(element);
+    const ownContentHidden = isOwnTextHidden(element);
     let text = "";
     for (const child of element.childNodes) {
       if (child.nodeType === 3) {
@@ -284,16 +323,46 @@ function webDigestExtract(doc) {
   // internal walk would otherwise miss, since the walk only turns the flag
   // on for a descendant tagged `a`, never for the element it starts from.
   //
+  // The one block boundary inserted here is that of a `p`: when a displayed
+  // paragraph begins or ends beside other text, one line break stands
+  // between them, so `<p>Alpha</p><p>Beta</p>` is never `AlphaBeta`. It is
+  // added only between two runs that both carry text and only where the
+  // author wrote no whitespace of their own; an empty or hidden paragraph
+  // adds nothing, and an inline boundary never does.
+  //
+  // `onUnit`, when given, is called for each independent unit met on the
+  // way, in document order, with the text and link characters gathered so
+  // far; gathering then restarts. That is what lets a container's text be
+  // emitted in pieces around a nested unit instead of all before it.
+  //
   // The returned `text` is untrimmed: whether an edge of it is significant
   // depends on where the caller puts it. A container emitting its own
-  // standalone block trims once, at that point (`tryEmitContainer`); an
+  // standalone block trims once, at that point (`collectContainer`); an
   // inline element being absorbed into a surrounding prose run must not
   // trim at all, or authored whitespace at exactly its own boundary —
   // `Hello<strong> world</strong>` — is lost before the concatenation that
   // needed it ever happens.
-  function ownedContent(element, insideAnchor = false) {
+  function ownedContent(element, insideAnchor = false, onUnit = null) {
     let text = "";
     let linkChars = 0;
+    let pendingBreak = false;
+    // Counts what has been appended, so a paragraph that added nothing can be
+    // told from one that did.
+    let appended = 0;
+
+    function append(segment) {
+      appended += 1;
+      if (
+        pendingBreak &&
+        text.length > 0 &&
+        !/\s$/.test(text) &&
+        !/^\s/.test(segment)
+      ) {
+        text += "\n";
+      }
+      pendingBreak = false;
+      text += segment;
+    }
 
     // `hiddenBySelf` is `node`'s own effective visibility: it gates only
     // `node`'s direct text-node children, which carry no style of their
@@ -307,26 +376,44 @@ function webDigestExtract(doc) {
           if (hiddenBySelf) continue;
           const segment = child.textContent;
           if (segment.length === 0) continue;
-          text += segment;
+          append(segment);
           if (insideAnchor) linkChars += segment.length;
           continue;
         }
         if (child.nodeType !== 1) continue;
         if (isStructurallyExcluded(child)) continue;
         const tag = child.tagName.toLowerCase();
-        const childHidden = isVisibilityHidden(child);
+        const childHidden = isOwnTextHidden(child);
         // Same visible-boundary rule as eligibleText: a `<br>` must not let
         // two authored text runs merge into one word.
         if (tag === "br") {
-          if (!childHidden) text += "\n";
+          if (!isVisibilityHidden(child)) append("\n");
           continue;
         }
-        if (INDEPENDENT_UNIT_TAGS.has(tag)) continue;
+        if (INDEPENDENT_UNIT_TAGS.has(tag)) {
+          if (onUnit) {
+            onUnit(child, tag, { text, linkChars });
+            text = "";
+            linkChars = 0;
+            pendingBreak = false;
+          }
+          continue;
+        }
+        if (tag === "p") {
+          // A paragraph that contributes no text leaves the boundary state
+          // exactly as it found it.
+          const breakBefore = pendingBreak;
+          const appendedBefore = appended;
+          pendingBreak = true;
+          walk(child, insideAnchor || tag === "a", childHidden);
+          pendingBreak = appended === appendedBefore ? breakBefore : true;
+          continue;
+        }
         walk(child, insideAnchor || tag === "a", childHidden);
       }
     }
 
-    walk(element, insideAnchor, isVisibilityHidden(element));
+    walk(element, insideAnchor, isOwnTextHidden(element));
     return { text, linkChars };
   }
 
@@ -400,7 +487,7 @@ function webDigestExtract(doc) {
   // structurally excluded contributes nothing.
   function collectFromRoot(candidate) {
     if (isStructurallyExcluded(candidate)) return;
-    collectBlocks(candidate, false, false);
+    collectBlocks(candidate, false);
   }
 
   const root = chooseRoot();
@@ -434,7 +521,7 @@ function webDigestExtract(doc) {
   // `foo\nbar`, never `foobar`.
   function codeText(element) {
     if (isStructurallyExcluded(element)) return "";
-    const ownContentHidden = isVisibilityHidden(element);
+    const ownContentHidden = isOwnTextHidden(element);
     let text = "";
     for (const child of element.childNodes) {
       if (child.nodeType === 3) {
@@ -466,25 +553,49 @@ function webDigestExtract(doc) {
     tryEmit(element, tag, text, density);
   }
 
-  function tryEmitContainer(element, tag) {
-    const owned = ownedContent(element);
-    // A container is a standalone block: its own two edges are trimmed
-    // here, once, the same edge-trim every other emitted block gets.
-    const text = owned.text.trim();
-    const density = text.length === 0 ? 0 : owned.linkChars / text.length;
-    tryEmit(element, tag, text, density);
+  // A container's own text, emitted as blocks of the container's kind in
+  // reading order: everything before a nested independent unit is one block,
+  // the unit is collected next, and what follows it is another block of the
+  // container's kind. A container with no such unit emits exactly one block.
+  //
+  // Link density is judged once, over all of the container's own text, and
+  // that one value applies to every part. A trailing part that is nothing
+  // but a link is therefore kept or dropped with the rest of the container,
+  // exactly as when the container was a single block, rather than being
+  // dropped alone for being a lone link.
+  function collectContainer(element, tag) {
+    const steps = [];
+    const last = ownedContent(element, false, (unit, unitTag, part) => {
+      steps.push({ part, unit, unitTag });
+    });
+
+    const parts = [...steps.map((step) => step.part), last];
+    const wholeLength = parts.map((part) => part.text).join("").trim().length;
+    const linkChars = parts.reduce((sum, part) => sum + part.linkChars, 0);
+    const density = wholeLength === 0 ? 0 : linkChars / wholeLength;
+
+    // Each part is a standalone block: its own two edges are trimmed here,
+    // once, the same edge-trim every other emitted block gets.
+    const emitPart = (part) => tryEmit(element, tag, part.text.trim(), density);
+
+    for (const { part, unit, unitTag } of steps) {
+      emitPart(part);
+      if (CONTAINER_TAGS.has(unitTag)) {
+        collectContainer(unit, unitTag);
+      } else {
+        tryEmitLeaf(unit, unitTag);
+      }
+    }
+    emitPart(last);
   }
 
-  // The accepted root, walked top-down in document order. `absorbingP` is
-  // true once inside a semantic container whose own block already owns every
-  // ordinary `p` beneath it — so those `p`s are searched for nested
-  // independent units, never re-emitted as paragraphs of their own, and any
-  // loose text directly inside that subtree is likewise already part of the
-  // container's own text (`ownedContent` merges it), never buffered again
-  // here. `insideAnchor` marks that this call's own buffered text (not a
-  // nested wrapper's) sits inside an `<a>` — true when `collectBlocks`
-  // itself was entered on a block-display anchor — so `bufferLinkChars`
-  // below can count it as link text the same way `ownedContent` would.
+  // The accepted root, walked top-down in document order. A semantic
+  // container met on the way is handed whole to `collectContainer`, which
+  // owns every ordinary `p` and loose text beneath it. `insideAnchor` marks
+  // that this call's own buffered text (not a nested wrapper's) sits inside
+  // an `<a>` — true when `collectBlocks` itself was entered on a
+  // block-display anchor — so `bufferLinkChars` below can count it as link
+  // text the same way `ownedContent` would.
   //
   // A non-candidate, non-container element visited here is one of three
   // things. An element that renders inline — `strong`, `em`, `span`, `a`,
@@ -509,7 +620,7 @@ function webDigestExtract(doc) {
   // encountered, in document order, and its candidate/container
   // descendants are still found and emitted as their own blocks, never
   // folded into the wrapper's text.
-  function collectBlocks(node, absorbingP, insideAnchor) {
+  function collectBlocks(node, insideAnchor) {
     let buffer = "";
     let bufferLinkChars = 0;
 
@@ -528,7 +639,7 @@ function webDigestExtract(doc) {
     // by `isStructurallyExcluded` alone, never by visibility, so a `display:
     // contents` child's own visibility override (passed back in below) or
     // a candidate/container's own visibility (resolved independently by
-    // `tryEmitLeaf`/`tryEmitContainer` through `eligibleText`/
+    // `tryEmitLeaf`/`collectContainer` through `eligibleText`/
     // `ownedContent`) is still found rather than assumed hidden along with
     // an ancestor.
     //
@@ -542,7 +653,7 @@ function webDigestExtract(doc) {
     function processChildren(parent, parentHidden, insideAnchor) {
       for (const child of parent.childNodes) {
         if (child.nodeType === 3) {
-          if (!absorbingP && !parentHidden) {
+          if (!parentHidden) {
             buffer += child.textContent;
             if (insideAnchor) bufferLinkChars += child.textContent.length;
           }
@@ -554,13 +665,13 @@ function webDigestExtract(doc) {
         const tag = child.tagName.toLowerCase();
 
         if (tag === "br") {
-          if (!absorbingP && !isVisibilityHidden(child)) {
+          if (!isVisibilityHidden(child)) {
             buffer += "\n";
           }
           continue;
         }
 
-        if (!absorbingP && !CANDIDATE_TAGS.has(tag)) {
+        if (!CANDIDATE_TAGS.has(tag)) {
           // An inline wrapper (typically `<a>`) that encloses an independent
           // unit, such as a heading, cannot be absorbed: `ownedContent` skips
           // that unit, so it would never be visited. Walk the wrapper in
@@ -572,7 +683,7 @@ function webDigestExtract(doc) {
           ) {
             processChildren(
               child,
-              isVisibilityHidden(child),
+              isOwnTextHidden(child),
               insideAnchor || tag === "a",
             );
             continue;
@@ -586,7 +697,7 @@ function webDigestExtract(doc) {
           if (isContentsDisplay(child)) {
             processChildren(
               child,
-              isVisibilityHidden(child),
+              isOwnTextHidden(child),
               insideAnchor || tag === "a",
             );
             continue;
@@ -596,27 +707,22 @@ function webDigestExtract(doc) {
         flush();
 
         if (tag === "p") {
-          if (absorbingP) {
-            collectBlocks(child, true, false);
-          } else {
-            tryEmitLeaf(child, tag);
-          }
+          tryEmitLeaf(child, tag);
           continue;
         }
         if (CONTAINER_TAGS.has(tag)) {
-          tryEmitContainer(child, tag);
-          collectBlocks(child, true, false);
+          collectContainer(child, tag);
           continue;
         }
         if (CANDIDATE_TAGS.has(tag)) {
           tryEmitLeaf(child, tag);
           continue;
         }
-        collectBlocks(child, absorbingP, insideAnchor || tag === "a");
+        collectBlocks(child, insideAnchor || tag === "a");
       }
     }
 
-    processChildren(node, isVisibilityHidden(node), insideAnchor);
+    processChildren(node, isOwnTextHidden(node), insideAnchor);
     flush();
   }
 
