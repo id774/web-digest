@@ -531,6 +531,9 @@ export async function fail(
     // would not help. Broadcasting the state directly, best-effort, is the
     // only way a reader watching this tab's panel can still learn the run
     // ended.
+    // A lifecycle event may have invalidated the run while the write was
+    // pending. Never broadcast the failed state of that abandoned run.
+    if (!isCurrentRun(tabId, run)) return;
     chrome.runtime
       .sendMessage({ type: MessageType.STATE_CHANGED, tabId, state })
       .catch(() => {});
