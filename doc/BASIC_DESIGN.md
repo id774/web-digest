@@ -206,11 +206,12 @@ options page. It does not start a run.
 It performs no extraction and makes no request to any AI provider. It receives
 what to display and displays it.
 
-When the tab has a diagnostic record (§14), the panel also shows it as plain
-text in its own collapsible section, apart from the summary and the error. The
-record is bound to the same tab and the same binding generation as the state,
-so another tab's record, or a snapshot read that settles after the reader has
-moved on, can never be shown. The section is absent when there is no record.
+When the tab has a diagnostic record (§14), the panel shows it as plain
+text in its own collapsible section, apart from the summary and the error,
+only when it belongs to the run confirmed for the current binding. The
+record must match both the tab and the run identity. A late snapshot from
+an earlier binding, a record from an earlier run, or a record whose run
+cannot be confirmed is not displayed.
 
 Following the active tab means re-checking, on every tab activation, which tab
 is active now and binding to it — a check that is itself asynchronous and can
@@ -328,11 +329,11 @@ yet" for the new page, and waits to be asked.
 Switching to a different tab while the panel stays open **never starts a run**
 either. The panel follows whichever tab is active and shows that tab's own
 state. While the new tab's state is still being fetched, the title and summary
-last drawn for the previous tab may stay on screen briefly. Nothing clears
-them early. The diagnostics record is fetched separately and may switch to the
-new tab's record first. Once the new tab's state is adopted it replaces the
-title and summary, and a late answer for the tab left behind never overwrites
-it.
+last drawn for the previous tab may stay on screen briefly. The diagnostics
+section is hidden on rebinding and is shown only when the new tab's confirmed
+state identifies the same run as its record. Once the new tab's state is
+adopted it replaces the title and summary, and a late answer for the tab left
+behind never overwrites it.
 
 When Chrome replaces a tab identity, the removed tab's run and state are
 discarded rather than transferred to the added identity. If the replaced tab
@@ -372,10 +373,9 @@ the model is put into the panel's DOM** (§18), and no summary is written to
 disk. The diagnostic text is rendered the same way.
 
 A failure to read a tab's stored state is shown as the usual internal error,
-but it is not evidence about the run: it does not show that the run has ended,
-so a diagnostic record with no result is then shown without saying whether the
-run has ended or is still going. Only a state actually read, or reported
-live, for the tab currently shown decides that.
+but it is not evidence about the run. Diagnostics are hidden until a state
+actually read, or reported live, for the tab currently shown confirms the
+identity of the run whose record is being displayed.
 
 ### 7.4 The options page
 
@@ -893,24 +893,30 @@ the preference in §13 was on at the start of a run, the worker keeps, in
 of what the run did: the step reached (settings, prompt, extraction,
 shaping), the split into parts, each request with its purpose (page, part or
 integration), its position and depth, its outcome and error kind, and
-timings and sizes. It is built only from facts the worker already has at the
-step in question, from a fixed vocabulary and integers. Nothing free-form can
-enter it. It is not part of the run state and is never an input to whether a
-run succeeded or failed.
+timings and sizes. The events are built only from facts the worker already
+has at the step in question, from a fixed vocabulary and integers. Nothing
+free-form can enter them. A locally generated opaque run identity associates
+the separate record with the state. The record is not part of the run state
+and is never an input to whether a run succeeded or failed.
 
-- It is discarded together with the run state, on closure, navigation and
-  replacement, and by the next run of the tab before that run begins.
-- Writes go through the same per-tab ordering as the run state and are skipped
-  once the run is no longer the tab's current one, so a late write cannot
-  follow a discard. They coalesce while one is in flight.
+- Cleanup is requested on closure, navigation and replacement, and by the
+  next run of the tab. A record left behind by a failed cleanup is hidden
+  unless it matches the confirmed run.
+- Diagnostic writes and cleanup have their own per-tab ordering, independent
+  of run state. Writes coalesce while one is in flight. The run does not
+  wait for diagnostic storage, and a completed run can finish saving its
+  record until a lifecycle event or a later run retires its identity.
+- A diagnostic record is shown only alongside a confirmed state of that
+  same run. A missing, invalid or unmatched identity hides it, even when
+  storage still holds the record.
 - Its size is bounded. When a bound is reached later events are counted
   rather than kept, room is always left for the final result, and the panel
   says that the record is incomplete and what was observed last. The bounds
   are chosen from measured sizes of long runs (see the detailed design).
 - A record that is missing, stale in storage or cannot be written is not an
-  error of the run. If the worker is terminated mid-run, what had reached
-  storage is what the reader sees, and a missing result is reported as
-  missing, not explained.
+  error of the run. If the worker is terminated mid-run, the matching record
+  that had reached storage is what the reader sees, and a missing result is
+  reported as missing, not explained.
 
 No state management framework, no store, no persisted history. The panel asks
 for the current state when it opens and is told when it changes.

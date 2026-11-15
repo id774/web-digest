@@ -363,9 +363,9 @@ available in every phase.
 - The title is written to its own element with `textContent`, from the state
   and never from the page directly.
 - Below the state region, a `<details>` section titled `Diagnostics` holds one
-  `<pre>` whose text is the formatted record (§19.5). It is hidden when the
-  tab has no record, written with `textContent`, selectable, and never
-  contains or replaces the summary or the error message.
+  `<pre>` whose text is the formatted record (§19.5). It is hidden unless a
+  nonempty record matches the confirmed run. It is written with `textContent`,
+  selectable, and never contains or replaces the summary or the error message.
 
 ### 6.1.1 Following the active tab
 
@@ -388,15 +388,13 @@ when it loaded:
   `getState` snapshot and renders it, but only if no `stateChanged` for that
   same new binding has already arrived and been rendered first, and only if
   no still-newer rebind has started since. A snapshot belonging to a tab this
-  panel no longer follows is never applied, however late it resolves. Binding
-  clears no rendered content: until the new snapshot is applied, the title
-  and summary last drawn for the previous tab remain displayed, and this is
-  intended. Once it is applied, the new tab's state replaces them. The
-  diagnostics record is read by its own request, started alongside the
-  snapshot request and guarded by the same generation, so it may be shown
-  (or hidden, when the new tab has none) before the title and summary change.
-  Until the current binding's own state is confirmed, the previous tab's
-  phase is never used to classify that record (§19.5).
+  panel no longer follows is never applied, however late it resolves. Until
+  the new state is applied, the title and summary last drawn for the previous
+  tab remain displayed, and this is intended. The diagnostics section is
+  hidden immediately on rebinding. Its record is read by its own request,
+  started alongside the state snapshot and guarded by the same generation.
+  Either may arrive first, but the record is displayed only when the current
+  binding's confirmed state carries the matching run identity (§19.5).
 - `stateChanged` is applied only when its `tabId` matches the tab currently
   bound — exactly as before switching tabs was accounted for — which is what
   keeps a live update for the tab just left from reaching the new one.
@@ -411,9 +409,10 @@ when it loaded:
   query completing after a newer one has already started never invalidates
   anything, the same way it never rebinds anything.
 
-No `RunState` field carries a revision or a timestamp for this: the ordering
-above is entirely client-side bookkeeping in the panel, private to it, and
-adds nothing to what `getState` or `stateChanged` carry.
+No `RunState` field carries a revision or a timestamp for this. The ordering
+above is entirely client-side bookkeeping in the panel. The opaque `runId`
+of §15.5 associates diagnostics with a run; it is not a binding generation
+or a revision and is never used to order messages.
 
 - `chrome.tabs.onReplaced` triggers this same `followActiveTab()` recheck,
   alongside `chrome.tabs.onActivated`.
@@ -431,7 +430,8 @@ adds nothing to what `getState` or `stateChanged` carry.
 - The existing `tabLookupGeneration` check applies to a replacement-triggered
   query exactly as it does to an activation-triggered one, so the two can
   overlap without either winning out of turn.
-- No `RunState` revision, timestamp or message field is added for this.
+- No `RunState` revision, timestamp or replacement-specific message field is
+  added for this.
 
 ### 6.1.2 What the panel does when it cannot learn a tab's state
 
@@ -446,11 +446,11 @@ may well have one. A `chrome.tabs.query` that resolves without a valid tab id
 is rendered the same way `followActiveTab` renders no tab at all: the idle
 phase, "No summary has been run for this tab yet.". Nothing here is written
 to `chrome.storage.session`: it is a state the panel renders locally, not one
-`getState` or `stateChanged` ever carries. It is rendered with
-`stateKnown=false` (§19.5), so it is never taken as the run having ended. Only
-a valid snapshot or a live `stateChanged` for the current binding sets
-`stateKnown=true`, and the existing generation rules apply to a late
-read-failure response as to any other snapshot.
+`getState` or `stateChanged` ever carries. It is rendered as an unconfirmed
+state, so it is never taken as the run having ended. No diagnostic record is
+displayed until a valid snapshot or a live `stateChanged` for the current
+binding confirms its run identity (§19.5). The existing generation rules
+apply to a late read-failure response as to any other snapshot.
 
 A `chrome.tabs.query` rejection or no-valid-tab-id result additionally
 invalidates whatever tab the panel was bound to before it (§6.1.1): the tab
@@ -1956,15 +1956,23 @@ request as a field of its own.
   title: "The title of the page",
   summary: "The summary, as text.",
   errorKind: "",
-  errorDetail: ""
+  errorDetail: "",
+  runId: "11111111-1111-4111-8111-111111111111"
 }
 ```
 
 One `RunState` per tab. `summary` is empty except in `succeeded`. `errorKind`
 is empty except in `failed`. `errorDetail` is empty except for
-`provider-error`. **There is no URL, no timestamp, no credential, no material
-and no request or response in it, and no field naming which provider produced
-it** — it holds what the panel renders and nothing else.
+`provider-error`. A non-idle state produced by the worker carries `runId`,
+a lowercase UUID v4 generated locally when the run is claimed. All states
+and the diagnostic record of that run carry the same identity. An idle
+state has no `runId`. A legacy state without it still renders normally,
+but cannot authorize display of a diagnostic record. The identity is used
+only for ownership and diagnostic matching, never as a timestamp, ordering
+number, page identity or reader-facing value. **There is no URL, timestamp,
+credential, material, request, response or provider name in the state.**
+The other five fields hold what the panel renders; the diagnostic record
+itself remains separate.
 
 ## 16. Messages
 
@@ -1974,7 +1982,7 @@ Two messages, both `chrome.runtime.sendMessage`, both shaped
 
 | Type | From | To | Payload | Response | On failure |
 |---|---|---|---|---|---|
-| `getState` | panel | worker | `{ tabId }` | the `RunState` for that tab, or an `idle` one when there is none — and, if reading `chrome.storage.session` itself fails, `{ errorKind: "internal-error" }` with no `RunState` field, never a rejected message | the panel recognizes that response by its missing `phase` and renders the internal error locally with `stateKnown=false`. If the message itself never gets a response, the panel renders the same locally instead (§6.1.2) |
+| `getState` | panel | worker | `{ tabId }` | the `RunState` for that tab, or an `idle` one when there is none — and, if reading `chrome.storage.session` itself fails, `{ errorKind: "internal-error" }` with no `RunState` field, never a rejected message | the panel recognizes that response by its missing `phase` and renders the internal error locally without confirming a run identity. If the message itself never gets a response, the panel renders the same locally instead (§6.1.2) |
 | `stateChanged` | worker | any listening panel | `{ tabId, state }` | none | a broadcast with no listener rejects, and the worker ignores that: the state is already stored, and a panel that opens later reads it with `getState` |
 
 The diagnostic record is not a message either. The panel reads it from
@@ -2005,9 +2013,9 @@ The four states of basic design §14, one per tab.
 | Phase | Entered when | Panel shows | Allowed | Held |
 |---|---|---|---|---|
 | `idle` | there is no stored state for the tab | §6.1 | the toolbar action starts a run. The panel itself has no run control | nothing |
-| `running` | a run starts, before anything else | §6.1 | the panel itself has no run control. A duplicate toolbar click while this tab's work is live in the current worker is ignored | `title`, when the click supplied one |
-| `succeeded` | a summary is read from the answer (§11.3) | §6.1 | click the toolbar action again to rerun | `title`, `summary` |
-| `failed` | any step ends the run (§18) | §6.1 | click the toolbar action again, and for `credential-missing` or `permission-missing`, the settings control | `title` when known, `errorKind`, `errorDetail` |
+| `running` | a run starts, before anything else | §6.1 | the panel itself has no run control. A duplicate toolbar click while this tab's work is live in the current worker is ignored | `title`, when the click supplied one, and `runId` |
+| `succeeded` | a summary is read from the answer (§11.3) | §6.1 | click the toolbar action again to rerun | `title`, `summary`, `runId` |
+| `failed` | any step ends the run (§18) | §6.1 | click the toolbar action again, and for `credential-missing` or `permission-missing`, the settings control | `title` when known, `errorKind`, `errorDetail`, `runId` |
 
 - **The worker sets it. The panel reads it and renders it.** No other file
   writes a state.
@@ -2020,11 +2028,12 @@ The four states of basic design §14, one per tab.
   says nothing did.
 - A run's live identity is held in the worker from the toolbar click itself,
   before the worker waits for the side panel, until that run finishes or a
-  lifecycle event invalidates it. The same identity rejects a duplicate click
-  while the panel is opening and while work is actually in progress. It is
-  not a `RunState` field and creates no fifth phase. Worker termination clears
-  this in-memory identity, allowing a later click to recover from a stored
-  `running` state.
+  lifecycle event invalidates it. The same locally generated UUID v4 rejects
+  a duplicate click while the panel is opening and while work is in progress.
+  It is also the non-idle state's `runId` (§15.5) for matching diagnostics.
+  The in-memory active ownership, not the stored identity, blocks another
+  click. Worker termination clears active ownership, allowing a later click
+  to recover from a stored `running` state. There is no fifth phase.
 - A stored state is removed when its tab is closed, when Chrome reports either
   that the tab started loading or that its URL changed, and when Chrome
   replaces its tab identity — so the panel returns to `idle` after a
@@ -2034,8 +2043,8 @@ The four states of basic design §14, one per tab.
   performs this cleanup starts nothing, reads no page and holds no URL. A
   replacement invalidates the removed identity's run first, the same ordering
   closure and navigation use, and never migrates state to the added identity.
-- Every `chrome.storage.session` write or remove for a tab is queued behind
-  whatever is already pending for that same tab, so a write already in flight
+- Every `run:<tabId>` state write or remove is queued behind whatever is
+  already pending for that same state key, so a write already in flight
   when navigation, a tab close, or a tab replacement begins its cleanup is
   guaranteed to finish before that cleanup's remove — never after it — and
   the removed state cannot come back. A write still queued when its run stops
@@ -2046,10 +2055,11 @@ The four states of basic design §14, one per tab.
   `chrome.storage.session.set` resolves, the worker checks the same live run
   identity again before broadcasting that state. If navigation, closure or
   replacement invalidated the run while the write was in flight, the old
-  state is never broadcast. A `getState` request that begins while a
+  state is never broadcast. A `getState` request that begins while a state
   mutation for that tab is already queued waits for that queue before
   reading session storage, so it does not return the state between an
-  invalidated write and the cleanup already queued behind it.
+  invalidated write and the cleanup already queued behind it. Diagnostic
+  mutations are not part of this queue and do not delay the read.
 - A `chrome.storage.session.set` failure is not mistaken for success: the run
   continues past it only if the write actually went through. Where that
   write was the run's own failure state — the outer catch of §22, or an
@@ -2071,15 +2081,17 @@ The four states of basic design §14, one per tab.
 - **No summary and no page text is written to disk by this design**, which is
   what requirement §16 asks of it.
 - The optional diagnostic record (§19.1) is a separate session entry,
-  `diag:<tabId>`, never part of a `RunState`. It is removed by the same
-  cleanups (closure, loading or URL change, replacement), queued behind the
-  tab's pending mutations the same way, and by the start of the tab's next
-  run before that run writes `running`. Each removal first reads the key and
-  removes it only when present, so a tab that never recorded costs no remove.
-  A failed read is treated as present, and a failed remove is followed by one
-  fallback write of an empty record in its place (never a second remove), so
-  an earlier run's record cannot remain as a later run's. The panel shows an
-  empty record as nothing. If that write fails too, nothing more is done.
+  `diag:<tabId>`, never part of a `RunState`. Its own per-tab mutation queue
+  is independent of the state queue. On closure, loading, URL change or
+  replacement, diagnostic ownership is retired and cleanup is queued on
+  that diagnostic queue, without delaying the state's cleanup or notification.
+  A new run retires the previous diagnostic owner and queues cleanup before
+  its own diagnostic writes, without waiting before writing `running`.
+  Each removal first reads the key and removes it only when present. A failed
+  read is treated as present, and a failed remove is followed by one fallback
+  write of an empty record (never a second remove). If both mutations fail,
+  the old record can remain in storage, but its identity cannot match the
+  new run's state. The panel never displays that unmatched record (§19.5).
 
 No state library, no store, no reducer and no persisted history. The panel asks
 for the state when it opens and is told when it changes.
@@ -2213,7 +2225,8 @@ the worker therefore also keeps a per-tab record of the run in
   v: 1,                 // RECORD_VERSION
   events: [ /* ordered, at most MAX_EVENTS */ ],
   dropped: 0,           // events counted but not kept (§19.3)
-  last: null            // the last event counted but not kept, or null
+  last: null,           // the last event counted but not kept, or null
+  runId: "11111111-1111-4111-8111-111111111111"
 }
 ```
 
@@ -2229,8 +2242,11 @@ already has, with facts the run already holds. It never reads a page, a
 request or an answer for its own purposes, never decides anything, and never
 throws into the run — `record` swallows its own failures, and the observer
 passed into `summarizeMaterial` is called through a guard that does the same.
-A discarded run leaves no record: its `diag:` entry is removed with its state
-(§17), so there is nothing to describe a run that was invalidated.
+A discarded run retires its diagnostic ownership and queues removal of its
+`diag:` entry (§17). A record left by failed cleanup is not displayed as a
+record of a later run. The opaque `runId` is the only extra record metadata:
+it is generated locally and used solely for matching the run, never as an
+event, a displayed value, or a log field.
 
 ### 19.2 Events
 
@@ -2279,6 +2295,11 @@ with a summary of the stated length), counting what the recorder keeps:
 | 100 parts, 120000-character summaries | 824 | 397 kept, 1265 not kept | 47553 |
 | 20 parts whose summaries do not shrink, ending at the depth limit | 196 | 397 kept, 9 not kept | 46814 |
 
+These measurements predate the run identity field. A record carrying a
+UUID v4 uses 47 more bytes in its JSON representation. The same byte bound
+and reserved result space apply to the complete record, including that
+field; the bounds are unchanged.
+
 An event is about 120 bytes on average and at most about 200 bytes for a
 failed request. The longest run chosen as representative is the third: a page
 of twenty million characters is far beyond what a browser shows, and it needs
@@ -2309,25 +2330,33 @@ When a bound is reached:
 ### 19.4 Persistence and isolation
 
 - Each change is written whole (`chrome.storage.session.set` of a copy of the
-  record) through the tab's mutation queue (§17), never as a patch, so a
-  write that failed leaves an older but internally consistent record rather
-  than a torn one.
-- A write is skipped once the run is no longer the tab's current one. The
-  check is made again for each iteration, so a navigation or closure is never
-  followed by a late `diag:` write.
+  record), never as a patch, through a diagnostic mutation queue per tab.
+  This queue is independent of the run-state queue. A diagnostic read,
+  write, removal or fallback must not delay a state operation, provider work,
+  the closing log or release of the active run.
+- The worker tracks the diagnostic owner separately from active work.
+  Starting another run replaces the owner, and navigation, closure or
+  replacement retires it. A diagnostic write checks this owner before it
+  queues work and before each write in a coalesced operation. A write already
+  in flight is followed by cleanup on the same diagnostic queue. No queued
+  write for a retired run can start after its cleanup.
 - Writes coalesce. While one write is in flight, further events only mark the
-  record dirty and the latest record is written when the write ends, so a
-  long run causes a few writes per second at most, not one per event.
-- A write that fails is dropped and not retried. The record stays at whatever
-  last reached storage. Nothing in the run waits for the write or learns of it.
-- A new run removes the previous record of its tab (a read of the key, then a
-  remove only if present) before it writes `running`, whether or not the new
-  run records, so an older run's record is never shown for a newer run. When
-  the remove fails, one empty record is written in its place, the same
-  one-fallback rule the run state's cleanup follows (§17).
-- If the worker is terminated mid-run, what had reached storage is what a
-  later panel shows. It has no `result` event, and the panel says so (§19.5)
-  instead of supplying a cause.
+  record dirty and the latest record is written when the write ends. A write
+  that fails is dropped and not retried. The record stays at whatever last
+  reached storage. Nothing in the run waits for that write or learns of it.
+- The normal end of a run releases its active ownership but does not retire
+  its diagnostic owner. A pending final record can still be stored after
+  the terminal state and closing log, until a lifecycle event or a later
+  run retires the owner.
+- A new run queues cleanup of the previous diagnostic record before queuing
+  its own diagnostic writes, regardless of whether recording is enabled.
+  It does not await cleanup before writing `running` or starting work. The
+  removal and one empty-record fallback follow §17. A failed cleanup does
+  not change the new run, and any old record that remains is hidden by
+  run-identity matching (§19.5).
+- If the worker is terminated mid-run, a later panel shows the record that
+  reached storage only if it matches the confirmed run. A missing result
+  is reported as incomplete rather than supplying a cause (§19.5).
 
 ### 19.5 Display
 
@@ -2335,9 +2364,16 @@ The panel reads `diag:<tabId>` with `chrome.storage.session.get` when it binds
 to a tab, and updates from `chrome.storage.onChanged` for the `session` area
 and the bound tab's key only. The same generation rules as for the state
 apply: a snapshot read that settles after the binding has changed, or after a
-live change was already shown, is ignored. A failed read shows nothing. A
-stored value passes `sanitizeRecord` before use, so a malformed or foreign
-value shows nothing. A `RunState` of `idle` clears the record on screen.
+live change was already received, is ignored. A failed read shows nothing.
+A stored value passes `sanitizeRecord` before use, so a malformed value
+shows nothing. The latest sanitized record is a candidate for this binding.
+It is displayed only when a confirmed non-idle state carries a valid
+`runId` equal to the record's own valid `runId`. A record may arrive before
+its matching state and is retained for matching, but it is not shown early.
+An idle, unconfirmed or legacy state, an unmatched record or an empty record
+hides the section and clears its text. A new binding clears the candidate
+and the confirmed identity immediately. The state and diagnostics may arrive
+in either order, including a final diagnostic write after the terminal state.
 
 `formatDiagnostics` renders one line per event, for example:
 
@@ -2351,14 +2387,11 @@ appear as they are recorded." (no result yet, the run still going),
 "Incomplete: no final result was recorded for this run." (the run has ended in
 a visible success or failure but its record has no result event), or
 "Incomplete: N later events were not retained." with "Last observed: ..." (a
-bound was reached, §19.3). The first two are chosen only from a `RunState`
-confirmed for the tab currently bound — its `getState` answer or its own
-`stateChanged`. Until then, for instance when the record arrives before the
-state, or when the state read failed (the `internal-error` read-failure
-response of §16 included), the events are shown with neither line,
-since the run can be called neither ended nor still going. The text is written
-with `textContent` into a `<pre>`, so nothing in it is ever markup, and the
-reader can select and copy it.
+bound was reached, §19.3). Only a matching record of the confirmed run is
+formatted for display. A read failure does not confirm a run, and no text
+from a record of unknown ownership is shown. A later valid live state can
+confirm it. The text is written with `textContent` into a `<pre>`, so nothing
+in it is ever markup, and the reader can select and copy it.
 
 ## 20. Security
 
@@ -2503,10 +2536,11 @@ The steps, at the granularity they are written at:
    credential and model, and the Japanese summary preference, all fixed for
    the rest of this run. Immediately after, the diagnostic recording
    preference is read once (§13.2) and the recorder is built (§19.1), also
-   fixed for the rest of the run. Before the settings are read, the tab's
-   previous diagnostic record is removed (§17). No credential for the
-   selected provider, or a blank one, ends the run here with
-   `credential-missing`, before the tab is touched.
+   fixed for the rest of the run. Before the settings are read, the previous
+   diagnostic owner is retired and diagnostic cleanup is queued (§17),
+   without waiting for that cleanup. No credential for the selected
+   provider, or a blank one, ends the run here with `credential-missing`,
+   before the tab is touched.
 6. **An optional-permission provider's permission is checked**, never
    requested (§12.2). Sakura needs no check. A permission since revoked ends
    the run here with `permission-missing`, before the tab is touched.
@@ -2543,10 +2577,11 @@ The steps, at the granularity they are written at:
 15. **The final integrated summary is taken** from the answer.
 16. **The state becomes `succeeded`**, carrying the title and the summary, and
     `stateChanged` is broadcast. The panel renders it as text.
-    When the recorder is on, steps 5 and 7 to 16 each leave their event
+    When the recorder is on, steps 5 and 7 to 16 each record their event
     (§19.2) before the next step is taken, and every ending of the run,
-    success or failure, leaves a `result` event before the state is written.
-    None of this changes what the run does next.
+    success or failure, records a `result` event before writing the terminal
+    state. The asynchronous diagnostic write does not have to finish before
+    the state, closing log or active run release.
 17. **Any step above may end the run instead.** Every way it can is a row of
     §18. The state becomes `failed` with that kind, `stateChanged` is
     broadcast, and the panel shows the message. Another run starts only when
@@ -2583,8 +2618,8 @@ specification would be written against.
 | tab-update navigation boundary (§17) | a `changeInfo` object | true for `status: "loading"` or the presence of its own `url` property, false otherwise | the URL property's value is never read |
 | the diagnostic event vocabulary (§19.2) | a raw event | an event of the fixed vocabulary and integers, or null | every value outside the vocabulary is dropped. No free-form string survives |
 | the retention bounds (§19.3) | a record and an event | the record with the event appended, or counted in `dropped` | just below, at and past each bound, with the largest events and with the result reserved |
-| the recorder and the observed run (§19.1) | a fake Chrome, a `fetch` stub and invented pages, with the preference on and off | the same state, requests and closing line either way, and an ordered record | storage failures of the record leave the run unchanged |
-| the diagnostic display (§19.5) | a fake panel document and a fake `chrome.storage.session` | the formatted text for the bound tab only | stale snapshots, other tabs, removals, unreadable and malformed values |
+| the recorder and the observed run (§19.1) | a fake Chrome, a `fetch` stub and invented pages, with the preference on and off | the same observable state, requests and closing line either way, with run identity metadata and an ordered record when enabled | deferred or failed diagnostic storage does not delay the run; the matching final record can arrive after the terminal state |
+| the diagnostic display (§19.5) | a fake panel document, state messages and a fake `chrome.storage.session` | formatted text only for a record matching the confirmed run of the bound tab | stale snapshots, other tabs or runs, idle or unknown state, removals, unreadable, malformed and legacy values |
 
 Four properties make that possible, and each is a constraint on the
 implementation rather than an observation about it:

@@ -38,24 +38,33 @@ export const SERVICE_WORKER_KEEPALIVE_INTERVAL_MS = 25000;
 
 const KNOWN_KINDS = new Set(BLOCK_KINDS);
 const activeRuns = new Map();
+const diagnosticOwners = new Map();
 
-// Every chrome.storage.session mutation for a tab — a run's own write and a
-// navigation/close cleanup's remove alike — is appended to this tab's own
-// chain, so a write already in flight when a cleanup starts is guaranteed to
-// finish before the remove that follows it, and cleanups for the same tab
-// can never land out of the order they were asked for. A generation check
-// alone cannot give this guarantee: it only stops a write from being
-// started, not one that is already in flight.
+// Run state and diagnostics have separate per-tab mutation queues. Each
+// preserves its own write/cleanup ordering, but a diagnostic write or
+// cleanup must never delay the run's state, work, or notification.
+// A lifecycle event or a new run retires the old diagnostic owner before
+// queuing its cleanup. A completed run may still finish its diagnostic
+// writes, provided it has not been retired.
 const tabMutationQueue = new Map();
+const diagnosticMutationQueue = new Map();
 
-function enqueueStateMutation(tabId, task) {
-  const previous = tabMutationQueue.get(tabId);
+function enqueueTabMutation(queue, tabId, task) {
+  const previous = queue.get(tabId);
   const chained = previous ? previous.catch(() => {}).then(task) : task();
-  tabMutationQueue.set(tabId, chained);
+  queue.set(tabId, chained);
   chained.catch(() => {}).finally(() => {
-    if (tabMutationQueue.get(tabId) === chained) tabMutationQueue.delete(tabId);
+    if (queue.get(tabId) === chained) queue.delete(tabId);
   });
   return chained;
+}
+
+function enqueueStateMutation(tabId, task) {
+  return enqueueTabMutation(tabMutationQueue, tabId, task);
+}
+
+function enqueueDiagnosticsMutation(tabId, task) {
+  return enqueueTabMutation(diagnosticMutationQueue, tabId, task);
 }
 
 // The two output-language modes `prompts/summarize.md` defines. The mode is
@@ -110,7 +119,7 @@ export function failedState(title, kind, detail) {
 
 export function claimRun(tabId) {
   if (activeRuns.has(tabId)) return false;
-  activeRuns.set(tabId, Symbol());
+  activeRuns.set(tabId, crypto.randomUUID());
   return true;
 }
 
@@ -128,6 +137,7 @@ export function releaseRun(tabId, run = activeRuns.get(tabId)) {
 
 export function invalidateRun(tabId) {
   activeRuns.delete(tabId);
+  diagnosticOwners.delete(tabId);
 }
 
 // True at the boundary Chrome uses to mark a tab's page as having changed —
@@ -391,7 +401,6 @@ async function discardState(tabId) {
       // only signal left to try.
     }
   }
-  await removeDiagnostics(tabId);
   chrome.runtime
     .sendMessage({
       type: MessageType.STATE_CHANGED,
@@ -419,10 +428,8 @@ async function removeDiagnostics(tabId) {
   try {
     await chrome.storage.session.remove(key);
   } catch {
-    // A record that cannot be removed must not stay as the old run's account
-    // of a later run. One fallback write of an empty record stands in for the
-    // remove, never a retry of it, and the panel shows an empty record as
-    // nothing. If that write fails too, nothing more can be done here.
+    // One empty record replaces a failed removal, never a retry. If that
+    // write fails too, the panel rejects the old record by run identity.
     try {
       await chrome.storage.session.set({ [key]: emptyRecord() });
     } catch {
@@ -431,30 +438,30 @@ async function removeDiagnostics(tabId) {
   }
 }
 
-// Queued behind whatever is pending for this tab, so a previous run's record
-// is gone before this run's own state is written.
+// Cleanup is ordered only with diagnostic mutations. The run never awaits
+// this operation, and a failure cannot prevent its own state from advancing.
 function clearDiagnostics(tabId) {
-  return enqueueStateMutation(tabId, () => removeDiagnostics(tabId));
+  return enqueueDiagnosticsMutation(tabId, () => removeDiagnostics(tabId));
 }
 
-// The diagnostics of one run are written through the same per-tab queue as
-// its state, and skipped once the run is no longer the tab's current one, so
-// a navigation or closure can never be followed by a late diagnostic write.
-// Writes coalesce: while one is in flight, further changes only mark the
-// record dirty, and the latest record is written once the current write ends.
-// A failed write is dropped. The run neither waits for it nor learns of it.
+// Coalesce diagnostic writes on their own queue. Finishing a run releases
+// its active token but does not retire its diagnostic owner: a pending
+// final record can still be stored. Navigation, closure, replacement or a
+// later run retires that owner and orders cleanup behind any in-flight
+// diagnostic write. A rejected write is dropped, never retried.
 function diagnosticsPersister(tabId, run) {
   let writing = false;
   let dirty = false;
   let latest = null;
   return (record) => {
+    if (diagnosticOwners.get(tabId) !== run) return;
     latest = record;
     dirty = true;
     if (writing) return;
     writing = true;
-    enqueueStateMutation(tabId, async () => {
+    enqueueDiagnosticsMutation(tabId, async () => {
       try {
-        while (dirty && isCurrentRun(tabId, run)) {
+        while (dirty && diagnosticOwners.get(tabId) === run) {
           dirty = false;
           await chrome.storage.session.set({
             [diagnosticsKey(tabId)]: structuredClone(latest),
@@ -523,7 +530,7 @@ export async function fail(
       status,
     });
   }
-  const state = failedState(title, kind, detail);
+  const state = { ...failedState(title, kind, detail), runId: run };
   try {
     await writeState(tabId, state, run);
   } catch {
@@ -565,14 +572,14 @@ async function runSummary(tabId, titleFromTab, run) {
     await waitForDiscard(tabId);
     if (!isCurrentRun(tabId, run)) return;
 
-    // A record left by an earlier run of this tab is removed before this
-    // run's own state is written, whether or not this run records one.
-    await clearDiagnostics(tabId);
-    if (!isCurrentRun(tabId, run)) return;
+    // Retire the previous diagnostic owner and order its cleanup before this
+    // run's diagnostic writes, without waiting for that cleanup to finish.
+    diagnosticOwners.set(tabId, run);
+    clearDiagnostics(tabId).catch(() => {});
 
     // running is written before the first await of the work, so a worker
     // terminated mid-run leaves a state that says what was happening.
-    await writeState(tabId, runningState(title), run);
+    await writeState(tabId, { ...runningState(title), runId: run }, run);
 
     const settings = await readSettings();
     if (!isCurrentRun(tabId, run)) return;
@@ -589,6 +596,7 @@ async function runSummary(tabId, titleFromTab, run) {
     recorder = createRecorder({
       enabled: diagnosticsEnabled,
       started,
+      runId: run,
       persist: diagnosticsPersister(tabId, run),
     });
 
@@ -759,7 +767,11 @@ async function runSummary(tabId, titleFromTab, run) {
       blocks: shaped.material.blockCount,
       chars: shaped.material.charCount,
     });
-    await writeState(tabId, succeededState(title, answer.summary), run);
+    await writeState(
+      tabId,
+      { ...succeededState(title, answer.summary), runId: run },
+      run,
+    );
     if (!isCurrentRun(tabId, run)) return;
     logRun({
       phase: "succeeded",
@@ -874,6 +886,7 @@ function registerListeners() {
     // before this remove, never after it.
     invalidateRun(tabId);
     startDiscard(tabId, () => discardState(tabId)).catch(() => {});
+    clearDiagnostics(tabId).catch(() => {});
   });
 
   // A replacement retires removedTabId as a tab identity. The added identity
@@ -882,12 +895,14 @@ function registerListeners() {
   chrome.tabs.onReplaced.addListener((_addedTabId, removedTabId) => {
     invalidateRun(removedTabId);
     startDiscard(removedTabId, () => discardState(removedTabId)).catch(() => {});
+    clearDiagnostics(removedTabId).catch(() => {});
   });
 
   chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     if (isNavigationBoundary(changeInfo)) {
       invalidateRun(tabId);
       startDiscard(tabId, () => discardState(tabId)).catch(() => {});
+      clearDiagnostics(tabId).catch(() => {});
     }
   });
 }
