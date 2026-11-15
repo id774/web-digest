@@ -413,6 +413,10 @@ nested in the middle of such a container, the text before it, the block, and
 the text after it come out in that order, each part keeping the container's
 own kind.
 
+Outside those containers, inline and `display: contents` wrappers do not
+absorb a nested paragraph or block-level wrapper. Its text keeps its own
+block boundary and its own link-density decision in document order.
+
 ### 8.2 What is dropped
 
 As far as it can be recognized, and never by naming a site:
@@ -431,6 +435,8 @@ As far as it can be recognized, and never by naming a site:
 - link-dense blocks that are lists of links rather than prose, which is what
   most advertising and most site-common furniture looks like from inside the
   document. Link text counts whether the link is inside the block or wraps it.
+  Link density counts only characters retained after trimming the whole
+  candidate text, so edge whitespace cannot change which prose is kept.
 
 ### 8.3 The fallback ladder
 

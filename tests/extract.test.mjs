@@ -2465,3 +2465,210 @@ test("a scored candidate of links and spaces scores nothing against real prose",
   ]);
   assert.deepEqual(pairs(runExtract(doc).blocks), ARTICLE_ONLY);
 });
+
+// --- link density over the whole trimmed range, and inline wrappers ---
+
+const LIST_ITEM = { display: "list-item" };
+
+function visibleBreak() {
+  return el("br", { style: { visibility: "visible" } });
+}
+
+// Each case is placed as a paragraph, as a list item and as a block-level
+// prose buffer, and the kept cases come back once per path, in that order.
+function threePathBlocks(cases) {
+  return extractInMain([
+    ...cases.map(([make]) => el("p", { style: BLOCK }, make())),
+    el(
+      "ul",
+      { style: BLOCK },
+      cases.map(([make]) => el("li", { style: LIST_ITEM }, make())),
+    ),
+    ...cases.map(([make]) => prose(make())),
+  ]);
+}
+
+function threePathPairs(cases) {
+  const kept = cases
+    .filter(([, text]) => text !== null)
+    .map(([, text]) => text);
+  return [
+    ...kept.map((text) => ["paragraph", text]),
+    ...kept.map((text) => ["list-item", text]),
+    ...kept.map((text) => ["paragraph", text]),
+  ];
+}
+
+test("link density ignores whitespace trimmed from the whole block", () => {
+  const cases = [
+    [() => [link("  ABCDEF"), "WXYZ"], "ABCDEFWXYZ"],
+    [() => ["WXYZ", link("ABCDEF  ")], "WXYZABCDEF"],
+    [() => ["  ", link("ABCDEF"), "WXYZ", "  "], "ABCDEFWXYZ"],
+    [() => [link("ABCDEF"), "WXYZ"], "ABCDEFWXYZ"],
+    [() => [link("  ABCDEFG"), "XYZ"], null],
+  ];
+  assert.deepEqual(pairs(threePathBlocks(cases)), threePathPairs(cases));
+});
+
+test("link density counts only retained internal link whitespace", () => {
+  const cases = [
+    [() => ["XY", link(" ABCDEF "), "ZW"], "XY ABCDEF ZW"],
+    [() => ["XY", link("  ABCDEF  "), "ZW"], null],
+    [() => ["XY ", link("ABCDEF"), " ZW"], "XY ABCDEF ZW"],
+    [() => [link("  ABCDEF"), visibleBreak(), "XYZ"], "ABCDEF\nXYZ"],
+    [
+      () => [
+        el("a", { href: "/x", style: INLINE }, [
+          "  AB",
+          visibleBreak(),
+          "CDEF",
+        ]),
+        "XYZ",
+      ],
+      null,
+    ],
+    [() => [link("  ABC"), "  ", link("DEF  ")], null],
+  ];
+  assert.deepEqual(pairs(threePathBlocks(cases)), threePathPairs(cases));
+});
+
+test("root scoring measures the same retained link character range", () => {
+  const linked = Array.from({ length: 30 }, () =>
+    el("p", { style: BLOCK }, ["XY", link("   ABCDEF   "), "ZW"]),
+  );
+  const doc = page([
+    el("div", { style: BLOCK }, linked),
+    el("div", { style: BLOCK }, [el("p", { style: BLOCK }, ["Z".repeat(240)])]),
+  ]);
+  assert.deepEqual(runExtract(doc), {
+    title: "",
+    blocks: [{ kind: "paragraph", text: "Z".repeat(240) }],
+  });
+});
+
+test("container density trims the whole owned range across nested units", () => {
+  const item = (first, last) =>
+    el("ul", { style: BLOCK }, [
+      el("li", { style: LIST_ITEM }, [
+        link(first),
+        el("ul", { style: BLOCK }, [el("li", { style: LIST_ITEM }, ["Child"])]),
+        last,
+      ]),
+    ]);
+  assert.deepEqual(pairs(extractInMain([item("  ABCDEF", "WXYZ  ")])), [
+    ["list-item", "ABCDEF"],
+    ["list-item", "Child"],
+    ["list-item", "WXYZ"],
+  ]);
+  assert.deepEqual(pairs(extractInMain([item("  ABCDEFG", "XYZ  ")])), [
+    ["list-item", "Child"],
+  ]);
+});
+
+const FOUR_PARAGRAPHS = [
+  ["paragraph", "Before"],
+  ["paragraph", "Alpha"],
+  ["paragraph", "Beta"],
+  ["paragraph", "After"],
+];
+
+test("inline wrappers preserve nested block boundaries in prose", () => {
+  for (const style of [INLINE, CONTENTS, BLOCK]) {
+    const blocks = extractInMain([
+      el("div", { style: BLOCK }, [
+        "Before",
+        el("div", { style }, [
+          el("div", { style: BLOCK }, ["Alpha"]),
+          el("div", { style: BLOCK }, ["Beta"]),
+        ]),
+        "After",
+      ]),
+    ]);
+    assert.deepEqual(pairs(blocks), FOUR_PARAGRAPHS, style.display);
+  }
+});
+
+test("paragraphs inside inline wrappers remain independent outside containers", () => {
+  const wrapped = (style) => [
+    "Before",
+    el("div", { style }, [
+      el("p", { style: BLOCK }, ["Alpha"]),
+      el("p", { style: BLOCK }, ["Beta"]),
+    ]),
+    "After",
+  ];
+  for (const style of [INLINE, CONTENTS]) {
+    const blocks = extractInMain([el("div", { style: BLOCK }, wrapped(style))]);
+    assert.deepEqual(pairs(blocks), FOUR_PARAGRAPHS, style.display);
+  }
+  const quoted = extractInMain([
+    el("blockquote", { style: BLOCK }, wrapped(INLINE)),
+  ]);
+  assert.deepEqual(pairs(quoted), [["quote", "Before\nAlpha\nBeta\nAfter"]]);
+});
+
+test("a linked paragraph inside an inline wrapper is not merged into prose", () => {
+  for (const style of [INLINE, CONTENTS, BLOCK]) {
+    const blocks = extractInMain([
+      el("div", { style: BLOCK }, [
+        "This is real prose with enough text. ",
+        el("a", { href: "/promotion", style }, [
+          el("p", { style: BLOCK }, ["Promotion"]),
+        ]),
+        " More real prose.",
+      ]),
+    ]);
+    assert.deepEqual(
+      pairs(blocks),
+      [
+        ["paragraph", "This is real prose with enough text."],
+        ["paragraph", "More real prose."],
+      ],
+      style.display,
+    );
+  }
+  const ordinary = extractInMain([
+    el("div", { style: BLOCK }, ["Hello ", link("world"), "!"]),
+  ]);
+  assert.deepEqual(pairs(ordinary), [["paragraph", "Hello world!"]]);
+});
+
+test("inline traversal keeps visibility exclusions and independent units", () => {
+  const units = extractInMain([
+    el("div", { style: BLOCK }, [
+      "Before ",
+      el("div", { style: INLINE }, [
+        el("div", { hidden: true, style: BLOCK }, ["SECRET"]),
+        el("span", { style: INLINE }, ["word"]),
+        el("h2", { style: BLOCK }, ["Heading"]),
+        el("p", { style: BLOCK }, ["Paragraph"]),
+        el("span", { style: INLINE }, ["tail"]),
+      ]),
+      " After",
+    ]),
+  ]);
+  assert.deepEqual(units, [
+    { kind: "paragraph", text: "Before word" },
+    { kind: "heading", level: 2, text: "Heading" },
+    { kind: "paragraph", text: "Paragraph" },
+    { kind: "paragraph", text: "tail After" },
+  ]);
+
+  const overrides = extractInMain([
+    el("div", { style: BLOCK }, [
+      el("div", { style: { display: "inline", visibility: "hidden" } }, [
+        "SECRET",
+        el("span", { style: { display: "inline", visibility: "visible" } }, [
+          "Shown",
+        ]),
+        el("div", { style: { display: "block", visibility: "visible" } }, [
+          "Block",
+        ]),
+      ]),
+    ]),
+  ]);
+  assert.deepEqual(pairs(overrides), [
+    ["paragraph", "Shown"],
+    ["paragraph", "Block"],
+  ]);
+});

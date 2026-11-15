@@ -26,7 +26,6 @@ function webDigestExtract(doc) {
   const INDEPENDENT_UNIT_TAGS = new Set(
     [...CANDIDATE_TAGS].filter((tag) => tag !== "p"),
   );
-  const INDEPENDENT_UNIT_SELECTOR = [...INDEPENDENT_UNIT_TAGS].join(", ");
   // Outer semantic containers whose kind and direct text must survive an
   // ordinary prose wrapper (typically a `p`) placed inside them.
   const CONTAINER_TAGS = new Set(["li", "blockquote", "th", "td"]);
@@ -204,33 +203,39 @@ function webDigestExtract(doc) {
   // no element of its own to carry the check — must measure as empty, the
   // same as if none of its content existed.
   //
-  // The recursive walk (`rawEligibleText`) never trims: an inner call's
-  // result is a fragment being concatenated into its parent's text, not a
-  // standalone value, so trimming it there would drop authored whitespace
+  // The recursive walk (`eligibleSegments`) never trims: an inner call's
+  // segments are fragments being concatenated into their parent's text, not
+  // a standalone value, so trimming them there would drop authored whitespace
   // sitting at exactly a descendant's own boundary — `Hello<strong>
   // world</strong>` losing `strong`'s own leading space, the same defect
-  // `ownedContent` was fixed for. Only the outermost call, `eligibleText`
-  // itself, trims — once, at the two edges of the whole result.
+  // `ownedContent` was fixed for. Only `measureSegments` trims — once, at the
+  // two edges of the whole result.
   function eligibleText(element) {
-    return rawEligibleText(element).trim();
+    return measureSegments(eligibleSegments(element)).text;
   }
 
+  // The eligible text of `element` as ordered segments, each marked with
+  // whether it is link text. `linked` starts from `element`'s own anchor
+  // context, so a link that wraps it makes every segment link text.
+  //
   // Recursion into a child element happens unconditionally here — never
   // gated by `element`'s own visibility — because the child gets its own
   // independent `isStructurallyExcluded`/`isVisibilityHidden` check the
   // moment this function is called on it. Only `element`'s own direct text
   // nodes, which carry no style of their own, borrow `element`'s effective
   // visibility to decide whether they count.
-  //
-  // With `outsideAnchors`, anchor subtrees are left out, which leaves the
-  // eligible text that is not link text.
-  function rawEligibleText(element, outsideAnchors = false) {
-    if (isStructurallyExcluded(element)) return "";
+  function eligibleSegments(
+    element,
+    linked = isInsideAnchor(element),
+    segments = [],
+  ) {
+    if (isStructurallyExcluded(element)) return segments;
     const ownContentHidden = isOwnTextHidden(element);
-    let text = "";
     for (const child of element.childNodes) {
       if (child.nodeType === 3) {
-        if (!ownContentHidden) text += child.textContent;
+        if (!ownContentHidden) {
+          segments.push({ text: child.textContent, linked });
+        }
       } else if (child.nodeType === 1) {
         // A visible line break is a text boundary an author actually wrote:
         // `foo<br>bar` must not read as `foobar` once these two runs are
@@ -238,15 +243,15 @@ function webDigestExtract(doc) {
         // visible `<br>` stays even under a visibility-hidden parent. Later
         // shaping is free to fold this into a space with every other line
         // break. Only the boundary must survive here.
-        if (child.tagName.toLowerCase() === "br") {
-          if (!isExcluded(child)) text += "\n";
+        const tag = child.tagName.toLowerCase();
+        if (tag === "br") {
+          if (!isExcluded(child)) segments.push({ text: "\n", linked });
           continue;
         }
-        if (outsideAnchors && child.tagName.toLowerCase() === "a") continue;
-        text += rawEligibleText(child, outsideAnchors);
+        eligibleSegments(child, linked || tag === "a", segments);
       }
     }
-    return text;
+    return segments;
   }
 
   // True when `element` is an anchor or sits inside one. All of its text is
@@ -255,21 +260,36 @@ function webDigestExtract(doc) {
     return !!element.closest && !!element.closest("a");
   }
 
-  // The same eligible/excluded distinction, applied to the anchors inside
-  // `element`, so a hidden or furniture link cannot move a candidate's score.
-  // An anchor that wraps `element` makes all of its eligible text link text.
-  // So does having no eligible text outside anchors but whitespace: spaces or
-  // line breaks between links do not turn a list of links into prose.
-  function eligibleLinkDensity(element, text) {
-    if (text.length === 0) return 0;
-    if (isInsideAnchor(element)) return 1;
+  // The text and link density of ordered segments, both measured over the
+  // same range: the joined text with its two outer edges trimmed. A link's
+  // own edges are not trimmed separately, so whitespace at the edge of the
+  // whole text cannot move the density either way. Whitespace inside the
+  // range counts by its own link context. With no non-whitespace text
+  // outside a link, the density is one: spaces or line breaks between links
+  // do not turn a list of links into prose.
+  function measureSegments(segments) {
+    const raw = segments.map((segment) => segment.text).join("");
+    const text = raw.trim();
+    if (text.length === 0) return { text, density: 0 };
+    const start = raw.length - raw.trimStart().length;
+    const end = start + text.length;
+    let offset = 0;
     let linkChars = 0;
-    for (const anchor of element.querySelectorAll("a")) {
-      linkChars += eligibleText(anchor).length;
+    let plain = false;
+    for (const segment of segments) {
+      const next = offset + segment.text.length;
+      const from = Math.max(start, offset);
+      const to = Math.min(end, next);
+      if (from < to) {
+        if (segment.linked) {
+          linkChars += to - from;
+        } else if (/\S/.test(segment.text.slice(from - offset, to - offset))) {
+          plain = true;
+        }
+      }
+      offset = next;
     }
-    if (linkChars === 0) return 0;
-    if (rawEligibleText(element, true).trim().length === 0) return 1;
-    return linkChars / text.length;
+    return { text, density: plain ? linkChars / text.length : 1 };
   }
 
   // The ladder: each rung is more permissive and less accurate than the one
@@ -289,9 +309,8 @@ function webDigestExtract(doc) {
     const scope = doc.body || doc;
     for (const element of scope.querySelectorAll("article, section, div")) {
       if (!element.querySelector("p")) continue;
-      const text = eligibleText(element);
+      const { text, density } = measureSegments(eligibleSegments(element));
       if (text.length === 0) continue;
-      const density = eligibleLinkDensity(element, text);
       const score = text.length * (1 - density);
       if (score > bestScore) {
         bestScore = score;
@@ -354,48 +373,34 @@ function webDigestExtract(doc) {
   // trimmed.
   //
   // `insideAnchor` seeds whether `element` itself is already inside an
-  // anchor's link text: `collectBlocks` below calls this directly on an
-  // inline element that may itself be the `<a>`, and `collectContainer` on
-  // a container that may sit inside one. The internal walk would otherwise
-  // miss that context, since it only turns the flag on for a descendant
-  // tagged `a`, never for the element it starts from or its ancestors.
+  // anchor's link text: `collectContainer` calls this on a container that
+  // may sit inside one. The internal walk would otherwise miss that context,
+  // since it only turns the flag on for a descendant tagged `a`, never for
+  // the element it starts from or its ancestors.
   //
-  // The one block boundary always inserted here is that of a `p`: when a
-  // displayed paragraph begins or ends beside other text, one line break
-  // stands between them, so `<p>Alpha</p><p>Beta</p>` is never `AlphaBeta`.
-  // With `wrapperBoundaries`, which a container's own text uses, any other
-  // wrapper whose computed display is block-level keeps the same boundary,
-  // so `<div>Alpha</div><div>Beta</div>` is never `AlphaBeta` either. It is
-  // added only between two runs that both carry text and only where the
-  // author wrote no whitespace of their own. Nested wrappers share one
-  // boundary. An empty or hidden wrapper adds nothing, and an inline
-  // boundary never does. A break placed between two runs of link text is
-  // counted as link text, and so is a visible `<br>` inside a link, so a
-  // boundary cannot make a list of links look like prose. `plain` records
-  // whether any non-whitespace text sits outside a link: without it, the
-  // text is all link text whatever whitespace separates the links.
+  // The block boundary inserted here is that of a `p` or of any other
+  // wrapper whose computed display is block-level: when one begins or ends
+  // beside other text, one line break stands between them, so
+  // `<p>Alpha</p><p>Beta</p>` and `<div>Alpha</div><div>Beta</div>` are never
+  // `AlphaBeta`. It is added only between two runs that both carry text and
+  // only where the author wrote no whitespace of their own. Nested wrappers
+  // share one boundary. An empty or hidden wrapper adds nothing, and an
+  // inline boundary never does. Every segment keeps its link context: a
+  // break placed between two runs of link text is link text, and so is a
+  // visible `<br>` inside a link, so a boundary cannot make a list of links
+  // look like prose.
   //
   // `onUnit`, when given, is called for each independent unit met on the
-  // way, in document order, with the text and link characters gathered so
-  // far. Gathering then restarts. That is what lets a container's text be
+  // way, in document order, with the text and segments gathered so far.
+  // Gathering then restarts. That is what lets a container's text be
   // emitted in pieces around a nested unit instead of all before it.
   //
-  // The returned `text` is untrimmed: whether an edge of it is significant
-  // depends on where the caller puts it. A container emitting its own
-  // standalone block trims once, at that point (`collectContainer`). An
-  // inline element being absorbed into a surrounding prose run must not
-  // trim at all, or authored whitespace at exactly its own boundary —
-  // `Hello<strong> world</strong>` — is lost before the concatenation that
-  // needed it ever happens.
-  function ownedContent(
-    element,
-    insideAnchor = false,
-    onUnit = null,
-    wrapperBoundaries = false,
-  ) {
+  // The returned `text` is untrimmed: the container emitting it as its own
+  // standalone blocks trims each part once, at that point
+  // (`collectContainer`), and measures the untrimmed parts together.
+  function ownedContent(element, insideAnchor = false, onUnit = null) {
     let text = "";
-    let linkChars = 0;
-    let plain = false;
+    let segments = [];
     let pendingBreak = false;
     // Whether the last appended segment was link text.
     let lastWasLink = false;
@@ -412,11 +417,12 @@ function webDigestExtract(doc) {
         !/^\s/.test(segment)
       ) {
         text += "\n";
-        if (lastWasLink && isLink) linkChars += 1;
+        segments.push({ text: "\n", linked: lastWasLink && isLink });
       }
       pendingBreak = false;
       lastWasLink = isLink;
       text += segment;
+      segments.push({ text: segment, linked: isLink });
     }
 
     // `hiddenBySelf` is `node`'s own effective visibility: it gates only
@@ -432,8 +438,6 @@ function webDigestExtract(doc) {
           const segment = child.textContent;
           if (segment.length === 0) continue;
           append(segment, insideAnchor);
-          if (insideAnchor) linkChars += segment.length;
-          else if (/\S/.test(segment)) plain = true;
           continue;
         }
         if (child.nodeType !== 1) continue;
@@ -445,25 +449,20 @@ function webDigestExtract(doc) {
         if (tag === "br") {
           if (!isVisibilityHidden(child)) {
             append("\n", insideAnchor);
-            if (insideAnchor) linkChars += 1;
           }
           continue;
         }
         if (INDEPENDENT_UNIT_TAGS.has(tag)) {
           if (onUnit) {
-            onUnit(child, tag, { text, linkChars, plain });
+            onUnit(child, tag, { text, segments });
             text = "";
-            linkChars = 0;
-            plain = false;
+            segments = [];
             pendingBreak = false;
             lastWasLink = false;
           }
           continue;
         }
-        if (
-          tag === "p" ||
-          (wrapperBoundaries && isBlockLevelDisplay(child))
-        ) {
+        if (tag === "p" || isBlockLevelDisplay(child)) {
           // A wrapper that contributes no text leaves the boundary state
           // exactly as it found it.
           const breakBefore = pendingBreak;
@@ -478,7 +477,7 @@ function webDigestExtract(doc) {
     }
 
     walk(element, insideAnchor, isOwnTextHidden(element));
-    return { text, linkChars, plain };
+    return { text, segments };
   }
 
   // True when `element` renders inline, by its own computed style: the
@@ -626,8 +625,7 @@ function webDigestExtract(doc) {
     // can still hold a hidden, aria-hidden, or non-content descendant, and
     // that descendant's text must not reach the emitted block just because
     // its ancestor is visible.
-    const text = eligibleText(element);
-    const density = eligibleLinkDensity(element, text);
+    const { text, density } = measureSegments(eligibleSegments(element));
     tryEmit(element, tag, text, density);
   }
 
@@ -640,29 +638,22 @@ function webDigestExtract(doc) {
   // that one value applies to every part. A trailing part that is nothing
   // but a link is therefore kept or dropped with the rest of the container,
   // exactly as when the container was a single block, rather than being
-  // dropped alone for being a lone link. A container inside an anchor, or
-  // one with no plain text in any part, is all link text. Each nested unit
-  // is judged by its own ancestors.
+  // dropped alone for being a lone link. The untrimmed parts are measured
+  // together, so the edges of the whole owned text are trimmed once rather
+  // than per part. A container inside an anchor, or one with no plain text
+  // in any part, is all link text. Each nested unit is judged by its own
+  // ancestors.
   function collectContainer(element, tag) {
     const steps = [];
     const linked = isInsideAnchor(element);
-    const last = ownedContent(
-      element,
-      linked,
-      (unit, unitTag, part) => {
-        steps.push({ part, unit, unitTag });
-      },
-      true,
-    );
+    const last = ownedContent(element, linked, (unit, unitTag, part) => {
+      steps.push({ part, unit, unitTag });
+    });
 
     const parts = [...steps.map((step) => step.part), last];
-    const wholeLength = parts.map((part) => part.text).join("").trim().length;
-    const linkChars = parts.reduce((sum, part) => sum + part.linkChars, 0);
-    const plain = parts.some((part) => part.plain);
-    let density = 0;
-    if (wholeLength > 0) {
-      density = linked || !plain ? 1 : linkChars / wholeLength;
-    }
+    const { density } = measureSegments(
+      parts.flatMap((part) => part.segments),
+    );
 
     // Each part is a standalone block: its own two edges are trimmed here,
     // once, the same edge-trim every other emitted block gets.
@@ -687,22 +678,19 @@ function webDigestExtract(doc) {
   // block-display anchor, or on a root inside an anchor — so the buffer is
   // judged as link text the same way `ownedContent` would judge it.
   //
-  // A non-candidate, non-container element visited here is one of three
+  // A non-candidate, non-container element visited here is one of two
   // things. An element that renders inline — `strong`, `em`, `span`, `a`,
   // and the rest of what a page mixes into a run of prose rather than
-  // stacks as blocks (`isInlineDisplay`) — contributes its own owned
-  // content (by the same rule `ownedContent` already applies inside a
-  // container) straight into the buffer this same prose run is being
-  // collected into, so `Hello <strong>world</strong>!` stays one paragraph
-  // and an inline `<a>` contributes its own share of `bufferLinkChars`
-  // rather than standing alone as a 100%-link paragraph. An element that
-  // generates no box of its own (`isContentsDisplay`, `display: contents`)
-  // is not a boundary at all: `processChildren` below is called again on
-  // it directly, in this same buffer, so its children are collected exactly
-  // as if the wrapper were not there — a `<span style="display:contents">`
-  // around plain text never flushes the run in two around itself, while a
-  // heading or other independent unit inside it is still found and emitted
-  // on its own, by the same recursive call. Anything else — a `dl`, a `dt`,
+  // stacks as blocks (`isInlineDisplay`) — or that generates no box of its
+  // own (`isContentsDisplay`, `display: contents`) is not a boundary:
+  // `processChildren` below is called again on it directly, in this same
+  // buffer, so its children are collected exactly as if the wrapper were
+  // not there. `Hello <strong>world</strong>!` stays one paragraph, and an
+  // inline `<a>` contributes its own share of the buffer's link text rather
+  // than standing alone as a 100%-link paragraph. A paragraph, a heading or
+  // a block-level wrapper inside it is not absorbed into the run: it keeps
+  // its own block boundary and its own link-density decision, and is
+  // emitted by the same recursive call. Anything else — a `dl`, a `dt`,
   // a `figcaption`, or any other wrapper that renders as a block of its own
   // — is not itself a text-owning unit the way a container is: it is
   // walked by this same function, one level deeper, so its own direct text
@@ -711,48 +699,39 @@ function webDigestExtract(doc) {
   // descendants are still found and emitted as their own blocks, never
   // folded into the wrapper's text.
   function collectBlocks(node, insideAnchor) {
-    let buffer = "";
-    let bufferLinkChars = 0;
-    // Whether any non-whitespace text outside a link has been buffered.
-    let bufferPlain = false;
+    // Ordered segments of the current prose run, each marked with whether it
+    // is link text.
+    let buffer = [];
 
     // Inside an anchor, everything buffered here is link text, separators
     // included. So is a buffer with no plain text.
     function flush() {
-      const text = buffer.trim();
-      const linkChars = bufferLinkChars;
-      const allLinks = insideAnchor || !bufferPlain;
-      buffer = "";
-      bufferLinkChars = 0;
-      bufferPlain = false;
+      const { text, density } = measureSegments(buffer);
+      buffer = [];
       if (text.length === 0) return;
-      tryEmit(node, "p", text, allLinks ? 1 : linkChars / text.length);
+      tryEmit(node, "p", text, density);
     }
 
     // `parentHidden` is `parent`'s own effective visibility: it gates only
     // `parent`'s direct text nodes, which carry no style of their own. A
     // direct `<br>` has its own and is judged by it. The loop gates recursion
-    // by `isStructurallyExcluded` alone, never by visibility, so a `display:
-    // contents` child's own visibility override (passed back in below) or
-    // a candidate/container's own visibility (resolved independently by
-    // `tryEmitLeaf`/`collectContainer` through `eligibleText`/
-    // `ownedContent`) is still found rather than assumed hidden along with
-    // an ancestor.
+    // by `isStructurallyExcluded` alone, never by visibility, so an inline
+    // or `display: contents` child's own visibility override (passed back in
+    // below) or a candidate/container's own visibility (resolved
+    // independently by `tryEmitLeaf`/`collectContainer` through
+    // `eligibleSegments`/`ownedContent`) is still found rather than assumed
+    // hidden along with an ancestor.
     //
-    // `insideAnchor` here shadows the outer parameter of the same name: a
-    // `display: contents` element has no box, but it can still be the
+    // `insideAnchor` here shadows the outer parameter of the same name: an
+    // inline or `display: contents` wrapper walked in place can still be the
     // `<a>` itself, and its own anchor-ness must reach whatever text its
-    // children contribute to this same buffer — an ordinary inline `<a>`
-    // updates this before merging via `ownedContent`, and a `display:
-    // contents` `<a>` must update it here for the very same reason before
+    // children contribute to this same buffer, so it is updated here before
     // recursing into its own children one level deeper, in place.
     function processChildren(parent, parentHidden, insideAnchor) {
       for (const child of parent.childNodes) {
         if (child.nodeType === 3) {
           if (!parentHidden) {
-            buffer += child.textContent;
-            if (insideAnchor) bufferLinkChars += child.textContent.length;
-            else if (/\S/.test(child.textContent)) bufferPlain = true;
+            buffer.push({ text: child.textContent, linked: insideAnchor });
           }
           continue;
         }
@@ -763,37 +742,13 @@ function webDigestExtract(doc) {
 
         if (tag === "br") {
           if (!isVisibilityHidden(child)) {
-            buffer += "\n";
-            if (insideAnchor) bufferLinkChars += 1;
+            buffer.push({ text: "\n", linked: insideAnchor });
           }
           continue;
         }
 
         if (!CANDIDATE_TAGS.has(tag)) {
-          // An inline wrapper (typically `<a>`) that encloses an independent
-          // unit, such as a heading, cannot be absorbed: `ownedContent` skips
-          // that unit, so it would never be visited. Walk the wrapper in
-          // place instead, as for `display: contents`, keeping its own text
-          // and anchor context in this buffer and finding the unit in order.
-          if (
-            isInlineDisplay(child) &&
-            child.querySelector(INDEPENDENT_UNIT_SELECTOR)
-          ) {
-            processChildren(
-              child,
-              isOwnTextHidden(child),
-              insideAnchor || tag === "a",
-            );
-            continue;
-          }
-          if (isInlineDisplay(child)) {
-            const owned = ownedContent(child, insideAnchor || tag === "a");
-            buffer += owned.text;
-            bufferLinkChars += owned.linkChars;
-            if (owned.plain) bufferPlain = true;
-            continue;
-          }
-          if (isContentsDisplay(child)) {
+          if (isInlineDisplay(child) || isContentsDisplay(child)) {
             processChildren(
               child,
               isOwnTextHidden(child),

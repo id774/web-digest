@@ -292,3 +292,99 @@ test("a cleanup remove failure falls back to one idle-state write and still broa
     delete globalThis.chrome;
   }
 });
+
+for (const [name, invalidate] of [
+  ["navigation", (listeners) => listeners.updated(81, { status: "loading" })],
+  ["tab closure", (listeners) => listeners.removed(81)],
+  ["tab replacement", (listeners) => listeners.replaced(82, 81)],
+]) {
+  test(`${name} suppresses a failed-state fallback for an invalidated run`, async () => {
+    const { chrome, listeners, store, calls, pendingSets } = makeFakeChrome();
+    const originalError = console.error;
+    const errors = [];
+    console.error = (...args) => errors.push(args);
+    const unhandled = [];
+    const onUnhandledRejection = (reason) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandledRejection);
+    try {
+      const worker = await loadWorker(chrome);
+      assert.equal(worker.claimRun(81), true);
+      const run = worker.currentRun(81);
+
+      const failing = worker.fail(
+        81,
+        run,
+        "Old page",
+        Date.now(),
+        ErrorKind.PAGE_UNREADABLE,
+      );
+      await flushUntil(() => pendingSets.length === 1);
+
+      invalidate(listeners);
+      assert.equal(worker.isCurrentRun(81, run), false);
+
+      pendingSets.shift().reject(new Error("storage unavailable"));
+      await assert.doesNotReject(failing);
+
+      const isBroadcast = ([kind, message]) =>
+        kind === "sendMessage" && message.type === MessageType.STATE_CHANGED;
+      await flushUntil(() =>
+        calls.some(
+          (call) =>
+            isBroadcast(call) &&
+            call[1].tabId === 81 &&
+            call[1].state.phase === "idle",
+        ),
+      );
+      await new Promise((resolve) => setImmediate(resolve));
+
+      assert.deepEqual(
+        calls.filter(isBroadcast).map(([, message]) => message),
+        [
+          {
+            type: MessageType.STATE_CHANGED,
+            tabId: 81,
+            state: worker.idleState(),
+          },
+        ],
+      );
+
+      const sets = calls.filter(([kind]) => kind === "set-called");
+      assert.deepEqual(
+        sets.map(([, fields]) => fields),
+        [
+          {
+            "run:81": worker.failedState(
+              "Old page",
+              ErrorKind.PAGE_UNREADABLE,
+            ),
+          },
+        ],
+      );
+      assert.equal(calls.filter(([kind]) => kind === "set-rejected").length, 1);
+      assert.equal(pendingSets.length, 0);
+      const removes = calls.filter(([kind]) => kind === "remove-called");
+      assert.deepEqual(
+        removes.map(([, key]) => key),
+        ["run:81"],
+      );
+      assert.equal(store.has("run:81"), false);
+      assert.equal(
+        calls.some(
+          ([kind, value]) =>
+            (kind === "sendMessage" && value.tabId === 82) ||
+            (kind === "set-called" &&
+              Object.keys(value).some((key) => key.endsWith(":82"))) ||
+            (kind === "remove-called" && String(value).endsWith(":82")),
+        ),
+        false,
+      );
+      assert.deepEqual(errors, []);
+      assert.deepEqual(unhandled, []);
+    } finally {
+      console.error = originalError;
+      process.off("unhandledRejection", onUnhandledRejection);
+      delete globalThis.chrome;
+    }
+  });
+}

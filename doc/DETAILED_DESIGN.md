@@ -667,10 +667,14 @@ least one `p`:
   score    = text.length × (1 − density)
 ```
 
-Link characters include text inside an anchor that wraps the candidate, not
-only anchors inside it. When the candidate is wholly inside an anchor, links
-is its full eligible text. The provisional collection used to accept a root
-applies the same link-density exclusions as the final collection in §7.2.
+The text and link characters are measured over the same range: the eligible
+text after trimming its two outer edges. An anchor's own edges are not
+trimmed separately. A link that wraps the candidate contributes every
+eligible character in that range. If the range has non-whitespace link text
+and no non-whitespace text outside a link, its density is one, even when
+whitespace separates the links. The provisional collection used to accept a
+root applies the same link-density exclusions as the final collection in
+§7.2.
 
 The highest score wins. **The formula is the whole of the heuristic**: prose is
 worth its length, and a block that is mostly link text is worth almost nothing,
@@ -750,28 +754,24 @@ one merged word once concatenated — shaping is free to fold that break into
 a space with every other line break (§8.1). Excluded subtrees and nested
 independent candidates contribute no text.
 
-An element that is neither a candidate nor a container is one of two things,
-told apart by its own computed `display`, not by its tag name. One that
-renders inline — `strong`, `em`, `span`, `a`, and whatever else a page mixes
-into a line of prose rather than stacks as a block of its own — contributes
-its own owned content (the same adjacency rule a container's owned content
-above already uses) straight into the prose run currently being collected,
-so `Hello <strong>world</strong>!` stays the one paragraph `Hello world!`
-rather than three, and an inline anchor's text is counted into that
-paragraph's own link/text ratio rather than standing alone as a 100%-link
-paragraph the density rule (below) would then drop. An inline element that
-encloses a nested independent candidate — `<a><h2>Title</h2></a>` — is not
-absorbed this way, because absorbing it would skip that candidate: the walk
-enters it in place, keeping the wrapper's own text and anchor context in the
-current run and emitting the candidate as its own block, once, in document
-order. This contributed text
-is not trimmed at its own two edges before the concatenation: an inline
-element's authored leading or trailing whitespace —
-`Hello<strong> world</strong>!` — is part of the adjacency the surrounding
-run must keep, and is only trimmed once, at the edges of the whole
-paragraph the run eventually becomes. Nothing here is special-cased by tag
-name, and no table of "known inline tags" is kept: `isInlineDisplay` reads
-the one fact the page's own layout already carries.
+An element that is neither a candidate nor a container is handled according
+to its computed `display`, not by its tag name. An inline wrapper is walked
+in place, in the same prose buffer as its parent. Its own text and ordinary
+inline descendants keep authored adjacency: `Hello <strong>world</strong>!`
+remains one paragraph. A link contributes its own share of that paragraph's
+link text. A wrapper's text is not trimmed at its own edges before joining
+the surrounding run.
+
+A paragraph or an independent candidate inside an inline wrapper is emitted
+by the same top-down walk as if the wrapper were absent. A block-level
+wrapper inside it is walked separately, flushing the surrounding prose at
+its boundaries. Thus `<div style="display:inline"><div>Alpha</div><div>Beta</div></div>`
+keeps `Alpha` and `Beta` in separate paragraph blocks. An ordinary `p`
+outside the four owning containers stays a paragraph even when an inline
+anchor wraps it. Its own density is one, so it is dropped rather than
+merged with the plain prose around the anchor. The wrapper's anchor context
+and resolved visibility are carried into the recursive walk. The same
+in-place rule applies to `display: contents` below.
 
 Anything else — a `dl`, a `dt`, a `dd`, a `figcaption`, a `div`, or any
 other tag that renders as a block of its own — is walked by this same
@@ -826,9 +826,18 @@ a list of links rather than prose, the same furniture the rung 2 score in
 candidate, as well as anchors inside it. A candidate wholly inside an anchor
 has link density one when it carries eligible text. An anchor remains a link
 whether it renders inline, renders as a block, or generates no box of its
-own. Hidden or otherwise excluded text counts neither as content nor as
-link text. For a container, the density is judged over all of its own text,
-excluding nested independent units, and applies to all its emitted parts.
+own. Hidden or otherwise excluded text counts neither as content nor as link
+text. The denominator is the length of the complete eligible text after
+trimming its outer edges. The numerator counts only link characters in that
+same range. Whitespace inside that range, including a visible `br`, counts
+according to its link context, rather than being trimmed separately for each
+anchor. An inserted boundary between two linked runs counts as link text.
+When no non-whitespace text in the range is outside a link, its density is
+one. Empty text has density zero. For a container, the untrimmed owned parts
+are concatenated for this measurement, excluding nested independent units.
+The resulting density applies to every emitted part, whose text is still
+trimmed individually for emission. The same measurement is used for an
+ordinary paragraph, a prose buffer and the rung 2 score (§7.1).
 A `heading`, `quote`, `code` or `table-cell` is never skipped on link density
 alone: a heading that is entirely a link, or a table cell that is entirely a
 link, is still the heading or the cell the reader asked for, not a list of
@@ -2047,8 +2056,12 @@ The four states of basic design §14, one per tab.
   earlier step's own `fail()` — retrying the same failing write is not
   attempted. The state is instead broadcast directly over `stateChanged`,
   best-effort, so a reader watching that tab can still learn the run ended
-  even though storage itself could not confirm it. This is what keeps one
-  failing write from producing a second, unhandled one.
+  even though storage itself could not confirm it.
+  This fallback notification is sent only if the run is still current when
+  the write fails. Navigation, closure or tab replacement that invalidated
+  the run while the write was pending suppresses its failed-state broadcast
+  and closing log.
+  This is what keeps one failing write from producing a second, unhandled one.
 - A `chrome.storage.session.remove` failure during cleanup is caught rather
   than left to take the `idle` broadcast down with it. One fallback write of
   the idle state is tried in its place — never a retry of the remove, and
