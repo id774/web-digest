@@ -39,6 +39,26 @@ function webDigestExtract(doc) {
     "code",
     "table-cell",
   ]);
+  // Computed `display` values whose outer display is block. A single keyword
+  // is read as CSS defines it. A multi-keyword value is block-level when each
+  // of its keywords is in the second set, so one naming `inline` is not.
+  const BLOCK_LEVEL_DISPLAYS = new Set([
+    "block",
+    "flow-root",
+    "flex",
+    "grid",
+    "table",
+    "list-item",
+  ]);
+  const BLOCK_LEVEL_KEYWORDS = new Set([
+    "block",
+    "flow",
+    "flow-root",
+    "flex",
+    "grid",
+    "table",
+    "list-item",
+  ]);
 
   // `header` is deliberately not in this list: HTML gives a `header` the
   // implicit "banner" landmark role only when it has no `article`, `aside`,
@@ -201,7 +221,10 @@ function webDigestExtract(doc) {
   // moment this function is called on it. Only `element`'s own direct text
   // nodes, which carry no style of their own, borrow `element`'s effective
   // visibility to decide whether they count.
-  function rawEligibleText(element) {
+  //
+  // With `outsideAnchors`, anchor subtrees are left out, which leaves the
+  // eligible text that is not link text.
+  function rawEligibleText(element, outsideAnchors = false) {
     if (isStructurallyExcluded(element)) return "";
     const ownContentHidden = isOwnTextHidden(element);
     let text = "";
@@ -219,20 +242,33 @@ function webDigestExtract(doc) {
           if (!isExcluded(child)) text += "\n";
           continue;
         }
-        text += rawEligibleText(child);
+        if (outsideAnchors && child.tagName.toLowerCase() === "a") continue;
+        text += rawEligibleText(child, outsideAnchors);
       }
     }
     return text;
   }
 
+  // True when `element` is an anchor or sits inside one. All of its text is
+  // then link text, however the anchor renders.
+  function isInsideAnchor(element) {
+    return !!element.closest && !!element.closest("a");
+  }
+
   // The same eligible/excluded distinction, applied to the anchors inside
   // `element`, so a hidden or furniture link cannot move a candidate's score.
+  // An anchor that wraps `element` makes all of its eligible text link text.
+  // So does having no eligible text outside anchors but whitespace: spaces or
+  // line breaks between links do not turn a list of links into prose.
   function eligibleLinkDensity(element, text) {
     if (text.length === 0) return 0;
+    if (isInsideAnchor(element)) return 1;
     let linkChars = 0;
     for (const anchor of element.querySelectorAll("a")) {
       linkChars += eligibleText(anchor).length;
     }
+    if (linkChars === 0) return 0;
+    if (rawEligibleText(element, true).trim().length === 0) return 1;
     return linkChars / text.length;
   }
 
@@ -319,16 +355,25 @@ function webDigestExtract(doc) {
   //
   // `insideAnchor` seeds whether `element` itself is already inside an
   // anchor's link text: `collectBlocks` below calls this directly on an
-  // inline element that may itself be the `<a>`, whose own direct text the
-  // internal walk would otherwise miss, since the walk only turns the flag
-  // on for a descendant tagged `a`, never for the element it starts from.
+  // inline element that may itself be the `<a>`, and `collectContainer` on
+  // a container that may sit inside one. The internal walk would otherwise
+  // miss that context, since it only turns the flag on for a descendant
+  // tagged `a`, never for the element it starts from or its ancestors.
   //
-  // The one block boundary inserted here is that of a `p`: when a displayed
-  // paragraph begins or ends beside other text, one line break stands
-  // between them, so `<p>Alpha</p><p>Beta</p>` is never `AlphaBeta`. It is
+  // The one block boundary always inserted here is that of a `p`: when a
+  // displayed paragraph begins or ends beside other text, one line break
+  // stands between them, so `<p>Alpha</p><p>Beta</p>` is never `AlphaBeta`.
+  // With `wrapperBoundaries`, which a container's own text uses, any other
+  // wrapper whose computed display is block-level keeps the same boundary,
+  // so `<div>Alpha</div><div>Beta</div>` is never `AlphaBeta` either. It is
   // added only between two runs that both carry text and only where the
-  // author wrote no whitespace of their own. An empty or hidden paragraph
-  // adds nothing, and an inline boundary never does.
+  // author wrote no whitespace of their own. Nested wrappers share one
+  // boundary. An empty or hidden wrapper adds nothing, and an inline
+  // boundary never does. A break placed between two runs of link text is
+  // counted as link text, and so is a visible `<br>` inside a link, so a
+  // boundary cannot make a list of links look like prose. `plain` records
+  // whether any non-whitespace text sits outside a link: without it, the
+  // text is all link text whatever whitespace separates the links.
   //
   // `onUnit`, when given, is called for each independent unit met on the
   // way, in document order, with the text and link characters gathered so
@@ -342,15 +387,23 @@ function webDigestExtract(doc) {
   // trim at all, or authored whitespace at exactly its own boundary —
   // `Hello<strong> world</strong>` — is lost before the concatenation that
   // needed it ever happens.
-  function ownedContent(element, insideAnchor = false, onUnit = null) {
+  function ownedContent(
+    element,
+    insideAnchor = false,
+    onUnit = null,
+    wrapperBoundaries = false,
+  ) {
     let text = "";
     let linkChars = 0;
+    let plain = false;
     let pendingBreak = false;
+    // Whether the last appended segment was link text.
+    let lastWasLink = false;
     // Counts what has been appended, so a paragraph that added nothing can be
     // told from one that did.
     let appended = 0;
 
-    function append(segment) {
+    function append(segment, isLink) {
       appended += 1;
       if (
         pendingBreak &&
@@ -359,8 +412,10 @@ function webDigestExtract(doc) {
         !/^\s/.test(segment)
       ) {
         text += "\n";
+        if (lastWasLink && isLink) linkChars += 1;
       }
       pendingBreak = false;
+      lastWasLink = isLink;
       text += segment;
     }
 
@@ -376,8 +431,9 @@ function webDigestExtract(doc) {
           if (hiddenBySelf) continue;
           const segment = child.textContent;
           if (segment.length === 0) continue;
-          append(segment);
+          append(segment, insideAnchor);
           if (insideAnchor) linkChars += segment.length;
+          else if (/\S/.test(segment)) plain = true;
           continue;
         }
         if (child.nodeType !== 1) continue;
@@ -387,20 +443,28 @@ function webDigestExtract(doc) {
         // Same visible-boundary rule as eligibleText: a `<br>` must not let
         // two authored text runs merge into one word.
         if (tag === "br") {
-          if (!isVisibilityHidden(child)) append("\n");
+          if (!isVisibilityHidden(child)) {
+            append("\n", insideAnchor);
+            if (insideAnchor) linkChars += 1;
+          }
           continue;
         }
         if (INDEPENDENT_UNIT_TAGS.has(tag)) {
           if (onUnit) {
-            onUnit(child, tag, { text, linkChars });
+            onUnit(child, tag, { text, linkChars, plain });
             text = "";
             linkChars = 0;
+            plain = false;
             pendingBreak = false;
+            lastWasLink = false;
           }
           continue;
         }
-        if (tag === "p") {
-          // A paragraph that contributes no text leaves the boundary state
+        if (
+          tag === "p" ||
+          (wrapperBoundaries && isBlockLevelDisplay(child))
+        ) {
+          // A wrapper that contributes no text leaves the boundary state
           // exactly as it found it.
           const breakBefore = pendingBreak;
           const appendedBefore = appended;
@@ -414,7 +478,7 @@ function webDigestExtract(doc) {
     }
 
     walk(element, insideAnchor, isOwnTextHidden(element));
-    return { text, linkChars };
+    return { text, linkChars, plain };
   }
 
   // True when `element` renders inline, by its own computed style: the
@@ -431,6 +495,19 @@ function webDigestExtract(doc) {
       typeof style.display === "string" &&
       style.display.startsWith("inline")
     );
+  }
+
+  // True when `element` generates a block-level box by its own computed
+  // style, the outer display CSS gives it. Inline-level boxes and
+  // `display: contents` are not block-level. Without a computed display,
+  // nothing is assumed.
+  function isBlockLevelDisplay(element) {
+    if (!view || typeof view.getComputedStyle !== "function") return false;
+    const style = view.getComputedStyle(element);
+    if (!style || typeof style.display !== "string") return false;
+    const keywords = style.display.trim().toLowerCase().split(/\s+/);
+    if (keywords.length === 1) return BLOCK_LEVEL_DISPLAYS.has(keywords[0]);
+    return keywords.every((keyword) => BLOCK_LEVEL_KEYWORDS.has(keyword));
   }
 
   // True when `element` generates no box of its own: its children render as
@@ -485,9 +562,10 @@ function webDigestExtract(doc) {
   // A candidate root is checked itself, not only its children: its own
   // direct text has no child element to carry the check, so a root that is
   // structurally excluded contributes nothing.
+  // A root inside an anchor starts in that anchor's link context.
   function collectFromRoot(candidate) {
     if (isStructurallyExcluded(candidate)) return;
-    collectBlocks(candidate, false);
+    collectBlocks(candidate, isInsideAnchor(candidate));
   }
 
   const root = chooseRoot();
@@ -562,17 +640,29 @@ function webDigestExtract(doc) {
   // that one value applies to every part. A trailing part that is nothing
   // but a link is therefore kept or dropped with the rest of the container,
   // exactly as when the container was a single block, rather than being
-  // dropped alone for being a lone link.
+  // dropped alone for being a lone link. A container inside an anchor, or
+  // one with no plain text in any part, is all link text. Each nested unit
+  // is judged by its own ancestors.
   function collectContainer(element, tag) {
     const steps = [];
-    const last = ownedContent(element, false, (unit, unitTag, part) => {
-      steps.push({ part, unit, unitTag });
-    });
+    const linked = isInsideAnchor(element);
+    const last = ownedContent(
+      element,
+      linked,
+      (unit, unitTag, part) => {
+        steps.push({ part, unit, unitTag });
+      },
+      true,
+    );
 
     const parts = [...steps.map((step) => step.part), last];
     const wholeLength = parts.map((part) => part.text).join("").trim().length;
     const linkChars = parts.reduce((sum, part) => sum + part.linkChars, 0);
-    const density = wholeLength === 0 ? 0 : linkChars / wholeLength;
+    const plain = parts.some((part) => part.plain);
+    let density = 0;
+    if (wholeLength > 0) {
+      density = linked || !plain ? 1 : linkChars / wholeLength;
+    }
 
     // Each part is a standalone block: its own two edges are trimmed here,
     // once, the same edge-trim every other emitted block gets.
@@ -594,8 +684,8 @@ function webDigestExtract(doc) {
   // owns every ordinary `p` and loose text beneath it. `insideAnchor` marks
   // that this call's own buffered text (not a nested wrapper's) sits inside
   // an `<a>` — true when `collectBlocks` itself was entered on a
-  // block-display anchor — so `bufferLinkChars` below can count it as link
-  // text the same way `ownedContent` would.
+  // block-display anchor, or on a root inside an anchor — so the buffer is
+  // judged as link text the same way `ownedContent` would judge it.
   //
   // A non-candidate, non-container element visited here is one of three
   // things. An element that renders inline — `strong`, `em`, `span`, `a`,
@@ -623,14 +713,20 @@ function webDigestExtract(doc) {
   function collectBlocks(node, insideAnchor) {
     let buffer = "";
     let bufferLinkChars = 0;
+    // Whether any non-whitespace text outside a link has been buffered.
+    let bufferPlain = false;
 
+    // Inside an anchor, everything buffered here is link text, separators
+    // included. So is a buffer with no plain text.
     function flush() {
       const text = buffer.trim();
       const linkChars = bufferLinkChars;
+      const allLinks = insideAnchor || !bufferPlain;
       buffer = "";
       bufferLinkChars = 0;
+      bufferPlain = false;
       if (text.length === 0) return;
-      tryEmit(node, "p", text, linkChars / text.length);
+      tryEmit(node, "p", text, allLinks ? 1 : linkChars / text.length);
     }
 
     // `parentHidden` is `parent`'s own effective visibility: it gates only
@@ -656,6 +752,7 @@ function webDigestExtract(doc) {
           if (!parentHidden) {
             buffer += child.textContent;
             if (insideAnchor) bufferLinkChars += child.textContent.length;
+            else if (/\S/.test(child.textContent)) bufferPlain = true;
           }
           continue;
         }
@@ -667,6 +764,7 @@ function webDigestExtract(doc) {
         if (tag === "br") {
           if (!isVisibilityHidden(child)) {
             buffer += "\n";
+            if (insideAnchor) bufferLinkChars += 1;
           }
           continue;
         }
@@ -692,6 +790,7 @@ function webDigestExtract(doc) {
             const owned = ownedContent(child, insideAnchor || tag === "a");
             buffer += owned.text;
             bufferLinkChars += owned.linkChars;
+            if (owned.plain) bufferPlain = true;
             continue;
           }
           if (isContentsDisplay(child)) {

@@ -101,7 +101,7 @@ test("doc/VERSIONS keeps the unreleased entry's number and records the diagnosti
   );
   assert.match(
     top,
-    /and nested reading order\. Avoided link-dense roots and hidden content\./,
+    /and nested order\. Excluded hidden content and link-dense blocks and roots\./,
   );
   assert.match(bullets[4], /Preserved Unicode characters when dividing long pages/);
   assert.match(top, /Stopped following HTTP redirects from the selected AI provider/);
