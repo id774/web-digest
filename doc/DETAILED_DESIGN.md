@@ -662,10 +662,15 @@ least one `p`:
 
 ```text
   text     = the element's eligible text
-  links    = the eligible text of the <a> elements inside it
+  links    = eligible text inside anchors, including an enclosing anchor
   density  = links.length / text.length      (0 when text is empty)
   score    = text.length × (1 − density)
 ```
+
+Link characters include text inside an anchor that wraps the candidate, not
+only anchors inside it. When the candidate is wholly inside an anchor, links
+is its full eligible text. The provisional collection used to accept a root
+applies the same link-density exclusions as the final collection in §7.2.
 
 The highest score wins. **The formula is the whole of the heuristic**: prose is
 worth its length, and a block that is mostly link text is worth almost nothing,
@@ -721,16 +726,25 @@ inside them. No DOM text is ever emitted twice: a container's own text is
 exactly the text a nested independent candidate does not already claim.
 
 Container-owned text preserves the adjacency supplied by the DOM text nodes.
-The one block boundary it adds is that of a `p`: where a displayed paragraph
-begins or ends beside other owned text, a line break is placed between the
-two, unless either side already carries whitespace there, so
-`<blockquote><p>Alpha</p><p>Beta</p></blockquote>` and
-`<blockquote>Alpha<p>Beta</p>Gamma</blockquote>` read `Alpha Beta` and
-`Alpha Beta Gamma` once shaping folds the break. An empty or excluded
-paragraph adds none.
+A displayed `p` or a prose wrapper that generates a block-level box keeps a
+boundary before and after its owned text. A line break is placed between
+adjacent nonempty runs at that boundary unless either side already carries
+whitespace there. Nested wrappers do not multiply the boundary. Thus
+`<blockquote><p>Alpha</p><p>Beta</p></blockquote>`,
+`<blockquote><div>Alpha</div><div>Beta</div></blockquote>` and
+`<blockquote>Alpha<div>Beta</div>Gamma</blockquote>` read `Alpha Beta`,
+`Alpha Beta` and `Alpha Beta Gamma` once shaping folds the breaks.
+The existing paragraph rule remains. Other wrappers use their computed outer
+`display`: block-level boxes, including block-level flex, grid, table and
+list-item boxes, carry a boundary. Inline-level boxes and `display: contents`
+do not carry one of their own. Without a computed display, no new wrapper
+boundary is inferred. An empty or excluded wrapper adds none. A wrapper
+holding only whitespace does not add a boundary beyond that whitespace.
+A nested independent unit still separates the surrounding container text
+into parts in reading order, rather than being absorbed as wrapper text.
 Inline descendants do not gain a separator merely because they are elements.
 Authored whitespace is preserved here and normalized later by shaping. A
-`<br>` is the one element that does insert a boundary: it contributes a line
+visible `<br>` also inserts a boundary: it contributes a line
 break to the owned text, so the two text runs it separates are never read as
 one merged word once concatenated — shaping is free to fold that break into
 a space with every other line break (§8.1). Excluded subtrees and nested
@@ -806,12 +820,19 @@ The kind of an emitted block comes from its own tag:
 
 A candidate that carries nothing — its owned text, trimmed, is empty — is
 never emitted. Beyond that, a `paragraph` or `list-item` is additionally
-skipped when its own anchor text is at least `LINK_DENSITY_MAX` of its text —
+skipped when its own link text is at least `LINK_DENSITY_MAX` of its text —
 a list of links rather than prose, the same furniture the rung 2 score in
-§7.1 discounts. A `heading`, `quote`, `code` or `table-cell` is never skipped
-on link density alone: a heading that is entirely a link, or a table cell
-that is entirely a link, is still the heading or the cell the reader asked
-for, not a list of links to discard.
+§7.1 discounts. Link text includes text inside an anchor that wraps the
+candidate, as well as anchors inside it. A candidate wholly inside an anchor
+has link density one when it carries eligible text. An anchor remains a link
+whether it renders inline, renders as a block, or generates no box of its
+own. Hidden or otherwise excluded text counts neither as content nor as
+link text. For a container, the density is judged over all of its own text,
+excluding nested independent units, and applies to all its emitted parts.
+A `heading`, `quote`, `code` or `table-cell` is never skipped on link density
+alone: a heading that is entirely a link, or a table cell that is entirely a
+link, is still the heading or the cell the reader asked for, not a list of
+links to discard.
 
 `row` is what lets shaping put a table row back together as one line (§8.4).
 It counts table rows in document order across the whole page, so cells of

@@ -7,8 +7,8 @@ v1.1.2 (Release Date: TBD)
 - Added up to three Highlights above a clearly separated full Summary.
 - Added optional, session-only diagnostics with accurate tab-bound state and
   unknown-state handling, with no page content or credentials.
-- Preserved code indentation, line breaks, linked headings, short table values
-  and nested reading order. Avoided link-dense roots and hidden content.
+- Kept code indentation, text boundaries, linked headings, short table cells
+  and nested order. Excluded hidden content and link-dense blocks and roots.
 - Preserved Unicode characters when dividing long pages and avoided
   false size failures at code-block split boundaries.
 - Stopped following HTTP redirects from the selected AI provider, so a request

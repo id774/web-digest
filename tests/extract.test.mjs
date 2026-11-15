@@ -1694,3 +1694,774 @@ test("a container made of links is still dropped as a whole around a nested item
   ]);
   assert.deepEqual(texts(runExtract(doc)), ["Nested item!"]);
 });
+
+// --- link context from an enclosing anchor ---
+
+const BLOCK = { display: "block" };
+const CONTENTS = { display: "contents" };
+const ROOT_PROSE =
+  "Rootprose keeps the declared main above the acceptance floor. ".repeat(4);
+
+// Each fragment is placed after enough prose for the declared main to be
+// accepted, so every case is judged inside the same fixed root. The blocks
+// that follow the prose are returned.
+function extractInMain(children) {
+  const doc = page([
+    el("main", {}, [el("p", {}, [ROOT_PROSE]), ...children]),
+  ]);
+  const result = runExtract(doc);
+  assert.deepEqual(result.blocks[0], {
+    kind: "paragraph",
+    text: ROOT_PROSE.trim(),
+  });
+  return result.blocks.slice(1);
+}
+
+function pairs(blocks) {
+  return blocks.map((b) => [b.kind, b.text]);
+}
+
+test("a paragraph inside a block-display anchor is dropped as link text", () => {
+  const blocks = extractInMain([
+    el("a", { href: "/promo", style: BLOCK }, [
+      el("p", {}, ["Promotional text"]),
+    ]),
+    el("a", { href: "/promo", style: BLOCK }, [
+      el("div", { style: BLOCK }, [el("p", {}, ["Wrapped promotional text"])]),
+    ]),
+    el("p", {}, ["Ordinary prose after it."]),
+  ]);
+  assert.deepEqual(pairs(blocks), [["paragraph", "Ordinary prose after it."]]);
+});
+
+test("a paragraph inside a contents or inline anchor is dropped as link text", () => {
+  const blocks = extractInMain([
+    el("a", { href: "/promo", style: CONTENTS }, [
+      el("p", {}, ["Contents promotional text"]),
+    ]),
+    el("a", { href: "/promo", style: INLINE }, [
+      el("h2", {}, ["Linked section"]),
+      el("p", {}, ["Inline promotional text"]),
+    ]),
+    el("a", { href: "/promo", style: INLINE }, [
+      el("p", {}, ["Absorbed promotional text"]),
+    ]),
+    el("p", {}, ["Ordinary prose after it."]),
+  ]);
+  assert.deepEqual(blocks, [
+    { kind: "heading", level: 2, text: "Linked section" },
+    { kind: "paragraph", text: "Ordinary prose after it." },
+  ]);
+});
+
+test("a list item inside an anchor is dropped as link text, ordinary items are kept", () => {
+  const blocks = extractInMain([
+    el("a", { href: "/a", style: BLOCK }, [
+      el("ul", {}, [el("li", {}, ["Block anchor item"])]),
+    ]),
+    el("a", { href: "/b", style: CONTENTS }, [
+      el("ul", {}, [el("li", {}, ["Contents anchor item"])]),
+    ]),
+    el("a", { href: "/c", style: INLINE }, [
+      el("ul", {}, [el("li", {}, ["Inline anchor item"])]),
+    ]),
+    el("ul", {}, [
+      el("li", {}, [
+        "Ordinary parent item",
+        el("a", { href: "/d", style: BLOCK }, [
+          el("ul", {}, [el("li", {}, ["Linked child item"])]),
+        ]),
+      ]),
+      el("li", {}, ["Ordinary sibling item"]),
+    ]),
+  ]);
+  assert.deepEqual(pairs(blocks), [
+    ["list-item", "Ordinary parent item"],
+    ["list-item", "Ordinary sibling item"],
+  ]);
+});
+
+test("link density inside a paragraph and a list item keeps its threshold", () => {
+  const blocks = extractInMain([
+    el("p", {}, [el("a", { href: "/a" }, ["Promotional text"])]),
+    el("p", {}, ["XXX", el("a", { href: "/b" }, ["LLLLLLL"])]),
+    el("p", {}, ["XXXX", el("a", { href: "/c" }, ["LLLLLL"])]),
+    el("ul", {}, [
+      el("li", {}, ["YYY", el("a", { href: "/d" }, ["MMMMMMM"])]),
+      el("li", {}, ["YYYY", el("a", { href: "/e" }, ["MMMMMM"])]),
+    ]),
+  ]);
+  assert.deepEqual(pairs(blocks), [
+    ["paragraph", "XXXXLLLLLL"],
+    ["list-item", "YYYYMMMMMM"],
+  ]);
+});
+
+const LONG_LINKED_HEADING = `Linkedheading ${"words of a long linked heading ".repeat(7)}`.trim();
+
+function mainFragment() {
+  return el("main", {}, [
+    "Main direct text",
+    el("h2", {}, [LONG_LINKED_HEADING]),
+    el("p", {}, ["Main paragraph"]),
+    el("ul", {}, [el("li", {}, ["Main item"])]),
+  ]);
+}
+
+test("a main wholly inside an anchor keeps its exempt heading and drops its linked prose", () => {
+  const doc = page([
+    el("a", { href: "/whole", style: BLOCK }, [mainFragment()]),
+    el("article", {}, [el("p", {}, [articleProse("Articleprose")])]),
+  ]);
+  const result = runExtract(doc);
+  assert.deepEqual(result.blocks, [
+    { kind: "heading", level: 2, text: LONG_LINKED_HEADING },
+  ]);
+
+  const control = runExtract(
+    page([
+      mainFragment(),
+      el("article", {}, [el("p", {}, [articleProse("Articleprose")])]),
+    ]),
+  );
+  assert.deepEqual(pairs(control.blocks), [
+    ["paragraph", "Main direct text"],
+    ["heading", LONG_LINKED_HEADING],
+    ["paragraph", "Main paragraph"],
+    ["list-item", "Main item"],
+  ]);
+});
+
+test("headings, quotes, code and table cells inside an anchor are not dropped for link density", () => {
+  const blocks = extractInMain([
+    el("a", { href: "/x", style: BLOCK }, [
+      el("h3", {}, ["Linked heading"]),
+      el("blockquote", {}, ["Linked quote"]),
+      el("pre", {}, ["  linked code\n    indented"]),
+      el("table", {}, [
+        el("tr", {}, [
+          el("td", {}, ["Linked cell"]),
+          el("td", {}, ["Other cell"]),
+        ]),
+      ]),
+    ]),
+  ]);
+  assert.deepEqual(blocks, [
+    { kind: "heading", level: 3, text: "Linked heading" },
+    { kind: "quote", text: "Linked quote" },
+    { kind: "code", text: "  linked code\n    indented" },
+    { kind: "table-cell", row: 1, text: "Linked cell" },
+    { kind: "table-cell", row: 1, text: "Other cell" },
+  ]);
+
+  const titled = runExtract(
+    page([
+      el("a", { href: "/t", style: BLOCK }, [
+        el("main", {}, [
+          el("h1", {}, ["Linked title"]),
+          el("h2", {}, [LONG_LINKED_HEADING]),
+        ]),
+      ]),
+    ]),
+  );
+  assert.equal(titled.title, "Linked title");
+  assert.deepEqual(titled.blocks, [
+    { kind: "heading", level: 2, text: LONG_LINKED_HEADING },
+  ]);
+});
+
+test("a link-dense container drops all its parts and keeps its nested unit", () => {
+  const blocks = extractInMain([
+    el("a", { href: "/a", style: BLOCK }, [
+      el("ul", {}, [
+        el("li", {}, [
+          "Linked lead",
+          el("h3", {}, ["Nested heading"]),
+          "Linked tail",
+        ]),
+      ]),
+    ]),
+    el("ul", {}, [
+      el("li", {}, [
+        "A good deal of ordinary prose comes first.",
+        el("ul", {}, [el("li", {}, ["Child item"])]),
+        el("a", { href: "/c" }, ["Last"]),
+      ]),
+    ]),
+  ]);
+  assert.deepEqual(pairs(blocks), [
+    ["heading", "Nested heading"],
+    ["list-item", "A good deal of ordinary prose comes first."],
+    ["list-item", "Child item"],
+    ["list-item", "Last"],
+  ]);
+});
+
+test("hidden text counts neither as content nor as link text", () => {
+  const blocks = extractInMain([
+    el("p", {}, [
+      "Prose",
+      el("a", { href: "/a" }, [
+        "Lk",
+        el("span", { hidden: true }, ["HIDDENLINKHIDDENLINK"]),
+      ]),
+    ]),
+    el("p", {}, [
+      el("a", { href: "/b" }, ["Linktext"]),
+      el("span", { hidden: true }, ["HIDDENPROSEHIDDENPROSE"]),
+    ]),
+    el("a", { href: "/c", style: BLOCK }, [
+      el("p", {}, [
+        "Linked",
+        el("span", { hidden: true }, ["HIDDENPROSEHIDDENPROSE"]),
+      ]),
+    ]),
+  ]);
+  assert.deepEqual(pairs(blocks), [["paragraph", "ProseLk"]]);
+});
+
+test("short block runs that are all link text stay link-dense after their boundaries", () => {
+  const runs = (letters) =>
+    letters.map((letter) => el("div", { style: BLOCK }, [letter]));
+  const blocks = extractInMain([
+    el("ul", {}, [
+      el("li", {}, [el("a", { href: "/a", style: BLOCK }, runs(["A", "B", "C", "D"]))]),
+      el("li", {}, [
+        el("a", { href: "/b", style: BLOCK }, runs(["E"])),
+        el("a", { href: "/c", style: BLOCK }, runs(["F"])),
+        el("a", { href: "/d", style: BLOCK }, runs(["G"])),
+      ]),
+    ]),
+    el("a", { href: "/e", style: BLOCK }, [
+      el("ul", {}, [el("li", {}, runs(["H", "I", "J"]))]),
+    ]),
+    el("ul", {}, [el("li", {}, ["Ordinary item"])]),
+  ]);
+  assert.deepEqual(pairs(blocks), [["list-item", "Ordinary item"]]);
+});
+
+// --- link-only roots ---
+
+const PROMO = "Promotional words that only advertise elsewhere. ".repeat(5);
+
+for (const display of ["block", "contents"]) {
+  test(`a main whose prose sits inside a ${display} anchor yields to the article`, () => {
+    const doc = page([
+      el("main", {}, [
+        el("a", { href: "/promo", style: { display } }, [
+          el("p", {}, [PROMO]),
+        ]),
+      ]),
+      el("article", {}, [el("p", {}, [articleProse("Articleprose")])]),
+    ]);
+    const result = runExtract(doc);
+    assert.deepEqual(pairs(result.blocks), [
+      ["paragraph", articleProse("Articleprose").trim()],
+    ]);
+  });
+
+  test(`a main with its own prose beside a ${display} anchor is still chosen`, () => {
+    const doc = page([
+      el("main", {}, [
+        el("p", {}, [articleProse("Mainprose")]),
+        el("a", { href: "/promo", style: { display } }, [
+          el("p", {}, [PROMO]),
+        ]),
+      ]),
+      el("article", {}, [el("p", {}, [articleProse("Articleprose")])]),
+    ]);
+    const result = runExtract(doc);
+    assert.deepEqual(pairs(result.blocks), [
+      ["paragraph", articleProse("Mainprose").trim()],
+    ]);
+  });
+}
+
+test("a scored candidate inside an anchor does not outrank real prose", () => {
+  const doc = page([
+    el("a", { href: "/promo", style: BLOCK }, [
+      el("div", {}, [el("p", {}, [PROMO.repeat(2)])]),
+    ]),
+    el("div", {}, [el("p", {}, [articleProse("Divprose")])]),
+  ]);
+  const result = runExtract(doc);
+  assert.deepEqual(pairs(result.blocks), [
+    ["paragraph", articleProse("Divprose").trim()],
+  ]);
+});
+
+// --- block boundaries inside a container's own text ---
+
+function boundaryCases() {
+  return [
+    [
+      el("ul", {}, [
+        el("li", {}, [
+          el("div", { style: BLOCK }, ["Alpha"]),
+          el("div", { style: BLOCK }, ["Beta"]),
+        ]),
+      ]),
+      [{ kind: "list-item", text: "Alpha\nBeta" }],
+    ],
+    [
+      el("blockquote", {}, [
+        "Alpha",
+        el("div", { style: BLOCK }, ["Beta"]),
+        "Gamma",
+      ]),
+      [{ kind: "quote", text: "Alpha\nBeta\nGamma" }],
+    ],
+    [
+      el("table", {}, [
+        el("tr", {}, [
+          el("td", {}, [
+            el("div", { style: BLOCK }, ["Head one"]),
+            el("div", { style: BLOCK }, ["Head two"]),
+          ]),
+        ]),
+      ]),
+      [{ kind: "table-cell", row: 1, text: "Head one\nHead two" }],
+    ],
+    [
+      el("ul", {}, [el("li", {}, ["前", el("span", { style: INLINE }, ["後"]), "。"])]),
+      [{ kind: "list-item", text: "前後。" }],
+    ],
+    [
+      el("ul", {}, [
+        el("li", {}, ["Alpha", el("div", { style: INLINE }, ["Beta"]), "Gamma"]),
+      ]),
+      [{ kind: "list-item", text: "AlphaBetaGamma" }],
+    ],
+    [
+      el("ul", {}, [
+        el("li", {}, ["Alpha", el("div", { style: CONTENTS }, ["Beta"]), "Gamma"]),
+      ]),
+      [{ kind: "list-item", text: "AlphaBetaGamma" }],
+    ],
+    [
+      el("ul", {}, [
+        el("li", {}, [
+          "Alpha",
+          el("div", { hidden: true, style: BLOCK }, ["SECRET"]),
+          "Beta",
+        ]),
+      ]),
+      [{ kind: "list-item", text: "AlphaBeta" }],
+    ],
+    [
+      el("ul", {}, [el("li", {}, ["Alpha", el("div", { style: BLOCK }, []), "Beta"])]),
+      [{ kind: "list-item", text: "AlphaBeta" }],
+    ],
+    [
+      el("ul", {}, [
+        el("li", {}, ["Alpha ", el("div", { style: BLOCK }, ["Beta"]), " Gamma"]),
+      ]),
+      [{ kind: "list-item", text: "Alpha Beta Gamma" }],
+    ],
+    [
+      el("ul", {}, [
+        el("li", {}, [
+          el("div", { style: BLOCK }, [
+            "Before",
+            el("ul", { style: BLOCK }, [el("li", {}, ["Child"])]),
+            "After",
+          ]),
+        ]),
+      ]),
+      [
+        { kind: "list-item", text: "Before" },
+        { kind: "list-item", text: "Child" },
+        { kind: "list-item", text: "After" },
+      ],
+    ],
+    [
+      el("blockquote", {}, [el("p", {}, ["Alpha"]), el("p", {}, ["Beta"])]),
+      [{ kind: "quote", text: "Alpha\nBeta" }],
+    ],
+  ];
+}
+
+test("a container keeps a boundary at each displayed block wrapper, and none at inline ones", () => {
+  for (const [fragment, expected] of boundaryCases()) {
+    assert.deepEqual(extractInMain([fragment]), expected);
+  }
+  assert.equal(normalizeText("Alpha\nBeta"), "Alpha Beta");
+});
+
+function wrapperItem(style, tag = "div") {
+  return el("ul", {}, [
+    el("li", {}, ["Alpha", el(tag, { style }, ["Beta"]), "Gamma"]),
+  ]);
+}
+
+test("the wrapper boundary follows the computed outer display, not the tag", () => {
+  const boundary = [
+    "block",
+    "flow-root",
+    "flex",
+    "grid",
+    "table",
+    "list-item",
+    "block flex",
+    "block flow-root",
+    "flow list-item",
+  ];
+  const noBoundary = [
+    "inline",
+    "inline-block",
+    "inline-flex",
+    "inline-grid",
+    "inline-table",
+    "contents",
+    "inline flow-root",
+    "inline list-item",
+  ];
+  for (const display of boundary) {
+    assert.deepEqual(
+      pairs(extractInMain([wrapperItem({ display })])),
+      [["list-item", "Alpha\nBeta\nGamma"]],
+      display,
+    );
+  }
+  for (const display of noBoundary) {
+    assert.deepEqual(
+      pairs(extractInMain([wrapperItem({ display })])),
+      [["list-item", "AlphaBetaGamma"]],
+      display,
+    );
+  }
+  assert.deepEqual(pairs(extractInMain([wrapperItem(BLOCK, "span")])), [
+    ["list-item", "Alpha\nBeta\nGamma"],
+  ]);
+  assert.deepEqual(pairs(extractInMain([wrapperItem(INLINE, "div")])), [
+    ["list-item", "AlphaBetaGamma"],
+  ]);
+  // Without a computed display, no wrapper boundary is inferred.
+  assert.deepEqual(pairs(extractInMain([wrapperItem(undefined, "div")])), [
+    ["list-item", "AlphaBetaGamma"],
+  ]);
+});
+
+test("wrapper boundaries are not multiplied, invented or carried across a nested unit", () => {
+  const item = (children) => el("ul", {}, [el("li", {}, children)]);
+  const blocks = extractInMain([
+    item([
+      "Alpha",
+      el("div", { style: BLOCK }, [el("div", { style: BLOCK }, ["Beta"])]),
+      "Gamma",
+    ]),
+    item(["Alpha", el("div", { style: BLOCK }, [" "]), "Beta"]),
+    item([
+      "Alpha",
+      el("div", { style: { display: "block", visibility: "hidden" } }, [
+        "SECRET",
+        el("span", { style: { display: "inline", visibility: "visible" } }, [
+          "Beta",
+        ]),
+      ]),
+      "Gamma",
+    ]),
+    item([
+      "Alpha",
+      el("div", { style: { display: "block", visibility: "hidden" } }, [
+        "SECRET",
+      ]),
+      "Beta",
+    ]),
+    item([
+      "Alpha",
+      el("details", { style: BLOCK }, [
+        el("summary", { style: BLOCK }, ["Shown"]),
+        el("div", { style: BLOCK }, ["SECRET"]),
+      ]),
+      "Gamma",
+    ]),
+    item([
+      "Alpha",
+      el("div", { style: BLOCK }, ["Beta"]),
+      el("ul", {}, [el("li", {}, ["Child"])]),
+      "Gamma",
+    ]),
+    item([
+      el("div", { style: BLOCK }, ["Alpha"]),
+      el("br"),
+      el("div", { style: BLOCK }, ["Beta"]),
+    ]),
+    item(["Intro", el("pre", {}, ["  code\n    line"]), "Outro"]),
+  ]);
+  assert.deepEqual(pairs(blocks), [
+    ["list-item", "Alpha\nBeta\nGamma"],
+    ["list-item", "Alpha Beta"],
+    ["list-item", "Alpha\nBeta\nGamma"],
+    ["list-item", "AlphaBeta"],
+    ["list-item", "Alpha\nShown\nGamma"],
+    ["list-item", "Alpha\nBeta"],
+    ["list-item", "Child"],
+    ["list-item", "Gamma"],
+    ["list-item", "Alpha\nBeta"],
+    ["list-item", "Intro"],
+    ["code", "  code\n    line"],
+    ["list-item", "Outro"],
+  ]);
+});
+
+test("prose outside a container keeps its existing inline adjacency", () => {
+  const blocks = extractInMain([
+    el("p", {}, ["Alpha", el("span", { style: INLINE }, ["Beta"])]),
+    el("div", { style: BLOCK }, [
+      "Hello ",
+      el("span", { style: INLINE }, ["world"]),
+      "!",
+    ]),
+  ]);
+  assert.deepEqual(pairs(blocks), [
+    ["paragraph", "AlphaBeta"],
+    ["paragraph", "Hello world!"],
+  ]);
+});
+
+// --- line breaks and whitespace around link text ---
+
+// Each case gets a block wrapper of its own, so its text is one prose
+// buffer and is judged apart from its neighbours.
+function prose(children) {
+  return el("div", { style: BLOCK }, children);
+}
+
+function linkedBreaks(style) {
+  return el("a", { href: "/x", style }, ["A", el("br"), "B", el("br"), "C"]);
+}
+
+test("a visible line break inside a link stays link text on every path", () => {
+  const blocks = extractInMain([
+    el("ul", {}, [
+      el("li", {}, [linkedBreaks(INLINE)]),
+      el("li", {}, [linkedBreaks(CONTENTS)]),
+      el("li", {}, [linkedBreaks(BLOCK)]),
+    ]),
+    el("p", {}, [linkedBreaks(INLINE)]),
+    prose([linkedBreaks(INLINE)]),
+    prose([linkedBreaks(CONTENTS)]),
+    prose([linkedBreaks(BLOCK)]),
+    prose([el("span", { style: INLINE }, [linkedBreaks(INLINE)])]),
+    prose([el("span", { style: CONTENTS }, [linkedBreaks(CONTENTS)])]),
+    prose([
+      el("span", { style: CONTENTS }, [
+        el("span", { style: INLINE }, [linkedBreaks(INLINE)]),
+      ]),
+    ]),
+    el("p", {}, ["Ordinary prose after it."]),
+  ]);
+  assert.deepEqual(pairs(blocks), [["paragraph", "Ordinary prose after it."]]);
+});
+
+function link(textValue) {
+  return el("a", { href: "/x", style: INLINE }, [textValue]);
+}
+
+function spacedLinks() {
+  return [link("A"), "    ", link("B")];
+}
+
+function brokenLinks() {
+  return [link("A"), el("br"), link("B")];
+}
+
+function mixedSeparators() {
+  return [
+    link("A"),
+    el("span", { style: INLINE }, ["  "]),
+    " \n ",
+    link("B"),
+    el("div", { style: BLOCK }, [link("C")]),
+  ];
+}
+
+test("text made only of links and separators is all link text", () => {
+  const blocks = extractInMain([
+    el("p", {}, spacedLinks()),
+    el("p", {}, brokenLinks()),
+    el("p", {}, mixedSeparators().slice(0, 4)),
+    el("ul", {}, [
+      el("li", {}, spacedLinks()),
+      el("li", {}, brokenLinks()),
+      el("li", {}, mixedSeparators()),
+    ]),
+    prose(spacedLinks()),
+    prose(brokenLinks()),
+    prose(mixedSeparators().slice(0, 4)),
+    el("p", {}, ["Ordinary prose after it."]),
+  ]);
+  assert.deepEqual(pairs(blocks), [["paragraph", "Ordinary prose after it."]]);
+});
+
+test("mixed link text keeps its measured density, counting a link's own breaks", () => {
+  const cases = () => [
+    [el("a", { href: "/a", style: INLINE }, ["AB", el("br"), "CDEF"]), "XYZ"],
+    [el("a", { href: "/b", style: INLINE }, ["AB", el("br"), "CDE"]), "WXYZ"],
+    [el("a", { href: "/c", style: INLINE }, ["ABCDEF"]), el("br"), "XYZ"],
+    [link("A"), "!"],
+  ];
+  const kept = ["AB\nCDEWXYZ", "ABCDEF\nXYZ", "A!"];
+  const blocks = extractInMain([
+    ...cases().map((children) => el("p", {}, children)),
+    el("ul", {}, cases().map((children) => el("li", {}, children))),
+    ...cases().map((children) => prose(children)),
+  ]);
+  assert.deepEqual(pairs(blocks), [
+    ...kept.map((value) => ["paragraph", value]),
+    ...kept.map((value) => ["list-item", value]),
+    ...kept.map((value) => ["paragraph", value]),
+  ]);
+});
+
+test("hidden text and hidden breaks take no part in link density", () => {
+  const blocks = extractInMain([
+    el("ul", {}, [
+      el("li", {}, [
+        el("a", { href: "/a" }, ["A", el("br"), "B"]),
+        el("span", { hidden: true }, ["SECRET"]),
+      ]),
+      el("li", {}, ["Alpha", el("br", { hidden: true }), "Beta"]),
+      el("li", {}, [
+        el("a", { href: "/b" }, [
+          "A",
+          el("span", { hidden: true }, ["SECRETLINKSECRETLINK"]),
+        ]),
+        "Plain",
+      ]),
+      el("li", {}, [
+        el("a", { href: "/c" }, ["A", el("br"), "B"]),
+        el("span", { style: { visibility: "hidden" } }, [
+          "SECRET",
+          el("span", { style: { visibility: "visible" } }, ["Shown"]),
+        ]),
+      ]),
+      el("li", {}, [
+        el("a", { href: "/d" }, ["A", el("br"), "B"]),
+        el("details", {}, [
+          el("summary", {}, [el("a", { href: "/e" }, ["Summary"])]),
+          el("div", {}, ["SECRET"]),
+        ]),
+      ]),
+    ]),
+  ]);
+  assert.deepEqual(pairs(blocks), [
+    ["list-item", "AlphaBeta"],
+    ["list-item", "APlain"],
+    ["list-item", "A\nBShown"],
+  ]);
+});
+
+test("a container judges its link breaks over all its parts, not its nested unit", () => {
+  const blocks = extractInMain([
+    el("ul", {}, [
+      el("li", {}, [
+        el("a", { href: "/a" }, ["A", el("br"), "B"]),
+        el("ul", {}, [el("li", {}, ["Child prose"])]),
+        el("a", { href: "/b" }, ["C", el("br"), "D"]),
+      ]),
+      el("li", {}, [
+        "A good deal of ordinary prose comes first.",
+        el("ul", {}, [el("li", {}, [el("a", { href: "/c" }, ["E", el("br"), "F"])])]),
+        el("a", { href: "/d" }, ["G", el("br"), "H"]),
+      ]),
+    ]),
+    el("p", {}, ["Ordinary prose after it."]),
+  ]);
+  assert.deepEqual(pairs(blocks), [
+    ["list-item", "Child prose"],
+    ["list-item", "A good deal of ordinary prose comes first."],
+    ["list-item", "G\nH"],
+    ["paragraph", "Ordinary prose after it."],
+  ]);
+});
+
+test("headings, quotes, code and cells of linked lines are not dropped for link density", () => {
+  const lines = () => el("a", { href: "/x" }, ["A", el("br"), "B", el("br"), "C"]);
+  const blocks = extractInMain([
+    el("h2", {}, [lines()]),
+    el("blockquote", {}, [lines()]),
+    el("pre", {}, [lines()]),
+    el("table", {}, [el("tr", {}, [el("td", {}, [lines()])])]),
+  ]);
+  assert.deepEqual(blocks, [
+    { kind: "heading", level: 2, text: "A\nB\nC" },
+    { kind: "quote", text: "A\nB\nC" },
+    { kind: "code", text: "A\nB\nC" },
+    { kind: "table-cell", row: 1, text: "A\nB\nC" },
+  ]);
+
+  const titled = runExtract(
+    page([
+      el("main", {}, [el("h1", {}, [lines()]), el("p", {}, [ROOT_PROSE])]),
+    ]),
+  );
+  assert.equal(titled.title, "A\nB\nC");
+  assert.deepEqual(pairs(titled.blocks), [["paragraph", ROOT_PROSE.trim()]]);
+});
+
+// --- roots made of links with breaks or spaces between them ---
+
+function brokenLinkRun(display) {
+  const children = [];
+  for (let i = 0; i < 110; i++) {
+    if (i > 0) children.push(el("br"));
+    children.push("A");
+  }
+  return el("a", { href: "/run", style: { display } }, children);
+}
+
+function spacedLinkRun() {
+  const children = [];
+  for (let i = 0; i < 20; i++) {
+    if (i > 0) children.push(" ".repeat(10));
+    children.push(link("A"));
+  }
+  return children;
+}
+
+const ARTICLE_ONLY = [["paragraph", articleProse("Articleprose").trim()]];
+
+for (const display of ["inline", "contents", "block"]) {
+  test(`a main holding one ${display} link of broken lines yields to the article`, () => {
+    const doc = page([
+      el("main", {}, [brokenLinkRun(display)]),
+      el("article", {}, [el("p", {}, [articleProse("Articleprose")])]),
+    ]);
+    assert.deepEqual(pairs(runExtract(doc).blocks), ARTICLE_ONLY);
+  });
+}
+
+test("a main holding links separated only by spaces yields to the article", () => {
+  const doc = page([
+    el("main", {}, spacedLinkRun()),
+    el("article", {}, [el("p", {}, [articleProse("Articleprose")])]),
+  ]);
+  assert.deepEqual(pairs(runExtract(doc).blocks), ARTICLE_ONLY);
+});
+
+test("a main with its own prose beside such links is still chosen", () => {
+  const doc = page([
+    el("main", {}, [
+      el("p", {}, [articleProse("Mainprose")]),
+      brokenLinkRun("inline"),
+      ...spacedLinkRun(),
+    ]),
+    el("article", {}, [el("p", {}, [articleProse("Articleprose")])]),
+  ]);
+  assert.deepEqual(pairs(runExtract(doc).blocks), [
+    ["paragraph", articleProse("Mainprose").trim()],
+  ]);
+});
+
+test("a scored candidate of links and spaces scores nothing against real prose", () => {
+  const doc = page([
+    el("main", {}, [el("p", {}, ["Short main intro."])]),
+    el("div", {}, [
+      el("p", {}, [link("A"), " ".repeat(1000), link("B")]),
+    ]),
+    el("article", {}, [el("p", {}, [articleProse("Articleprose")])]),
+  ]);
+  assert.deepEqual(pairs(runExtract(doc).blocks), ARTICLE_ONLY);
+});
