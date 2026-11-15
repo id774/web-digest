@@ -5,8 +5,8 @@ v1.1.2 (Release Date: TBD)
 --------------------------
 - Improved extension icon legibility at small sizes in Chrome's toolbar.
 - Added up to three Highlights above a clearly separated full Summary.
-- Added optional, session-only diagnostics with accurate tab-bound state and
-  unknown-state handling, with no page content or credentials.
+- Added optional, session-only diagnostics isolated by tab and run, without
+  delaying summaries or recording page content or credentials.
 - Kept code indentation, text boundaries, linked headings, short table cells
   and nested order. Excluded hidden content and link-dense blocks and roots.
 - Preserved Unicode characters when dividing long pages and avoided

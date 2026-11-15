@@ -37,6 +37,7 @@ import {
   diagnosticsKey,
   emptyRecord,
   formatDiagnostics,
+  isRunId,
   recordBytes,
   sanitizeEvent,
   sanitizeRecord,
@@ -1316,12 +1317,25 @@ async function endToEnd({
   seedLocal = {},
   keepChrome = false,
   store = new Map(),
+  diagnosticHook,
+  afterClick,
 }) {
   const listeners = {};
   const sessionSets = [];
   const sent = [];
   const consoleLines = [];
   const fetchBodies = [];
+  const pendingDiagnostics = new Set();
+  function sessionOperation(operation, key, value, task) {
+    if (!key.startsWith("diag:") || !diagnosticHook) return task();
+    const pending = (async () => {
+      await diagnosticHook(operation, key, value);
+      return task();
+    })();
+    pendingDiagnostics.add(pending);
+    pending.catch(() => {}).finally(() => pendingDiagnostics.delete(pending));
+    return pending;
+  }
   const local = {
     provider: "sakura",
     apiToken: "CRED-SENTINEL-token",
@@ -1361,23 +1375,27 @@ async function endToEnd({
         },
       },
       session: {
-        get: async (key) => ({ [key]: store.get(key) }),
+        get: async (key) => sessionOperation("get", key, undefined, () => ({ [key]: store.get(key) })),
         set: async (fields) => {
           const [key, value] = Object.entries(fields)[0];
-          sessionSets.push(key);
-          if (failDiagnosticsFallback && key.startsWith("diag:") && value.events.length === 0) {
-            throw new Error("storage unavailable");
-          }
-          if (failSessionDiagnostics && key.startsWith("diag:")) {
-            throw new Error("quota exceeded");
-          }
-          store.set(key, JSON.parse(JSON.stringify(value)));
+          return sessionOperation("set", key, value, () => {
+            sessionSets.push(key);
+            if (failDiagnosticsFallback && key.startsWith("diag:") && value.events.length === 0) {
+              throw new Error("storage unavailable");
+            }
+            if (failSessionDiagnostics && key.startsWith("diag:")) {
+              throw new Error("quota exceeded");
+            }
+            store.set(key, JSON.parse(JSON.stringify(value)));
+          });
         },
         remove: async (key) => {
-          if (failDiagnosticsRemove && key.startsWith("diag:")) {
-            throw new Error("storage unavailable");
-          }
-          store.delete(key);
+          return sessionOperation("remove", key, undefined, () => {
+            if (failDiagnosticsRemove && key.startsWith("diag:")) {
+              throw new Error("storage unavailable");
+            }
+            store.delete(key);
+          });
         },
       },
     },
@@ -1416,10 +1434,18 @@ async function endToEnd({
   console.error = (line) => consoleLines.push(["error", line]);
 
   try {
-    await import(
+    const worker = await import(
       `../src/background/service_worker.js?e2e-${Math.random()}`
     );
     listeners.clicked({ id: 7, title: "Tab title" });
+    let hookError;
+    try {
+      if (afterClick) {
+        await afterClick({ store, sent, sessionSets, consoleLines, fetchBodies, listeners, chrome, worker });
+      }
+    } catch (error) {
+      hookError = error;
+    }
     for (let i = 0; i < 400; i++) {
       await new Promise((resolve) => setTimeout(resolve, 0));
       const state = store.get("run:7");
@@ -1429,6 +1455,8 @@ async function endToEnd({
         break;
       }
     }
+    await Promise.allSettled([...pendingDiagnostics]);
+    if (hookError) throw hookError;
     return {
       state: store.get("run:7"),
       diag: store.get("diag:7"),
@@ -1445,6 +1473,14 @@ async function endToEnd({
     console.error = realError;
     if (!keepChrome) delete globalThis.chrome;
   }
+}
+
+function assertSameRunResult(actual, expected) {
+  const { runId: actualId, ...actualState } = actual;
+  const { runId: expectedId, ...expectedState } = expected;
+  assert.ok(isRunId(actualId) && isRunId(expectedId));
+  assert.notEqual(actualId, expectedId);
+  assert.deepEqual(actualState, expectedState);
 }
 
 const SHORT_PAGE = [
@@ -1476,7 +1512,7 @@ test("turning diagnostics on changes neither the result, the requests, nor the c
   for (const blocks of [SHORT_PAGE, LONG_PAGE]) {
     const off = await endToEnd({ blocks });
     const on = await endToEnd({ blocks, diagnostics: true });
-    assert.deepEqual(on.state, off.state);
+    assertSameRunResult(on.state, off.state);
     assert.deepEqual(on.fetchBodies, off.fetchBodies);
     assert.equal(on.consoleLines.length, 1);
     assert.equal(on.consoleLines[0][0], off.consoleLines[0][0]);
@@ -1489,6 +1525,7 @@ test("turning diagnostics on changes neither the result, the requests, nor the c
 test("a long run with diagnostics on records every stage and ends with the result", async () => {
   const run = await endToEnd({ blocks: LONG_PAGE, diagnostics: true });
   assert.equal(run.state.phase, "succeeded");
+  assert.equal(run.diag.runId, run.state.runId);
   const steps = run.diag.events.map((e) => e.step);
   assert.deepEqual(steps.slice(0, 5), ["settings", "prompt", "extract", "shape", "split"]);
   assert.equal(steps.at(-1), "result");
@@ -1502,7 +1539,7 @@ test("a long run with diagnostics on records every stage and ends with the resul
 test("a provider failure on a chunk is recorded with its index and the run fails as before", async () => {
   const off = await endToEnd({ blocks: LONG_PAGE, failProviderAt: 2 });
   const on = await endToEnd({ blocks: LONG_PAGE, diagnostics: true, failProviderAt: 2 });
-  assert.deepEqual(on.state, off.state);
+  assertSameRunResult(on.state, off.state);
   assert.equal(on.state.phase, "failed");
   const lastRequest = on.diag.events.filter((e) => e.step === "request-end").at(-1);
   assert.equal(lastRequest.index, 2);
@@ -1553,7 +1590,7 @@ test("a diagnostics storage failure does not change the run", async () => {
     diagnostics: true,
     failSessionDiagnostics: true,
   });
-  assert.deepEqual(broken.state, healthy.state);
+  assertSameRunResult(broken.state, healthy.state);
   assert.deepEqual(broken.fetchBodies, healthy.fetchBodies);
   assert.equal(broken.diag, undefined);
   assert.equal(broken.consoleLines.length, 1);
@@ -1615,14 +1652,14 @@ test("when the previous record cannot be removed, the next run leaves an empty r
     store,
     failDiagnosticsRemove: true,
   });
-  assert.deepEqual(second.state, reference.state);
+  assertSameRunResult(second.state, reference.state);
   assert.deepEqual(second.diag, { v: 1, events: [], dropped: 0, last: null });
   assert.equal(sanitizeRecord(second.diag).events.length, 0);
 });
 
 test("when neither the remove nor the fallback write works, the run still completes unchanged", async () => {
   const store = new Map();
-  await endToEnd({ blocks: SHORT_PAGE, diagnostics: true, store });
+  const first = await endToEnd({ blocks: SHORT_PAGE, diagnostics: true, store });
   const reference = await endToEnd({ blocks: SHORT_PAGE, diagnostics: false });
   const second = await endToEnd({
     blocks: SHORT_PAGE,
@@ -1631,8 +1668,11 @@ test("when neither the remove nor the fallback write works, the run still comple
     failDiagnosticsRemove: true,
     failDiagnosticsFallback: true,
   });
-  assert.deepEqual(second.state, reference.state);
+  assertSameRunResult(second.state, reference.state);
   assert.equal(second.consoleLines.length, 1);
+  assert.ok(isRunId(first.diag.runId) && isRunId(second.state.runId));
+  assert.notEqual(first.diag.runId, second.state.runId);
+  assert.deepEqual(second.diag, first.diag);
 });
 
 test("an unconfirmed state makes no ended or not-ended claim", () => {
@@ -1676,4 +1716,281 @@ test("dropped events are still reported when the state is unconfirmed", () => {
   const text = formatDiagnostics(record, { stateKnown: false });
   assert.match(text, /Incomplete: 2 later events were not retained/);
   assert.match(text, /Last observed: .*status=429/);
+});
+
+const RUN_A = "11111111-1111-4111-8111-111111111111";
+
+async function drainUntil(predicate, ticks = 800) {
+  for (let i = 0; i < ticks && !predicate(); i++) await Promise.resolve();
+}
+
+function getWorkerState(listeners, tabId = 7) {
+  return new Promise((resolve) => {
+    assert.equal(listeners.message({ type: MessageType.GET_STATE, tabId }, {}, resolve), true);
+  });
+}
+
+function tracedStore(seed = []) {
+  const store = new Map(seed);
+  const mutations = [];
+  const set = store.set.bind(store);
+  const remove = store.delete.bind(store);
+  store.set = (key, value) => {
+    mutations.push(["set", key, structuredClone(value)]);
+    return set(key, value);
+  };
+  store.delete = (key) => {
+    mutations.push(["remove", key]);
+    return remove(key);
+  };
+  return { store, mutations };
+}
+
+async function withDiagnosticGate(options, operation, observe) {
+  let release;
+  let held = false;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const calls = [];
+  return endToEnd({
+    blocks: SHORT_PAGE,
+    diagnostics: true,
+    ...options,
+    diagnosticHook: async (op, key, value) => {
+      calls.push([op, key, structuredClone(value)]);
+      if (!held && op === operation) {
+        held = true;
+        await gate;
+      }
+    },
+    afterClick: async (context) => {
+      try {
+        await drainUntil(() => held);
+        assert.equal(held, true, "the diagnostic operation reached its gate");
+        await observe(context, release, calls);
+      } finally {
+        release();
+        await drainUntil(() => context.worker.currentRun(7) === undefined);
+        // Settle the released diagnostic chain, including its cleanup.
+        for (let i = 0; i < 100; i++) await Promise.resolve();
+      }
+    },
+  });
+}
+
+function assertTerminal(context, phase, count = 1) {
+  const { store, sent, consoleLines, fetchBodies, worker } = context;
+  assert.equal(store.get("run:7")?.phase, phase);
+  const terminal = sent.filter((m) => m.state.phase === phase);
+  assert.equal(terminal.length, count);
+  assert.equal(terminal.at(-1).state.runId, store.get("run:7").runId);
+  assert.equal(consoleLines.length, count);
+  assert.equal(fetchBodies.length, count);
+  assert.equal(worker.currentRun(7), undefined);
+}
+
+test("diagnostic persistence cannot delay a successful run", async () => {
+  const off = await endToEnd({ blocks: SHORT_PAGE });
+  const on = await withDiagnosticGate({}, "set", async (context, release) => {
+    await drainUntil(() => context.worker.currentRun(7) === undefined);
+    assertTerminal(context, "succeeded");
+    release();
+    await drainUntil(() => context.store.get("diag:7")?.events.at(-1)?.step === "result");
+    const record = context.store.get("diag:7");
+    assert.equal(record.runId, context.store.get("run:7").runId);
+    assert.deepEqual(record.events.map((e) => e.step), [
+      "settings", "prompt", "extract", "shape", "request-start", "request-end", "result",
+    ]);
+    assert.equal(record.events.at(-1).outcome, "ok");
+    assertTerminal(context, "succeeded");
+  });
+  const { runId: onId, ...onState } = on.state;
+  const { runId: offId, ...offState } = off.state;
+  assert.ok(isRunId(onId) && isRunId(offId));
+  assert.notEqual(onId, offId);
+  assert.deepEqual(onState, offState);
+  assert.deepEqual(on.fetchBodies, off.fetchBodies);
+  assert.deepEqual(on.consoleLines.map(([kind, line]) => [kind, line.replace(/elapsed=[\d.]+s/, "")]),
+    off.consoleLines.map(([kind, line]) => [kind, line.replace(/elapsed=[\d.]+s/, "")]));
+});
+
+test("diagnostic persistence cannot delay a failed run", async () => {
+  await withDiagnosticGate({ failProviderAt: 1 }, "set", async (context, release) => {
+    await drainUntil(() => context.worker.currentRun(7) === undefined);
+    assertTerminal(context, "failed");
+    assert.equal(context.store.get("run:7").errorKind, ErrorKind.PROVIDER_ERROR);
+    assert.equal(context.store.get("run:7").errorDetail, ProviderErrorDetail.UNAVAILABLE);
+    release();
+    await drainUntil(() => context.store.get("diag:7")?.events.at(-1)?.step === "result");
+    const record = context.store.get("diag:7");
+    assert.equal(record.runId, context.store.get("run:7").runId);
+    assert.equal(record.events.find((e) => e.step === "request-end").status, 503);
+    assert.equal(record.events.at(-1).step, "result");
+    assert.equal(record.events.at(-1).outcome, "failed");
+    assertTerminal(context, "failed");
+  });
+});
+
+test("deferred diagnostic cleanup cannot delay a new run or state read", async () => {
+  const first = await endToEnd({ blocks: SHORT_PAGE, diagnostics: true });
+  for (const operation of ["get", "remove", "set"]) {
+    const store = new Map([["run:7", first.state], ["diag:7", first.diag]]);
+    await withDiagnosticGate({
+      store, diagnostics: false, failDiagnosticsRemove: operation === "set",
+    }, operation, async (context, release, calls) => {
+      await drainUntil(() => context.worker.currentRun(7) === undefined);
+      assertTerminal(context, "succeeded");
+      let snapshot;
+      const read = getWorkerState(context.listeners).then((state) => { snapshot = state; });
+      await drainUntil(() => snapshot !== undefined);
+      assert.deepEqual(snapshot, context.store.get("run:7"));
+      await read;
+      assert.ok(isRunId(snapshot.runId) && isRunId(first.diag.runId));
+      assert.notEqual(snapshot.runId, first.diag.runId);
+      assert.deepEqual(store.get("diag:7"), first.diag);
+      assert.equal(context.sessionSets.some((key) => key.startsWith("diag:")), false);
+      release();
+      await drainUntil(() => operation === "set"
+        ? store.get("diag:7")?.events.length === 0 : !store.has("diag:7"));
+      if (operation === "set") {
+        assert.deepEqual(store.get("diag:7"), emptyRecord());
+      } else {
+        assert.equal(store.has("diag:7"), false);
+      }
+      assert.deepEqual(calls.map(([op]) => op), operation === "set"
+        ? ["get", "remove", "set"] : ["get", "remove"]);
+      assertTerminal(context, "succeeded");
+    });
+  }
+});
+
+test("lifecycle state cleanup is independent of in-flight diagnostics", async () => {
+  for (const lifecycle of ["navigation", "closure", "replacement"]) {
+    const { store, mutations } = tracedStore();
+    await withDiagnosticGate({ store }, "set", async (context, release) => {
+      await drainUntil(() => context.worker.currentRun(7) === undefined);
+      assertTerminal(context, "succeeded");
+      if (lifecycle === "navigation") context.listeners.updated(7, { status: "loading" });
+      if (lifecycle === "closure") context.listeners.removed(7);
+      if (lifecycle === "replacement") context.listeners.replaced(8, 7);
+      await drainUntil(() => context.sent.some((m) => m.state.phase === "idle"));
+      assert.equal(store.has("run:7"), false);
+      assert.equal(context.sent.filter((m) => m.state.phase === "idle").length, 1);
+      let snapshot;
+      const read = getWorkerState(context.listeners).then((state) => { snapshot = state; });
+      await drainUntil(() => snapshot !== undefined);
+      assert.deepEqual(snapshot, idleState());
+      await read;
+      release();
+      await drainUntil(() => mutations.some(([op, key]) => op === "remove" && key === "diag:7"));
+      assert.deepEqual(mutations.filter(([, key]) => key.startsWith("diag:")).map(([op]) => op), ["set", "remove"]);
+      assert.equal(store.has("diag:7"), false);
+      assert.equal(mutations.some(([, key]) => key.endsWith(":8")), false);
+      assert.equal(context.fetchBodies.length, 1);
+      assert.equal(context.sent.filter((m) => m.state.phase === "succeeded").length, 1);
+      assert.equal(context.consoleLines.length, 1);
+    });
+  }
+});
+
+test("a later run retires pending diagnostics of its predecessor", async () => {
+  const { store, mutations } = tracedStore();
+  await withDiagnosticGate({ store }, "set", async (context, release) => {
+    await drainUntil(() => context.worker.currentRun(7) === undefined);
+    assertTerminal(context, "succeeded");
+    const first = store.get("run:7");
+    context.listeners.clicked({ id: 7, title: "Tab title" });
+    await drainUntil(() => context.consoleLines.length === 2 && context.worker.currentRun(7) === undefined);
+    assertTerminal(context, "succeeded", 2);
+    const second = store.get("run:7");
+    assert.ok(isRunId(first.runId) && isRunId(second.runId));
+    assert.notEqual(first.runId, second.runId);
+    assert.equal(store.has("diag:7"), false);
+    release();
+    await drainUntil(() => store.get("diag:7")?.events.at(-1)?.step === "result");
+    const writes = mutations.filter(([, key]) => key === "diag:7");
+    assert.deepEqual(writes.map(([op]) => op), ["set", "remove", "set"]);
+    assert.equal(writes[0][2].runId, first.runId);
+    assert.equal(writes[2][2].runId, second.runId);
+    assert.equal(store.get("diag:7").runId, second.runId);
+    assert.equal(store.get("diag:7").events.at(-1).outcome, "ok");
+    assertTerminal(context, "succeeded", 2);
+  });
+});
+
+test("a claimed run has one persistent identity shared by state and diagnostics", async () => {
+  assert.equal(claimRun(913), true);
+  const first = currentRun(913);
+  try {
+    assert.ok(isRunId(first));
+    assert.equal(claimRun(913), false);
+    assert.equal(currentRun(913), first);
+    releaseRun(913, first);
+    assert.equal(claimRun(913), true);
+    assert.ok(isRunId(currentRun(913)));
+    assert.notEqual(currentRun(913), first);
+  } finally {
+    releaseRun(913);
+  }
+  const { store, mutations } = tracedStore();
+  const run = await endToEnd({ blocks: SHORT_PAGE, diagnostics: true, store, afterClick: async (context) => {
+    await drainUntil(() => context.worker.currentRun(7) === undefined);
+    const states = context.sent.map((m) => m.state);
+    assert.deepEqual(states.map((state) => state.phase), ["running", "succeeded"]);
+    assert.deepEqual(mutations.filter(([, key]) => key === "run:7").map(([, , state]) => state), states);
+    const id = states[0].runId;
+    assert.ok(isRunId(id));
+    for (const state of states) {
+      assert.deepEqual(Object.keys(state).sort(), ["errorDetail", "errorKind", "phase", "runId", "summary", "title"]);
+      assert.equal(state.runId, id);
+    }
+    assert.deepEqual(await getWorkerState(context.listeners), context.store.get("run:7"));
+    await drainUntil(() => context.store.get("diag:7")?.events.at(-1)?.step === "result");
+    const record = context.store.get("diag:7");
+    assert.equal(record.runId, id);
+    const restarted = await import(`../src/background/service_worker.js?restart-${Math.random()}`);
+    assert.equal(restarted.currentRun(7), undefined);
+    assert.deepEqual(await getWorkerState(context.listeners), states[1]);
+    assert.equal(context.store.get("diag:7").runId, id);
+    for (const value of [context.consoleLines, context.fetchBodies, record.events, formatDiagnostics(record)]) {
+      assert.equal(JSON.stringify(value).includes(id), false);
+    }
+  } });
+  const next = await endToEnd({ blocks: SHORT_PAGE, diagnostics: true });
+  assert.ok(isRunId(next.state.runId));
+  assert.notEqual(next.state.runId, run.state.runId);
+  assert.deepEqual(Object.keys(idleState()).sort(), ["errorDetail", "errorKind", "phase", "summary", "title"]);
+});
+
+test("the diagnostic record validates run identity within its existing byte bound", () => {
+  assert.ok(isRunId(RUN_A));
+  assert.equal(emptyRecord(RUN_A).runId, RUN_A);
+  let record;
+  const recorder = createRecorder({ enabled: true, started: 0, runId: RUN_A, now: () => 0,
+    persist: (value) => { record = structuredClone(value); } });
+  recorder.record(DiagStep.SETTINGS, { outcome: "ok" });
+  assert.equal(record.runId, RUN_A);
+  assert.equal(sanitizeRecord(record).runId, RUN_A);
+  for (const runId of ["", "NOT-AN-ID", 1, "11111111-1111-1111-8111-111111111111"]) {
+    assert.equal(isRunId(runId), false);
+    assert.equal(sanitizeRecord({ ...record, runId }), null);
+  }
+  const { runId, ...legacy } = record;
+  assert.deepEqual(sanitizeRecord(legacy), legacy);
+  assert.equal(recordBytes(record) - recordBytes(legacy), 47);
+  const bounded = emptyRecord(RUN_A);
+  const large = {
+    seq: 999999999, ms: 999999999999, step: "request-end", task: "integrate",
+    depth: 8, index: 999999, total: 999999, chunks: 999999, blocks: 999999999,
+    chars: 999999999999, status: 503, requestMs: 999999999999, outcome: "failed",
+    errorKind: ErrorKind.PROVIDER_UNREACHABLE, detail: ProviderErrorDetail.UNSPECIFIED,
+  };
+  for (let i = 0; i < MAX_EVENTS; i++) appendEvent(bounded, sanitizeEvent({ ...large, seq: large.seq + i }));
+  assert.ok(bounded.dropped > 0);
+  appendEvent(bounded, sanitizeEvent({ ...large, step: "result" }));
+  assert.equal(bounded.events.at(-1).step, "result");
+  assert.equal(bounded.runId, RUN_A);
+  assert.ok(bounded.events.length <= MAX_EVENTS);
+  assert.ok(recordBytes(bounded) <= MAX_BYTES);
+  const { runId: boundedId, ...withoutId } = bounded;
+  assert.equal(recordBytes(bounded) - recordBytes(withoutId), 47);
 });

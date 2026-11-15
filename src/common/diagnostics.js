@@ -76,6 +76,12 @@ export const MAX_BYTES = 49152;
 export const RESERVED_BYTES_FOR_RESULT = 1024;
 export const RECORD_VERSION = 1;
 
+const RUN_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+export function isRunId(value) {
+  return typeof value === "string" && RUN_ID_PATTERN.test(value);
+}
+
 function isCount(value) {
   return Number.isSafeInteger(value) && value >= 0 && value <= MAX_NUMBER;
 }
@@ -102,8 +108,10 @@ export function sanitizeEvent(raw) {
   return event;
 }
 
-export function emptyRecord() {
-  return { v: RECORD_VERSION, events: [], dropped: 0, last: null };
+export function emptyRecord(runId) {
+  const record = { v: RECORD_VERSION, events: [], dropped: 0, last: null };
+  if (isRunId(runId)) record.runId = runId;
+  return record;
 }
 
 // A stored value in, a valid record out, or null. Nothing a record carries is
@@ -112,6 +120,7 @@ export function sanitizeRecord(value) {
   if (!value || typeof value !== "object" || value.v !== RECORD_VERSION) {
     return null;
   }
+  if (Object.hasOwn(value, "runId") && !isRunId(value.runId)) return null;
   if (!Array.isArray(value.events) || value.events.length > MAX_EVENTS) {
     return null;
   }
@@ -123,7 +132,9 @@ export function sanitizeRecord(value) {
   }
   const dropped = isCount(value.dropped) ? value.dropped : 0;
   const last = value.last === null ? null : sanitizeEvent(value.last);
-  return { v: RECORD_VERSION, events, dropped, last };
+  const record = { v: RECORD_VERSION, events, dropped, last };
+  if (isRunId(value.runId)) record.runId = value.runId;
+  return record;
 }
 
 const encoder = new TextEncoder();
@@ -155,11 +166,12 @@ export function appendEvent(record, event) {
 export function createRecorder({
   enabled,
   started,
+  runId,
   now = Date.now,
   persist = () => {},
 }) {
   if (!enabled) return { enabled: false, record() {} };
-  const record = emptyRecord();
+  const record = emptyRecord(runId);
   let seq = 0;
   return {
     enabled: true,

@@ -902,7 +902,15 @@ test("replacing a non-active tab does not bind the panel to the added tab", asyn
 
 // --- diagnostics ---
 
+const RUN_A = "11111111-1111-4111-8111-111111111111";
+const RUN_B = "22222222-2222-4222-8222-222222222222";
+
+function withRun(state, runId = RUN_A) {
+  return { ...state, runId };
+}
+
 const RECORD = {
+  runId: RUN_A,
   v: 1,
   events: [
     { seq: 0, ms: 0, step: "settings", outcome: "ok" },
@@ -925,7 +933,7 @@ test("a tab with a stored record shows it as text next to its state", async () =
   const doc = makeFakeDocument();
   fake.sessionStore.set(diagnosticsKey(1), RECORD);
   try {
-    await bindToTab(fake, doc, failedState("t", ErrorKind.TIMEOUT));
+    await bindToTab(fake, doc, withRun(failedState("t", ErrorKind.TIMEOUT)));
     await flushUntil(() => doc.elements.diagnostics.hidden === false);
     assert.match(doc.elements["diagnostics-text"].textContent, /request-end task=chunk part=2\/3 outcome=failed kind=timeout/);
     assert.doesNotMatch(doc.elements["diagnostics-text"].textContent, /Incomplete/);
@@ -953,7 +961,7 @@ test("a finished run whose record has no result is reported as incomplete", asyn
   const doc = makeFakeDocument();
   fake.sessionStore.set(diagnosticsKey(1), { ...RECORD, events: [RECORD.events[0]] });
   try {
-    await bindToTab(fake, doc, failedState("t", ErrorKind.INTERNAL_ERROR));
+    await bindToTab(fake, doc, withRun(failedState("t", ErrorKind.INTERNAL_ERROR)));
     await flushUntil(() => doc.elements.diagnostics.hidden === false);
     assert.match(doc.elements["diagnostics-text"].textContent, /Incomplete: no final result was recorded/);
   } finally {
@@ -965,7 +973,7 @@ test("a live change to the bound tab's record is shown, another tab's is ignored
   const fake = makeFakeChrome(1);
   const doc = makeFakeDocument();
   try {
-    await bindToTab(fake, doc, runningState("t"));
+    await bindToTab(fake, doc, withRun(runningState("t")));
     fake.listeners.storageChanged({ [diagnosticsKey(2)]: { newValue: RECORD } }, "session");
     assert.equal(doc.elements.diagnostics.hidden, true);
     fake.listeners.storageChanged({ [diagnosticsKey(1)]: { newValue: RECORD } }, "local");
@@ -985,7 +993,7 @@ test("switching tabs drops the old tab's record and shows the new tab's own", as
   const doc = makeFakeDocument();
   fake.sessionStore.set(diagnosticsKey(1), RECORD);
   try {
-    await bindToTab(fake, doc, failedState("t", ErrorKind.TIMEOUT));
+    await bindToTab(fake, doc, withRun(failedState("t", ErrorKind.TIMEOUT)));
     await flushUntil(() => doc.elements.diagnostics.hidden === false);
 
     fake.setActiveTab(2);
@@ -1039,7 +1047,10 @@ test("a live change seen first wins over a snapshot read that settles later", as
     pendingReads[0].resolve({ [diagnosticsKey(1)]: undefined });
     await Promise.resolve();
     await Promise.resolve();
-    assert.equal(doc.elements.diagnostics.hidden, false);
+    assertDiagnosticsHidden(doc);
+    fake.pendingSendMessage.shift().resolve(withRun(runningState("t")));
+    await flushUntil(() => doc.elements.diagnostics.hidden === false);
+    assert.match(diagText(doc), /settings outcome=ok/);
   } finally {
     cleanup();
   }
@@ -1066,7 +1077,7 @@ test("a new idle state clears the record on screen", async () => {
   const doc = makeFakeDocument();
   fake.sessionStore.set(diagnosticsKey(1), RECORD);
   try {
-    await bindToTab(fake, doc, failedState("t", ErrorKind.TIMEOUT));
+    await bindToTab(fake, doc, withRun(failedState("t", ErrorKind.TIMEOUT)));
     await flushUntil(() => doc.elements.diagnostics.hidden === false);
     fake.listeners.message({ type: MessageType.STATE_CHANGED, tabId: 1, state: idleState() });
     assert.equal(doc.elements.diagnostics.hidden, true);
@@ -1086,7 +1097,7 @@ test("an empty record, the stand-in for one that could not be removed, shows not
   const doc = makeFakeDocument();
   fake.sessionStore.set(diagnosticsKey(1), { v: 1, events: [], dropped: 0, last: null });
   try {
-    await bindToTab(fake, doc, succeededState("t", "A summary."));
+    await bindToTab(fake, doc, withRun(succeededState("t", "A summary.")));
     assert.equal(doc.elements.diagnostics.hidden, true);
     fake.listeners.storageChanged({ [diagnosticsKey(1)]: { newValue: RECORD } }, "session");
     assert.equal(doc.elements.diagnostics.hidden, false);
@@ -1350,12 +1361,21 @@ function diagText(doc) {
 }
 
 async function switchToTabTwo(fake, doc, record) {
-  await bindToTab(fake, doc, succeededState("A title", "A summary"));
+  let readSettled = false;
+  const get = fake.chrome.storage.session.get;
+  fake.chrome.storage.session.get = async (key) => {
+    const stored = await get(key);
+    if (key === diagnosticsKey(2)) readSettled = true;
+    return stored;
+  };
+  await bindToTab(fake, doc, withRun(succeededState("A title", "A summary"), RUN_B));
   fake.sessionStore.set(diagnosticsKey(2), record);
   fake.setActiveTab(2);
   fake.listeners.activated();
   await flushUntil(() => fake.pendingSendMessage.length === 1);
-  await flushUntil(() => doc.elements.diagnostics.hidden === false);
+  await flushUntil(() => readSettled);
+  assert.equal(fake.pendingSendMessage.length, 1);
+  assertDiagnosticsHidden(doc);
 }
 
 test("diagnostics before the new tab's state are not classified", async () => {
@@ -1364,13 +1384,14 @@ test("diagnostics before the new tab's state are not classified", async () => {
   try {
     await switchToTabTwo(fake, doc, NO_RESULT);
     const text = diagText(doc);
-    assert.match(text, /settings outcome=ok/);
+    assert.equal(text, "");
+    assert.equal(doc.elements.diagnostics.hidden, true);
     assert.doesNotMatch(text, INCOMPLETE);
     assert.doesNotMatch(text, NOT_ENDED);
     // The earlier tab's summary stays until the new state arrives.
     assert.equal(doc.elements.summary.textContent, "A summary");
 
-    fake.pendingSendMessage.shift().resolve(runningState("B title"));
+    fake.pendingSendMessage.shift().resolve(withRun(runningState("B title")));
     await flushUntil(() => NOT_ENDED.test(diagText(doc)));
     assert.doesNotMatch(diagText(doc), INCOMPLETE);
   } finally {
@@ -1380,14 +1401,15 @@ test("diagnostics before the new tab's state are not classified", async () => {
 
 test("a finished state without a result reads incomplete", async () => {
   const finishedStates = [
-    succeededState("B", "B summary"),
-    failedState("B", ErrorKind.TIMEOUT),
+    withRun(succeededState("B", "B summary")),
+    withRun(failedState("B", ErrorKind.TIMEOUT)),
   ];
   for (const state of finishedStates) {
     const fake = makeFakeChrome(1);
     const doc = makeFakeDocument();
     try {
       await switchToTabTwo(fake, doc, NO_RESULT);
+      assertDiagnosticsHidden(doc);
       assert.doesNotMatch(diagText(doc), INCOMPLETE);
       fake.pendingSendMessage.shift().resolve(state);
       await flushUntil(() => INCOMPLETE.test(diagText(doc)));
@@ -1402,14 +1424,14 @@ test("a live stateChanged before the diagnostics confirms state", async () => {
   const fake = makeFakeChrome(1);
   const doc = makeFakeDocument();
   try {
-    await bindToTab(fake, doc, succeededState("A title", "A summary"));
+    await bindToTab(fake, doc, withRun(succeededState("A title", "A summary"), RUN_B));
     fake.setActiveTab(2);
     fake.listeners.activated();
     await flushUntil(() => fake.pendingSendMessage.length === 1);
     fake.listeners.message({
       type: MessageType.STATE_CHANGED,
       tabId: 2,
-      state: runningState("B title"),
+      state: withRun(runningState("B title")),
     });
     fake.listeners.storageChanged(
       { [diagnosticsKey(2)]: { newValue: NO_RESULT } },
@@ -1426,7 +1448,7 @@ test("live diagnostics before the state wait for it to classify", async () => {
   const fake = makeFakeChrome(1);
   const doc = makeFakeDocument();
   try {
-    await bindToTab(fake, doc, succeededState("A title", "A summary"));
+    await bindToTab(fake, doc, withRun(succeededState("A title", "A summary"), RUN_B));
     fake.setActiveTab(2);
     fake.listeners.activated();
     await flushUntil(() => fake.pendingSendMessage.length === 1);
@@ -1434,12 +1456,13 @@ test("live diagnostics before the state wait for it to classify", async () => {
       { [diagnosticsKey(2)]: { newValue: NO_RESULT } },
       "session",
     );
+    assertDiagnosticsHidden(doc);
     assert.doesNotMatch(diagText(doc), INCOMPLETE);
     assert.doesNotMatch(diagText(doc), NOT_ENDED);
     fake.listeners.message({
       type: MessageType.STATE_CHANGED,
       tabId: 2,
-      state: failedState("B", ErrorKind.TIMEOUT),
+      state: withRun(failedState("B", ErrorKind.TIMEOUT)),
     });
     assert.match(diagText(doc), INCOMPLETE);
   } finally {
@@ -1458,11 +1481,15 @@ test("an earlier tab's late state does not classify the new tab", async () => {
     fake.setActiveTab(2);
     fake.listeners.activated();
     await flushUntil(() => fake.pendingSendMessage.length === 1);
-    await flushUntil(() => doc.elements.diagnostics.hidden === false);
-    first.resolve(succeededState("A", "A summary"));
+    for (let i = 0; i < 30; i++) await Promise.resolve();
+    assertDiagnosticsHidden(doc);
+    first.resolve(withRun(succeededState("A", "A summary")));
     for (let i = 0; i < 30; i++) await Promise.resolve();
     assert.doesNotMatch(diagText(doc), INCOMPLETE);
     assert.doesNotMatch(diagText(doc), NOT_ENDED);
+    assertDiagnosticsHidden(doc);
+    fake.pendingSendMessage.shift().resolve(withRun(runningState("B title")));
+    await flushUntil(() => NOT_ENDED.test(diagText(doc)));
   } finally {
     cleanup();
   }
@@ -1477,7 +1504,8 @@ test("a failed state read does not claim the run ended", async () => {
     const internal = messageFor(ErrorKind.INTERNAL_ERROR, "");
     await flushUntil(() => doc.elements.status.textContent === internal);
     const text = diagText(doc);
-    assert.match(text, /settings outcome=ok/);
+    assert.equal(text, "");
+    assert.equal(doc.elements.diagnostics.hidden, true);
     assert.doesNotMatch(text, INCOMPLETE);
     assert.doesNotMatch(text, NOT_ENDED);
   } finally {
@@ -1497,7 +1525,8 @@ test("a read-failure getState response shows internal-error but does not claim t
     const internal = messageFor(ErrorKind.INTERNAL_ERROR, "");
     await flushUntil(() => doc.elements.status.textContent === internal);
     const text = diagText(doc);
-    assert.match(text, /settings outcome=ok/);
+    assert.equal(text, "");
+    assert.equal(doc.elements.diagnostics.hidden, true);
     assert.doesNotMatch(text, INCOMPLETE);
     assert.doesNotMatch(text, NOT_ENDED);
     assert.equal(doc.elements["open-settings"].hidden, true);
@@ -1513,7 +1542,7 @@ test("a confirmed failed internal-error RunState with no result still reads inco
     await switchToTabTwo(fake, doc, NO_RESULT);
     fake.pendingSendMessage
       .shift()
-      .resolve(failedState("B", ErrorKind.INTERNAL_ERROR));
+      .resolve(withRun(failedState("B", ErrorKind.INTERNAL_ERROR)));
     await flushUntil(() => INCOMPLETE.test(diagText(doc)));
     assert.doesNotMatch(diagText(doc), NOT_ENDED);
   } finally {
@@ -1529,10 +1558,11 @@ test("a live update after a read-failure response confirms the state", async () 
     fake.pendingSendMessage.shift().resolve(READ_FAILURE);
     const internal = messageFor(ErrorKind.INTERNAL_ERROR, "");
     await flushUntil(() => doc.elements.status.textContent === internal);
+    assertDiagnosticsHidden(doc);
     fake.listeners.message({
       type: MessageType.STATE_CHANGED,
       tabId: 2,
-      state: runningState("B title"),
+      state: withRun(runningState("B title")),
     });
     assert.match(diagText(doc), NOT_ENDED);
   } finally {
@@ -1549,7 +1579,7 @@ test("a late read-failure response does not replace a live update", async () => 
     fake.listeners.message({
       type: MessageType.STATE_CHANGED,
       tabId: 2,
-      state: runningState("B title"),
+      state: withRun(runningState("B title")),
     });
     pending.resolve(READ_FAILURE);
     for (let i = 0; i < 30; i++) await Promise.resolve();
@@ -1574,8 +1604,9 @@ test("a late read-failure response for an earlier binding does not touch the new
     fake.setActiveTab(2);
     fake.listeners.activated();
     await flushUntil(() => fake.pendingSendMessage.length === 1);
-    await flushUntil(() => doc.elements.diagnostics.hidden === false);
-    fake.pendingSendMessage.shift().resolve(runningState("B title"));
+    for (let i = 0; i < 30; i++) await Promise.resolve();
+    assertDiagnosticsHidden(doc);
+    fake.pendingSendMessage.shift().resolve(withRun(runningState("B title")));
     await flushUntil(() => NOT_ENDED.test(diagText(doc)));
     first.resolve(READ_FAILURE);
     for (let i = 0; i < 30; i++) await Promise.resolve();
@@ -1586,5 +1617,158 @@ test("a late read-failure response for an earlier binding does not touch the new
     assert.match(diagText(doc), NOT_ENDED);
   } finally {
     cleanup();
+  }
+});
+
+const RECORD_B = {
+  v: 1,
+  runId: RUN_B,
+  events: [
+    { seq: 0, ms: 0, step: "settings", outcome: "ok" },
+    { seq: 1, ms: 1, step: "result", outcome: "ok" },
+  ],
+  dropped: 0,
+  last: null,
+};
+const PARTIAL_B = { ...RECORD_B, events: [RECORD_B.events[0]] };
+
+function assertDiagnosticsHidden(doc) {
+  assert.equal(doc.elements.diagnostics.hidden, true);
+  assert.equal(diagText(doc), "");
+}
+
+function liveState(fake, state) {
+  fake.listeners.message({ type: MessageType.STATE_CHANGED, tabId: 1, state });
+}
+
+function liveRecord(fake, record) {
+  fake.listeners.storageChanged({ [diagnosticsKey(1)]: { newValue: record } }, "session");
+}
+
+test("retained diagnostics from an earlier run never describe a later state", async () => {
+  const fake = makeFakeChrome(1);
+  const doc = makeFakeDocument();
+  fake.sessionStore.set(diagnosticsKey(1), RECORD);
+  try {
+    await bindToTab(fake, doc, withRun(failedState("Old page", ErrorKind.TIMEOUT)));
+    assert.equal(doc.elements.diagnostics.hidden, false);
+    assert.match(diagText(doc), /timeout/);
+    liveState(fake, withRun(runningState("New page"), RUN_B));
+    assertDiagnosticsHidden(doc);
+    assert.equal(doc.elements.title.textContent, "New page");
+    assert.equal(doc.elements.summary.textContent, "");
+    liveState(fake, withRun(succeededState("New page", "New summary"), RUN_B));
+    assertDiagnosticsHidden(doc);
+    assert.equal(doc.elements.title.textContent, "New page");
+    assert.equal(doc.elements.summary.textContent, "New summary");
+    liveRecord(fake, RECORD);
+    assertDiagnosticsHidden(doc);
+  } finally {
+    cleanup();
+  }
+  const reopened = makeFakeChrome(1);
+  const nextDoc = makeFakeDocument();
+  reopened.sessionStore.set(diagnosticsKey(1), fake.sessionStore.get(diagnosticsKey(1)));
+  try {
+    await bindToTab(reopened, nextDoc, withRun(succeededState("New page", "New summary"), RUN_B));
+    assertDiagnosticsHidden(nextDoc);
+    assert.equal(nextDoc.elements.summary.textContent, "New summary");
+    liveRecord(reopened, RECORD_B);
+    assert.equal(nextDoc.elements.diagnostics.hidden, false);
+    assert.match(diagText(nextDoc), /settings outcome=ok/);
+    assert.match(diagText(nextDoc), /result outcome=ok/);
+    assert.doesNotMatch(diagText(nextDoc), /timeout/);
+  } finally {
+    cleanup();
+  }
+});
+
+test("matching diagnostics appear in either arrival order within one binding", async () => {
+  for (const order of ["state-first", "record-first", "idle-between", "late-final", "rebind"]) {
+    const fake = makeFakeChrome(1);
+    const doc = makeFakeDocument();
+    try {
+      if (order === "state-first") {
+        fake.sessionStore.set(diagnosticsKey(1), RECORD);
+        await bindToTab(fake, doc, withRun(succeededState("B", "B summary"), RUN_B));
+        assertDiagnosticsHidden(doc);
+        liveRecord(fake, RECORD_B);
+      } else if (order === "rebind") {
+        fake.sessionStore.set(diagnosticsKey(1), RECORD);
+        await bindToTab(fake, doc, withRun(succeededState("A", "A summary")));
+        assert.equal(doc.elements.diagnostics.hidden, false);
+        fake.sessionStore.set(diagnosticsKey(2), RECORD_B);
+        fake.setActiveTab(2);
+        fake.listeners.activated();
+        await flushUntil(() => fake.pendingSendMessage.length === 1);
+        assertDiagnosticsHidden(doc);
+        assert.equal(doc.elements.title.textContent, "A");
+        assert.equal(doc.elements.summary.textContent, "A summary");
+        fake.pendingSendMessage.shift().resolve(withRun(succeededState("B", "B summary"), RUN_B));
+        await flushUntil(() => doc.elements.summary.textContent === "B summary");
+      } else {
+        await loadPanel(fake.chrome, doc);
+        await flushUntil(() => fake.pendingSendMessage.length === 1);
+        liveRecord(fake, order === "late-final" ? PARTIAL_B : RECORD_B);
+        assertDiagnosticsHidden(doc);
+        if (order === "idle-between") {
+          fake.pendingSendMessage.shift().resolve(idleState());
+          await flushUntil(() => doc.elements.status.textContent === "No summary has been run for this tab yet.");
+          assertDiagnosticsHidden(doc);
+        }
+        liveState(fake, withRun(runningState("B"), RUN_B));
+        if (order === "late-final") {
+          assert.match(diagText(doc), NOT_ENDED);
+          liveState(fake, withRun(succeededState("B", "B summary"), RUN_B));
+          assert.equal(doc.elements.summary.textContent, "B summary");
+          assert.match(diagText(doc), INCOMPLETE);
+          liveRecord(fake, RECORD_B);
+          assert.doesNotMatch(diagText(doc), INCOMPLETE);
+        }
+      }
+      assert.equal(doc.elements.diagnostics.hidden, false);
+      assert.match(diagText(doc), /result outcome=ok/);
+      assert.doesNotMatch(diagText(doc), /timeout/);
+    } finally {
+      // Settle snapshots before restoring the fake globals, even on RED.
+      for (const pending of fake.pendingSendMessage.splice(0)) pending.resolve(idleState());
+      for (let i = 0; i < 30; i++) await Promise.resolve();
+      cleanup();
+    }
+  }
+});
+
+test("legacy or invalid identities never authorize diagnostic display", async () => {
+  const { runId, ...legacy } = RECORD;
+  const succeeded = succeededState("Page", "Summary");
+  const invalid = ["", "NOT-AN-ID", 1, "11111111-1111-1111-8111-111111111111"];
+  const cases = [
+    [succeeded, legacy], [succeeded, RECORD], [withRun(succeeded), legacy],
+    ...invalid.map((id) => [withRun(succeeded), { ...RECORD, runId: id }]),
+    ...invalid.map((id) => [withRun(succeeded, id), { ...RECORD, runId: id }]),
+    [withRun({ ...succeeded, phase: "unknown" }), RECORD],
+    [idleState(), RECORD], [READ_FAILURE, RECORD],
+  ];
+  for (const [state, record] of cases) {
+    const fake = makeFakeChrome(1);
+    const doc = makeFakeDocument();
+    fake.sessionStore.set(diagnosticsKey(1), record);
+    try {
+      await bindToTab(fake, doc, state);
+      assertDiagnosticsHidden(doc);
+      if (state.phase === "succeeded") {
+        assert.equal(doc.elements.title.textContent, "Page");
+        assert.equal(doc.elements.summary.textContent, "Summary");
+      } else {
+        assert.equal(doc.elements.status.textContent, state === READ_FAILURE
+          ? messageFor(ErrorKind.INTERNAL_ERROR, "") : "No summary has been run for this tab yet.");
+      }
+      liveRecord(fake, RECORD);
+      liveState(fake, withRun(failedState("Page", ErrorKind.TIMEOUT)));
+      assert.equal(doc.elements.diagnostics.hidden, false);
+      assert.match(diagText(doc), /timeout/);
+    } finally {
+      cleanup();
+    }
   }
 });

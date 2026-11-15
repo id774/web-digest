@@ -8,6 +8,7 @@ import { MessageType } from "../common/messages.js";
 import {
   diagnosticsKey,
   formatDiagnostics,
+  isRunId,
   sanitizeRecord,
 } from "../common/diagnostics.js";
 
@@ -46,18 +47,13 @@ let tabLookupGeneration = 0;
 // with — issued before that update was known to exist — can never overwrite
 // it by resolving late.
 let liveSeenThisGeneration = false;
-// The tab's diagnostics, when it has any, and the phase last rendered for it.
-// The record is shown as text beside the summary, never in place of it. It is
-// bound to the same tab and the same generation as the state, and reset with
-// them, so one tab's record is never shown for another.
+// The latest diagnostic candidate and the phase last rendered for this tab.
+// A record may arrive before the state that identifies its run. Keep the
+// candidate for that binding, but show it only when its runId matches the
+// confirmed non-idle state. A rebind or failed state read confirms no run.
 let currentDiagnostics = null;
 let renderedPhase = "idle";
-// Whether the state last rendered was confirmed for the *current* binding —
-// by its snapshot or by its own live update — rather than left over from a
-// tab followed earlier, or only a stand-in for a read that failed. Reset on
-// every rebind. Diagnostics are classified as ended or not ended only once
-// it is set.
-let stateConfirmedThisGeneration = false;
+let confirmedRunId = null;
 let diagnosticsLiveSeenThisGeneration = false;
 
 function show(element, text) {
@@ -119,10 +115,10 @@ function showSummary(text) {
 }
 
 function renderDiagnostics() {
-  // A record with no events and nothing dropped says nothing: it is what
-  // stands in for a record the worker could not remove.
   if (
+    confirmedRunId === null ||
     !currentDiagnostics ||
+    currentDiagnostics.runId !== confirmedRunId ||
     (currentDiagnostics.events.length === 0 && currentDiagnostics.dropped === 0)
   ) {
     show(elements.diagnosticsText, "");
@@ -132,10 +128,7 @@ function renderDiagnostics() {
   const finished = renderedPhase === "succeeded" || renderedPhase === "failed";
   show(
     elements.diagnosticsText,
-    formatDiagnostics(currentDiagnostics, {
-      finished,
-      stateKnown: stateConfirmedThisGeneration,
-    }),
+    formatDiagnostics(currentDiagnostics, { finished, stateKnown: true }),
   );
   elements.diagnostics.hidden = false;
 }
@@ -143,10 +136,13 @@ function renderDiagnostics() {
 // `confirmed` is false for a stand-in state shown because the real one could
 // not be read: it is what is displayed, not evidence of what the run did.
 function render(state, confirmed = true) {
-  stateConfirmedThisGeneration = confirmed;
   renderedPhase = state && state.phase ? state.phase : "idle";
-  // A tab with no run has no diagnostics, whatever was last shown for it.
-  if (renderedPhase === "idle") currentDiagnostics = null;
+  confirmedRunId =
+    confirmed &&
+    ["running", "succeeded", "failed"].includes(renderedPhase) &&
+    isRunId(state && state.runId)
+      ? state.runId
+      : null;
   renderState(state);
   renderDiagnostics();
 }
@@ -245,7 +241,8 @@ function invalidateBinding() {
   liveSeenThisGeneration = false;
   currentDiagnostics = null;
   diagnosticsLiveSeenThisGeneration = false;
-  stateConfirmedThisGeneration = false;
+  confirmedRunId = null;
+  renderDiagnostics();
 }
 
 // Reads this binding's diagnostics once. Like the state snapshot, it is
@@ -279,7 +276,8 @@ async function bindTo(tabId) {
   liveSeenThisGeneration = false;
   currentDiagnostics = null;
   diagnosticsLiveSeenThisGeneration = false;
-  stateConfirmedThisGeneration = false;
+  confirmedRunId = null;
+  renderDiagnostics();
   loadDiagnostics(tabId, generation);
 
   function stale() {

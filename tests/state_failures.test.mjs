@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { isRunId } from "../src/common/diagnostics.js";
 
 import { ErrorKind } from "../src/common/errors.js";
 import { MessageType } from "../src/common/messages.js";
@@ -129,6 +130,7 @@ test("fail() never throws even when the write it attempts also fails, and broadc
 
     assert.equal(worker.claimRun(51), true);
     const run = worker.currentRun(51);
+    assert.ok(isRunId(run));
 
     await assert.doesNotReject(
       worker.fail(51, run, "A title", Date.now(), ErrorKind.INTERNAL_ERROR),
@@ -145,6 +147,7 @@ test("fail() never throws even when the write it attempts also fails, and broadc
       summary: "",
       errorKind: ErrorKind.INTERNAL_ERROR,
       errorDetail: "",
+      runId: run,
     });
   } finally {
     delete globalThis.chrome;
@@ -162,6 +165,7 @@ test("fail() writes the failed state to storage normally when the write succeeds
 
     assert.equal(worker.claimRun(52), true);
     const run = worker.currentRun(52);
+    assert.ok(isRunId(run));
 
     await worker.fail(52, run, "A title", Date.now(), ErrorKind.TIMEOUT);
 
@@ -171,6 +175,7 @@ test("fail() writes the failed state to storage normally when the write succeeds
       summary: "",
       errorKind: ErrorKind.TIMEOUT,
       errorDetail: "",
+      runId: run,
     });
   } finally {
     delete globalThis.chrome;
@@ -354,10 +359,10 @@ for (const [name, invalidate] of [
         sets.map(([, fields]) => fields),
         [
           {
-            "run:81": worker.failedState(
-              "Old page",
-              ErrorKind.PAGE_UNREADABLE,
-            ),
+            "run:81": {
+              ...worker.failedState("Old page", ErrorKind.PAGE_UNREADABLE),
+              runId: run,
+            },
           },
         ],
       );

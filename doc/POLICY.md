@@ -332,16 +332,20 @@ prompt, to extraction or to shaping is allowed to do.
   change is committed.
 - **The one allowed addition to the closing line is the reader's own optional
   diagnostic record**, and it is not a log line. It is off until the reader
-  turns it on in settings, and its value is read once when a run begins. It
-  describes one run of one tab as an ordered list of steps and requests,
-  built only from a fixed vocabulary and integers, so the list above of what
-  is never logged holds for it in full. It lives in session storage under the
-  tab, is shown in the side panel as text, and is removed with the tab's run
-  state and by the tab's next run. Its size is bounded by constants whose
-  choice is recorded in the detailed design, a bound reached is reported as an
-  incomplete record and never as an error of the run, and a record that cannot
-  be made, stored or shown never changes a run's result, its error, its
-  requests, its timing or the closing line.
+  turns it on in settings, and its value is read once when a run begins.
+  Its events describe one run of one tab as an ordered list of steps and
+  requests, built only from a fixed vocabulary and integers. The list above
+  of what is never logged holds for the record in full. It lives in session
+  storage under the tab, separate from the state. A locally generated opaque
+  run identity in both entries is used only to associate the record with its
+  state, never as event data, displayed text or log output. Cleanup is
+  requested with the tab's run state and by the tab's next run. An unmatched
+  record is not shown if cleanup failed. Diagnostic storage has its own
+  per-tab ordering, never delaying the run's state or work. Its size is
+  bounded by constants whose choice is recorded in the detailed design. A
+  bound reached is reported as an incomplete record and never as an error
+  of the run. A record that cannot be made, stored or shown never changes a
+  run's result, its error, its requests, its timing or the closing line.
 - A change to diagnostics does not widen what may be recorded without changing
   this section, and does not add a destination for it: not the console beyond
   the one line, not disk, not a message to anywhere but the panel, not a

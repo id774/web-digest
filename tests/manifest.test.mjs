@@ -95,9 +95,13 @@ test("doc/VERSIONS keeps the unreleased entry's number and records the diagnosti
   assert.equal(bullets.length, 7);
   assert.match(bullets[0], /extension icon legibility/);
   assert.match(bullets[1], /up to three Highlights above a clearly separated full Summary/);
-  assert.match(
+  assert.equal(
     bullets[2],
-    /Added optional, session-only diagnostics with accurate tab-bound state/,
+    "- Added optional, session-only diagnostics isolated by tab and run, without",
+  );
+  assert.match(
+    top,
+    /without\n  delaying summaries or recording page content or credentials\./,
   );
   assert.match(
     top,
