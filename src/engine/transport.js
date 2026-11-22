@@ -26,33 +26,43 @@ async function readJson(response) {
 // processing step of the one run, spent on the one provider it started with.
 //
 // Resolves to one of:
+//   { cancelled: true }
 //   { timedOut: true }
 //   { timedOut: false, unreachable: true }
 //   { timedOut: false, unreachable: false, ok, status, data }
 export async function sendRequest(
   request,
-  { fetchImpl, timeoutMs = REQUEST_TIMEOUT_MS } = {},
+  { fetchImpl, timeoutMs = REQUEST_TIMEOUT_MS, signal } = {},
 ) {
+  if (signal?.aborted) return { cancelled: true };
+
   const send = fetchImpl || globalThis.fetch;
   const controller = new AbortController();
   let timer;
+  let detachCancellation = () => {};
+  const cancellation = new Promise((resolve) => {
+    if (!signal) return;
+    const onAbort = () => {
+      controller.abort();
+      resolve({ cancelled: true });
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    detachCancellation = () => signal.removeEventListener("abort", onAbort);
+    if (signal.aborted) onAbort();
+  });
 
   const operation = (async () => {
+    if (signal?.aborted) return { cancelled: true };
     try {
       const response = await send(request.url, {
         method: request.method,
         headers: request.headers,
         body: request.body,
         signal: controller.signal,
-        // A 3xx answer is never followed, to the same origin or any other, so
-        // the one request sent is the only one, and it goes only where the
-        // adapter's fixed URL says. A refused redirect rejects the fetch and
-        // takes the ordinary unreachable path below, with nothing about the
-        // target carried out.
         redirect: "error",
       });
-
       const data = await readJson(response);
+      if (signal?.aborted) return { cancelled: true };
       if (controller.signal.aborted) return { timedOut: true };
       return {
         timedOut: false,
@@ -62,10 +72,12 @@ export async function sendRequest(
         data,
       };
     } catch {
+      if (signal?.aborted) return { cancelled: true };
       if (controller.signal.aborted) return { timedOut: true };
       return { timedOut: false, unreachable: true };
     }
   })();
+
   const timeout = new Promise((resolve) => {
     timer = setTimeout(() => {
       controller.abort();
@@ -74,8 +86,9 @@ export async function sendRequest(
   });
 
   try {
-    return await Promise.race([operation, timeout]);
+    return await Promise.race([operation, timeout, cancellation]);
   } finally {
     clearTimeout(timer);
+    detachCancellation();
   }
 }

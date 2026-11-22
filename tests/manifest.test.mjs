@@ -84,7 +84,7 @@ test("diagnostics add no permission, host, script, or dependency", async () => {
   assert.equal(pkg.devDependencies, undefined);
 });
 
-test("doc/VERSIONS keeps the unreleased entry's number and records the diagnostics item once", async () => {
+test("doc/VERSIONS preserves the unreleased release and records both maintenance changes", async () => {
   const versions = await readFile(
     new URL("../doc/VERSIONS", import.meta.url),
     "utf8",
@@ -92,7 +92,7 @@ test("doc/VERSIONS keeps the unreleased entry's number and records the diagnosti
   const top = versions.split("\n\n")[1];
   assert.match(top, /^v1\.1\.2 \(Release Date: TBD\)\n-+\n/);
   const bullets = top.split("\n").filter((line) => line.startsWith("- "));
-  assert.equal(bullets.length, 7);
+  assert.equal(bullets.length, 8);
   assert.match(bullets[0], /extension icon legibility/);
   assert.match(bullets[1], /up to three Highlights above a clearly separated full Summary/);
   assert.equal(
@@ -111,7 +111,12 @@ test("doc/VERSIONS keeps the unreleased entry's number and records the diagnosti
   assert.match(top, /Stopped following HTTP redirects from the selected AI provider/);
   assert.equal(
     bullets[6],
-    "- Prevented abandoned runs from broadcasting failures after tab changes.",
+    "- Aborted pending provider requests on navigation, closure or tab replacement,",
+  );
+  assert.match(top, /without restoring an abandoned run's state or failure\./);
+  assert.equal(
+    bullets[7],
+    "- Reduced repeated rendering work when partitioning long pages into chunks.",
   );
   for (const line of top.split("\n")) assert.ok(line.length <= 80, line);
 });

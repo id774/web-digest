@@ -1318,6 +1318,7 @@ async function endToEnd({
   keepChrome = false,
   store = new Map(),
   diagnosticHook,
+  providerFetch,
   afterClick,
 }) {
   const listeners = {};
@@ -1418,6 +1419,7 @@ async function endToEnd({
     providerCalls += 1;
     const body = JSON.parse(init.body);
     fetchBodies.push(body.messages.map((m) => m.content));
+    if (providerFetch) return providerFetch(url, init);
     if (failProviderAt && providerCalls === failProviderAt) {
       return { ok: false, status: 503, json: async () => ({}) };
     }
@@ -1993,4 +1995,153 @@ test("the diagnostic record validates run identity within its existing byte boun
   assert.ok(recordBytes(bounded) <= MAX_BYTES);
   const { runId: boundedId, ...withoutId } = bounded;
   assert.equal(recordBytes(bounded) - recordBytes(withoutId), 47);
+});
+
+for (const changeInfo of [{ status: "loading" }, { url: "synthetic-change" }]) {
+  for (const honorsAbort of [true, false]) {
+    test(`A01/A02: navigation cancels only its run (honors abort: ${honorsAbort}, field: ${Object.keys(changeInfo)[0]})`, async (t) => {
+      const intervals = new Set();
+      const setIntervalImpl = globalThis.setInterval;
+      const clearIntervalImpl = globalThis.clearInterval;
+      t.mock.method(globalThis, "setInterval", (...args) => {
+        const id = setIntervalImpl(...args);
+        intervals.add(id);
+        return id;
+      });
+      t.mock.method(globalThis, "clearInterval", (id) => {
+        intervals.delete(id);
+        clearIntervalImpl(id);
+      });
+      let requestSignal;
+      let finish;
+      const response = {
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ finish_reason: "stop", message: { content: "Done." } }] }),
+      };
+      try {
+        const result = await endToEnd({
+          blocks: SHORT_PAGE,
+          diagnostics: true,
+          providerFetch: (_url, init) => {
+            requestSignal = init.signal;
+            return new Promise((resolve, reject) => {
+              finish = () => resolve(response);
+              if (honorsAbort) {
+                init.signal.addEventListener("abort", () => reject(new Error("aborted")));
+              }
+            });
+          },
+          afterClick: async (context) => {
+            try {
+              await drainUntil(() => requestSignal !== undefined);
+              assert.ok(requestSignal, "the provider request started");
+              const run = context.worker.currentRun(7);
+              assert.ok(run);
+              await drainUntil(() => context.store.has("diag:7"));
+              assert.equal(context.store.has("diag:7"), true);
+              context.listeners.updated(7, { status: "complete" });
+              context.listeners.updated(8, changeInfo);
+              assert.equal(requestSignal.aborted, false);
+              assert.equal(context.worker.isCurrentRun(7, run), true);
+              context.listeners.updated(7, changeInfo);
+              assert.equal(context.worker.isCurrentRun(7, run), false);
+              assert.equal(requestSignal.aborted, true);
+              await context.worker.waitForDiscard(7);
+              await drainUntil(() => intervals.size === 0 && !context.store.has("diag:7"));
+              assert.equal(intervals.size, 0, "the abandoned summary settled and released keepalive");
+              assert.equal(context.store.has("run:7"), false);
+              assert.equal(context.store.has("diag:7"), false);
+              assert.equal(context.fetchBodies.length, 1);
+              assert.equal(context.sent.filter((m) => ["failed", "succeeded"].includes(m.state.phase)).length, 0);
+              assert.deepEqual(context.consoleLines, []);
+            } finally {
+              finish?.();
+              await drainUntil(() => intervals.size === 0);
+            }
+          },
+        });
+        assert.equal(result.state, undefined);
+        assert.equal(result.diag, undefined);
+        assert.deepEqual(result.consoleLines, []);
+      } finally {
+        for (const id of intervals) clearIntervalImpl(id);
+      }
+    });
+  }
+}
+
+test("A02: navigation after success preserves the completed request outcome", async () => {
+  let requestSignal;
+  const result = await endToEnd({
+    blocks: SHORT_PAGE,
+    providerFetch: async (_url, init) => {
+      requestSignal = init.signal;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ finish_reason: "stop", message: { content: "Done." } }] }),
+      };
+    },
+    afterClick: async (context) => {
+      await drainUntil(() => context.worker.currentRun(7) === undefined);
+      assert.equal(context.store.get("run:7").phase, "succeeded");
+      context.listeners.updated(7, { status: "loading" });
+      await context.worker.waitForDiscard(7);
+      assert.equal(requestSignal.aborted, false);
+    },
+  });
+  assert.equal(result.sent.filter((m) => m.state.phase === "succeeded").length, 1);
+  assert.equal(result.sent.filter((m) => m.state.phase === "failed").length, 0);
+  assert.equal(result.consoleLines.length, 1);
+});
+
+test("A05: abandoning a chunk stops staged requests and preserves another tab and the next click", async () => {
+  const signals = [];
+  let finishOld;
+  const response = {
+    ok: true,
+    status: 200,
+    json: async () => ({ choices: [{ finish_reason: "stop", message: { content: "Done." } }] }),
+  };
+  await endToEnd({
+    blocks: LONG_PAGE,
+    diagnostics: true,
+    providerFetch: (_url, init) => {
+      signals.push(init.signal);
+      if (signals.length === 1) return new Promise((resolve) => { finishOld = () => resolve(response); });
+      return Promise.resolve(response);
+    },
+    afterClick: async (context) => {
+      try {
+        await drainUntil(() => signals.length === 1);
+        assert.equal(signals.length, 1);
+        const oldRun = context.worker.currentRun(7);
+        assert.match(context.fetchBodies[0][0], /TASK: chunk$/);
+        context.chrome.scripting.executeScript = async () => [{ result: { title: "Synthetic", blocks: SHORT_PAGE } }];
+        context.listeners.clicked({ id: 8, title: "Other synthetic tab" });
+        await drainUntil(() => signals.length === 2);
+        assert.equal(signals.length, 2);
+        context.listeners.updated(7, { status: "loading" });
+        assert.equal(signals[0].aborted, true);
+        assert.equal(signals[1].aborted, false);
+        context.listeners.clicked({ id: 7, title: "New synthetic page" });
+        await drainUntil(() => context.worker.currentRun(7) === undefined && context.worker.currentRun(8) === undefined);
+        assert.equal(context.store.get("run:7")?.phase, "succeeded");
+        assert.equal(context.store.get("run:8")?.phase, "succeeded");
+        assert.notEqual(context.store.get("run:7").runId, oldRun);
+        assert.equal(signals.length, 3);
+        assert.notEqual(signals[0], signals[2]);
+        assert.equal(signals[2].aborted, false);
+        assert.deepEqual(context.fetchBodies.map(([instruction]) => instruction.match(/TASK: (\w+)/)[1]), ["chunk", "page", "page"]);
+        assert.equal(context.sent.filter((m) => m.state.runId === oldRun && ["failed", "succeeded"].includes(m.state.phase)).length, 0);
+        assert.equal(context.consoleLines.filter(([level]) => level === "error").length, 0);
+        assert.equal(context.consoleLines.length, 2);
+        assert.notEqual(context.store.get("diag:7")?.runId, oldRun);
+      } finally {
+        finishOld?.();
+        await drainUntil(() => context.worker.currentRun(7) === undefined);
+      }
+    },
+  });
 });

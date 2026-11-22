@@ -6,11 +6,13 @@ import assert from "node:assert/strict";
 async function loadWorkerWithFakeChrome() {
   const listeners = {};
   const removedKeys = [];
+  const session = new Map();
   const setKeys = [];
   const chrome = {
     action: { onClicked: { addListener: (fn) => (listeners.clicked = fn) } },
     runtime: {
       getURL: (path) => path,
+      getPlatformInfo: () => Promise.resolve({}),
       onInstalled: { addListener: () => {} },
       onMessage: { addListener: (fn) => (listeners.message = fn) },
       sendMessage: () => Promise.resolve(),
@@ -20,15 +22,28 @@ async function loadWorkerWithFakeChrome() {
       open: () => {},
       setPanelBehavior: () => Promise.resolve(),
     },
+    scripting: {
+      executeScript: async () => [{ result: {
+        title: "Synthetic page",
+        blocks: [{ kind: "paragraph", text: "Synthetic content. ".repeat(30) }],
+      } }],
+    },
     storage: {
+      local: { get: async () => ({
+        provider: "sakura",
+        apiToken: "synthetic-test-token",
+        diagnosticLogging: true,
+      }) },
       session: {
-        get: () => Promise.resolve({}),
+        get: (key) => Promise.resolve({ [key]: session.get(key) }),
         set: (fields) => {
           setKeys.push(...Object.keys(fields));
+          for (const [key, value] of Object.entries(fields)) session.set(key, value);
           return Promise.resolve();
         },
         remove: (key) => {
           removedKeys.push(key);
+          session.delete(key);
           return Promise.resolve();
         },
       },
@@ -76,6 +91,53 @@ test("replacing a tab invalidates its work before the removed state is discarded
       "the added tab identity must never receive a state write",
     );
   } finally {
+    delete globalThis.chrome;
+  }
+});
+
+test("A03: replacing aborts only the removed tab's pending request", async (t) => {
+  const { worker, listeners, removedKeys } = await loadWorkerWithFakeChrome();
+  const requests = [];
+  t.mock.method(globalThis, "fetch", async (url, init) => {
+    if (url === "prompts/summarize.md") {
+      return { ok: true, text: async () => "Summarize synthetic material." };
+    }
+    return new Promise((resolve) => { requests.push({ signal: init.signal, resolve }); });
+  });
+  t.mock.method(console, "log", () => {});
+  t.mock.method(console, "error", () => {});
+  try {
+    for (const id of [41, 87, 99]) listeners.clicked({ id, title: "Synthetic tab" });
+    for (let i = 0; i < 800 && requests.length < 3; i++) await Promise.resolve();
+    assert.equal(requests.length, 3);
+    const oldRun = worker.currentRun(41);
+    const cleanupStart = removedKeys.length;
+    listeners.replaced(87, 41);
+    assert.equal(worker.isCurrentRun(41, oldRun), false);
+    assert.equal(requests[0].signal.aborted, true);
+    assert.equal(requests[1].signal.aborted, false);
+    assert.equal(requests[2].signal.aborted, false);
+    await worker.waitForDiscard(41);
+    for (let i = 0; i < 100; i++) await Promise.resolve();
+    assert.deepEqual(removedKeys.slice(cleanupStart).sort(), ["diag:41", "run:41"]);
+    assert.ok(worker.currentRun(87));
+    assert.ok(worker.currentRun(99));
+
+    listeners.clicked({ id: 41, title: "New synthetic tab" });
+    for (let i = 0; i < 800 && requests.length < 4; i++) await Promise.resolve();
+    assert.equal(requests.length, 4);
+    assert.notEqual(worker.currentRun(41), oldRun);
+    assert.notEqual(requests[3].signal, requests[0].signal);
+    assert.equal(requests[3].signal.aborted, false);
+  } finally {
+    for (const request of requests) {
+      request.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ finish_reason: "stop", message: { content: "Synthetic summary." } }] }),
+      });
+    }
+    for (let i = 0; i < 800; i++) await Promise.resolve();
     delete globalThis.chrome;
   }
 });

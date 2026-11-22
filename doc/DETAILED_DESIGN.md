@@ -1054,6 +1054,14 @@ same "chunks.length < 2" path a page just under two chunks already takes. No
 oversized chunk is ever sent to a provider, and no partial staged summary is
 ever shown for such a page.
 
+To measure a growing chunk without re-rendering all of its preceding blocks,
+shaping precalculates each rendered block's length and the separator lengths.
+Consecutive cells of one table row use ` | `; other block boundaries use a
+blank line. Prefix lengths provide each candidate body's size, while the
+heading context is updated as completed chunks advance. Full text is rendered
+only for a selected chunk. The split boundaries, content and safety verdicts
+remain unchanged.
+
 Each chunk that is sent is semantically compressed. Their summaries are
 combined and sent through an integration task which reconstructs one
 page-level summary and unifies repetition. If the combined summaries exceed
@@ -1447,8 +1455,8 @@ One `AbortController` per request, aborted by a timer at
 This is implemented once, in `src/engine/transport.js`, and every adapter
 sends its request through it — so the 120-second bound and the "no retry"
 rule below are identical across every adapter by construction, not by
-separate implementations happening to agree. An abort ends the run as
-`timeout`.
+separate implementations happening to agree.
+An abort caused by the request deadline ends a live run as `timeout`.
 
 The same shared call also fixes how a redirect is treated: the request is
 sent with `redirect: "error"`, so no HTTP 3xx answer with a `Location` is
@@ -1460,6 +1468,19 @@ header, the credential and the page text are not placed in an error message,
 a diagnostic event or the console, and nothing is retried or sent to another
 provider. The timeout, the abort, each adapter's URL and payload and the
 number of requests are unchanged.
+
+The service worker owns one AbortController for each active run. When
+navigation, tab closure or tab replacement invalidates that run, the worker
+aborts its controller after retiring the run identity. The signal travels
+through the selected adapter to the shared transport, which aborts the
+individual fetch currently waiting and settles the cancelled operation even
+if a fetch implementation does not reject on abort. A cancelled transport
+operation is distinct from the 120-second timeout; its adapter returns no
+answer, and the worker's existing run-identity checks discard it without a
+failed state, notification, closing log, diagnostic result or later staged
+request. The controller is never reused for a later run or another tab.
+Neither the selected endpoint nor the request body changes, and cancellation
+cannot recall content already sent to a provider.
 
 **A failed run is never retried automatically.** One action click is one run,
 against the one provider it started with. Staged long-page requests are parts

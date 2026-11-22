@@ -209,22 +209,6 @@ function makeChunk(title, blocks, headings) {
   };
 }
 
-function headingContextBefore(blocks, end) {
-  const headings = [];
-  for (let i = 0; i < end; i += 1) {
-    const block = blocks[i];
-    if (block.kind !== "heading") continue;
-    while (
-      headings.length &&
-      headings[headings.length - 1].level >= block.level
-    ) {
-      headings.pop();
-    }
-    headings.push(block);
-  }
-  return headings;
-}
-
 // Split at major headings first, then lower headings, then ordinary block
 // boundaries. Only a block that cannot fit alone is split within its text —
 // except a heading, which is always kept as one block: fragmenting a
@@ -245,9 +229,9 @@ export function chunkMaterial(material, limit = MAX_REQUEST_MATERIAL_CHARS) {
   // rendering wrapper (the code fence, the heading `#`s, the list marker,
   // …, measured directly by rendering the block with empty text). A code
   // block's fence length depends on its own text — a longer backtick run
-  // inside it demands a longer fence — so its overhead is measured from the
-  // fence the *whole, unsplit* block's text actually requires, never from
-  // an empty-text stand-in. Splitting only ever cuts a backtick run
+  // inside it demands a longer fence — so its overhead is measured from
+  // the fence the *whole, unsplit* block's text actually requires, never
+  // from an empty-text stand-in. Splitting only ever cuts a backtick run
   // shorter, never longer, so every split piece's own, independently
   // computed fence is never longer than the one this reserve already
   // accounted for. The actual per-position overhead of heading context
@@ -255,7 +239,7 @@ export function chunkMaterial(material, limit = MAX_REQUEST_MATERIAL_CHARS) {
   // otherwise, since that guess is what let a block that truly fit fine
   // get split needlessly. A block that genuinely cannot fit once its real
   // heading context is added still meets the existing safety check below
-  // (`candidate.charCount > limit`) and still fails the whole call closed,
+  // (`chunk.charCount > limit`) and still fails the whole call closed,
   // exactly as before.
   const expanded = source.flatMap((block) => {
     if (block.kind === "heading") return [block];
@@ -266,39 +250,78 @@ export function chunkMaterial(material, limit = MAX_REQUEST_MATERIAL_CHARS) {
     const blockLimit = Math.max(1, limit - overhead);
     return splitBlock(block, blockLimit);
   });
+
+  // A table-cell next to the preceding cell of the same row uses " | ";
+  // every other boundary uses "\n\n". Subtract the first separator for
+  // each slice because render() never prefixes the first block of a chunk.
+  const separatorLengths = new Array(expanded.length).fill(0);
+  const prefixLengths = [0];
+  for (let i = 0; i < expanded.length; i += 1) {
+    const block = expanded[i];
+    const previous = expanded[i - 1];
+    separatorLengths[i] =
+      i === 0
+        ? 0
+        : block.kind === "table-cell" &&
+            previous.kind === "table-cell" &&
+            block.row === previous.row
+          ? 3
+          : 2;
+    const length =
+      block.kind === "table-cell"
+        ? block.text.length
+        : renderBlock(block).length;
+    prefixLengths.push(prefixLengths[i] + separatorLengths[i] + length);
+  }
+
   const chunks = [];
+  const headings = [];
   let start = 0;
 
   while (start < expanded.length) {
-    const headings = headingContextBefore(expanded, start);
+    const context = contextText(headings);
+    const overhead = material.title.length + (context ? context.length + 2 : 0);
     let end = start;
-    let candidate = makeChunk(material.title, expanded.slice(start, end + 1), headings);
-    if (candidate.charCount > limit) return [];
-    end += 1;
+    let lastMajorHeading = -1;
+    let lastHeading = -1;
 
     while (end < expanded.length) {
-      const next = makeChunk(material.title, expanded.slice(start, end + 1), headings);
-      if (next.charCount > limit) break;
-      candidate = next;
+      const bodyLength =
+        prefixLengths[end + 1] - prefixLengths[start] - separatorLengths[start];
+      if (overhead + bodyLength > limit) break;
+      const block = expanded[end];
+      if (end > start && block.kind === "heading") {
+        if (block.level <= 2) lastMajorHeading = end;
+        if (block.level <= 6) lastHeading = end;
+      }
       end += 1;
     }
 
-    let boundary = end;
-    if (boundary < expanded.length) {
-      for (const maxLevel of [2, 6]) {
-        for (let i = boundary - 1; i > start; i -= 1) {
-          if (expanded[i].kind === "heading" && expanded[i].level <= maxLevel) {
-            boundary = i;
-            break;
-          }
-        }
-        if (boundary < end) break;
-      }
-    }
+    if (end === start) return [];
+    const boundary =
+      end < expanded.length
+        ? lastMajorHeading >= 0
+          ? lastMajorHeading
+          : lastHeading >= 0
+            ? lastHeading
+            : end
+        : end;
 
     const chunk = makeChunk(material.title, expanded.slice(start, boundary), headings);
     if (chunk.charCount > limit) return [];
     chunks.push(chunk);
+
+    for (let i = start; i < boundary; i += 1) {
+      const block = expanded[i];
+      if (block.kind !== "heading") continue;
+      while (
+        headings.length &&
+        headings[headings.length - 1].level >= block.level
+      ) {
+        headings.pop();
+      }
+      headings.push(block);
+    }
     start = boundary;
   }
   return chunks;

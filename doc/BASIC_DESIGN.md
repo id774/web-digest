@@ -170,6 +170,11 @@ or tab replacement can therefore invalidate the reader's request even while
 the panel is still opening. An invalidated request never reaches extraction.
 The pending panel operation is not a fifth reader-visible state.
 
+The same invalidation aborts a provider request still in flight for that run.
+The abort belongs to the abandoned run and cannot cancel the next run or a
+request from another tab. It neither creates a failed state nor retries a
+request. Content already received by a provider cannot be retracted.
+
 A service worker can be terminated between events. The state of the last run is
 therefore kept where a restart does not lose it — see §14 — rather than in a
 variable the worker happens to still have.
@@ -765,6 +770,10 @@ of §5.1 are separate responsibilities. The keepalive keeps Chrome's worker
 lifetime from ending a run that is still waiting. It does not change, extend or
 shorten the request's own deadline. A wait that expires is still the timeout
 case of §17, and the keepalive causes no retry and no fallback.
+
+An abandoned run's request is aborted independently of this deadline.
+Abandonment is not a provider timeout and does not create a new reader-facing
+failure. The request timeout remains two minutes for every live run.
 
 ### 11.6 The model
 

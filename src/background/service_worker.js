@@ -119,25 +119,30 @@ export function failedState(title, kind, detail) {
 
 export function claimRun(tabId) {
   if (activeRuns.has(tabId)) return false;
-  activeRuns.set(tabId, crypto.randomUUID());
+  activeRuns.set(tabId, {
+    id: crypto.randomUUID(),
+    controller: new AbortController(),
+  });
   return true;
 }
 
 export function currentRun(tabId) {
-  return activeRuns.get(tabId);
+  return activeRuns.get(tabId)?.id;
 }
 
 export function isCurrentRun(tabId, run) {
-  return activeRuns.get(tabId) === run;
+  return activeRuns.get(tabId)?.id === run;
 }
 
-export function releaseRun(tabId, run = activeRuns.get(tabId)) {
+export function releaseRun(tabId, run = currentRun(tabId)) {
   if (isCurrentRun(tabId, run)) activeRuns.delete(tabId);
 }
 
 export function invalidateRun(tabId) {
+  const active = activeRuns.get(tabId);
   activeRuns.delete(tabId);
   diagnosticOwners.delete(tabId);
+  active?.controller.abort();
 }
 
 // True at the boundary Chrome uses to mark a tab's page as having changed —
@@ -728,18 +733,22 @@ async function runSummary(tabId, titleFromTab, run) {
       chars: shaped.material.charCount,
     });
 
+    const signal = activeRuns.get(tabId)?.controller.signal;
     const answer = await keepServiceWorkerAlive(() =>
       summarizeMaterial(
         shaped.material,
         instruction,
         (logicalRequest) =>
-          callProvider({
-            provider: settings.provider,
-            model: settings.model,
-            credential: settings.credential,
-            instruction: logicalRequest.instruction,
-            content: logicalRequest.content,
-          }),
+          callProvider(
+            {
+              provider: settings.provider,
+              model: settings.model,
+              credential: settings.credential,
+              instruction: logicalRequest.instruction,
+              content: logicalRequest.content,
+            },
+            { signal },
+          ),
         0,
         () => isCurrentRun(tabId, run),
         recorder.record,

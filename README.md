@@ -407,6 +407,10 @@ the summaries is editing that file.
 - **No page text and no summary is written to disk.** The result of the last run
   is held in session storage, per tab, and is gone when the browser closes, when
   the tab closes, or when the tab navigates elsewhere.
+- **An abandoned run stops its pending provider request.** If its tab starts
+  navigating, closes or is replaced, the extension aborts the local fetch.
+  This cannot retract content the provider has already received or guarantee
+  that the provider will not charge for it.
 - **Diagnostics, when you turn them on, are kept only for the browser session.**
   The record of a summary holds step names, counts, sizes and timings, fixed
   outcome, failure-kind and detail labels, and a failed request's numeric HTTP

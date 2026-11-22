@@ -227,10 +227,11 @@ export function readAnswer(data) {
 
 export async function callOpenAI(
   { model, instruction, content, credential },
-  { fetchImpl, timeoutMs = REQUEST_TIMEOUT_MS } = {},
+  { fetchImpl, timeoutMs = REQUEST_TIMEOUT_MS, signal } = {},
 ) {
   const request = buildRequest({ model, instruction, content, credential });
-  const result = await sendRequest(request, { fetchImpl, timeoutMs });
+  const result = await sendRequest(request, { fetchImpl, timeoutMs, signal });
+  if (result.cancelled) return null;
   if (result.timedOut) return { ok: false, kind: ErrorKind.TIMEOUT };
   if (result.unreachable) {
     return { ok: false, kind: ErrorKind.PROVIDER_UNREACHABLE };
