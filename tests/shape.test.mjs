@@ -589,3 +589,73 @@ test("a newline that fits within the code budget is still the preferred cut", ()
   for (const chunk of chunks) assert.ok(chunk.charCount <= 100);
   assert.equal(chunks.flatMap((c) => c.blocks.map((b) => b.text)).join(""), code);
 });
+
+test("S01: mixed blocks and table boundaries match the original fixed partitions", () => {
+  const blocks = [
+    { kind: "heading", level: 1, text: "Top" },
+    { kind: "paragraph", text: "A paragraph with Unicode 😀 and text." },
+    { kind: "heading", level: 2, text: "Section" },
+    { kind: "list-item", text: "A list item." },
+    { kind: "quote", text: "A quotation." },
+    { kind: "heading", level: 3, text: "Detail" },
+    { kind: "code", text: "  first\n    ```inside```\n  last 😀" },
+    { kind: "table-cell", row: 1, text: "Cell A" },
+    { kind: "table-cell", row: 1, text: "Cell B" },
+    { kind: "table-cell", row: 2, text: "Cell C" },
+    { kind: "table-cell", row: 2, text: "Cell D" },
+    { kind: "heading", level: 6, text: "Deep" },
+    { kind: "paragraph", text: "Last paragraph of the synthetic page." },
+  ];
+  // Frozen from the original splitter, including every rendered code unit.
+  const opening = "# Top\n\nA paragraph with Unicode 😀 and text.";
+  const section = "SECTION: Top\n\n## Section\n\n- A list item.\n\n> A quotation.";
+  const detail = "SECTION: Top > Section\n\n### Detail\n\n````\n  first\n    ```inside```\n  last 😀\n````\n\nCell A";
+  const context = "SECTION: Top > Section > Detail\n\n";
+  const ending = "###### Deep\n\nLast paragraph of the synthetic page.";
+  for (const [title, rows] of [
+    ["T", [
+      [0, 2, opening, 45],
+      [2, 5, section, 57],
+      [5, 10, detail + " | Cell B\n\nCell C", 106],
+      [10, 13, context + "Cell D\n\n" + ending, 92],
+    ]],
+    ["A long synthetic title", [
+      [0, 2, opening, 66],
+      [2, 5, section, 78],
+      [5, 8, detail, 110],
+      [8, 11, context + "Cell B\n\nCell C | Cell D", 78],
+      [11, 13, context + ending, 105],
+    ]],
+  ]) {
+    const expected = rows.map(([start, end, text, charCount]) => ({
+      title, text, blocks: blocks.slice(start, end), charCount, blockCount: end - start,
+    }));
+    assert.deepEqual(chunkMaterial({ title, blocks }, 110), expected);
+  }
+});
+
+test("S02: more than 200000 characters preserve all ordered blocks and exact chunk sizes", () => {
+  const blocks = Array.from({ length: 5000 }, (_, i) =>
+    i % 100 === 0
+      ? { kind: "heading", level: 2, text: `Section ${i / 100}` }
+      : { kind: "table-cell", row: Math.floor(i / 4), text: `Cell ${i} ${"synthetic content 😀 ".repeat(3)}` },
+  );
+  const title = "Synthetic long page";
+  assert.ok(title.length + render(blocks).length > MAX_REQUEST_MATERIAL_CHARS);
+  const chunks = chunkMaterial({ title, blocks }, 1000);
+  assert.ok(chunks.length > 2);
+  assert.deepEqual(chunks.flatMap((chunk) => chunk.blocks), blocks);
+  let section = "";
+  for (const chunk of chunks) {
+    const body = render(chunk.blocks);
+    const text = section ? `SECTION: ${section}\n\n${body}` : body;
+    assert.equal(chunk.text, text);
+    assert.equal(chunk.charCount, title.length + text.length);
+    assert.equal(chunk.blockCount, chunk.blocks.length);
+    assert.ok(chunk.charCount <= 1000);
+    assert.equal(body.startsWith(" | "), false);
+    for (const block of chunk.blocks) {
+      if (block.kind === "heading") section = block.text;
+    }
+  }
+});

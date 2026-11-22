@@ -315,6 +315,19 @@ test("a transport failure is provider-unreachable", async () => {
   assert.deepEqual(result, { ok: false, kind: "provider-unreachable" });
 });
 
+test("a refused redirect remains provider-unreachable without a run signal", async () => {
+  const redirects = [];
+  const result = await callClaude(CALL, {
+    fetchImpl: async (_url, init) => {
+      redirects.push(init.redirect);
+      if (init.redirect === "error") throw new TypeError("redirect refused");
+      return { ok: false, status: 302, json: async () => ({}) };
+    },
+  });
+  assert.deepEqual(redirects, ["error"]);
+  assert.deepEqual(result, { ok: false, kind: "provider-unreachable" });
+});
+
 test("the bounded wait ends the run as timeout", async () => {
   const result = await callClaude(CALL, {
     timeoutMs: 20,
@@ -322,3 +335,40 @@ test("the bounded wait ends the run as timeout", async () => {
   });
   assert.deepEqual(result, { ok: false, kind: "timeout" });
 });
+
+test("A04: a pre-aborted run sends no request and returns no answer", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  let calls = 0;
+  const result = await callClaude(CALL, {
+    signal: controller.signal,
+    timeoutMs: 100,
+    fetchImpl: async () => { calls += 1; },
+  });
+  assert.equal(calls, 0);
+  assert.equal(result, null);
+});
+
+for (const honorsAbort of [true, false]) {
+  test(`A04: cancellation settles a pending request (honors abort: ${honorsAbort})`, async () => {
+    const controller = new AbortController();
+    let requestSignal;
+    const pending = callClaude(CALL, {
+      signal: controller.signal,
+      timeoutMs: 100,
+      fetchImpl: (_url, init) => {
+        requestSignal = init.signal;
+        return new Promise((_resolve, reject) => {
+          if (honorsAbort) {
+            init.signal.addEventListener("abort", () => reject(new Error("aborted")));
+          }
+        });
+      },
+    });
+    assert.ok(requestSignal);
+    assert.equal(requestSignal.aborted, false);
+    controller.abort();
+    assert.equal(requestSignal.aborted, true);
+    assert.equal(await pending, null);
+  });
+}

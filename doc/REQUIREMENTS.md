@@ -418,6 +418,12 @@ A reader who has turned the diagnostic record on (section 13.2) can also tell
 how far an unfinished, failed or interrupted run got, and a record that lacks
 the end of its run says so.
 
+A run abandoned because its tab navigates, closes or is replaced has no
+result to present for that page. If a provider request is pending, the
+extension aborts that request locally, without retrying it or showing an
+error for the abandoned run. A request already received by the provider
+cannot be retracted by the browser.
+
 ## 18. Errors
 
 The reader is told when any of these happens, in terms they can act on:

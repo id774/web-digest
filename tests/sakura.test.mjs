@@ -354,3 +354,40 @@ test("no exception text or response body crosses the boundary", async () => {
   ]);
   assert.ok(!JSON.stringify(result).includes("stack trace"));
 });
+
+test("A04: a pre-aborted run sends no request and returns no answer", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  let calls = 0;
+  const result = await callSakura(CALL, {
+    signal: controller.signal,
+    timeoutMs: 100,
+    fetchImpl: async () => { calls += 1; },
+  });
+  assert.equal(calls, 0);
+  assert.equal(result, null);
+});
+
+for (const honorsAbort of [true, false]) {
+  test(`A04: cancellation settles a pending request (honors abort: ${honorsAbort})`, async () => {
+    const controller = new AbortController();
+    let requestSignal;
+    const pending = callSakura(CALL, {
+      signal: controller.signal,
+      timeoutMs: 100,
+      fetchImpl: (_url, init) => {
+        requestSignal = init.signal;
+        return new Promise((_resolve, reject) => {
+          if (honorsAbort) {
+            init.signal.addEventListener("abort", () => reject(new Error("aborted")));
+          }
+        });
+      },
+    });
+    assert.ok(requestSignal);
+    assert.equal(requestSignal.aborted, false);
+    controller.abort();
+    assert.equal(requestSignal.aborted, true);
+    assert.equal(await pending, null);
+  });
+}

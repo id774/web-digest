@@ -13,7 +13,9 @@ v1.1.2 (Release Date: TBD)
   false size failures at code-block split boundaries.
 - Stopped following HTTP redirects from the selected AI provider, so a request
   goes only to that provider's fixed address.
-- Prevented abandoned runs from broadcasting failures after tab changes.
+- Aborted pending provider requests on navigation, closure or tab replacement,
+  without restoring an abandoned run's state or failure.
+- Reduced repeated rendering work when partitioning long pages into chunks.
 
 v1.1.1 (2026-09-23)
 -------------------
