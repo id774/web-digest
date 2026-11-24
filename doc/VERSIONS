@@ -1,8 +1,8 @@
 web-digest Repository Version History
 =====================================
 
-v1.1.2 (Release Date: TBD)
---------------------------
+v1.1.2 (2026-11-24)
+-------------------
 - Improved extension icon legibility at small sizes in Chrome's toolbar.
 - Added up to three Highlights above a clearly separated full Summary.
 - Added optional, session-only diagnostics isolated by tab and run, without

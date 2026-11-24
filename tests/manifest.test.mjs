@@ -17,9 +17,9 @@ async function readDetailedDesign() {
   );
 }
 
-test("the manifest is valid JSON carrying the v1.1.1 version", async () => {
+test("the manifest is valid JSON carrying the v1.1.2 version", async () => {
   const manifest = await readManifest();
-  assert.equal(manifest.version, "1.1.1");
+  assert.equal(manifest.version, "1.1.2");
 });
 
 test("Sakura's host permission stays required", async () => {
@@ -68,7 +68,7 @@ test("doc/DETAILED_DESIGN.md's manifest example carries the same version as mani
 
 test("diagnostics add no permission, host, script, or dependency", async () => {
   const manifest = await readManifest();
-  assert.equal(manifest.version, "1.1.1");
+  assert.equal(manifest.version, "1.1.2");
   assert.deepEqual(manifest.permissions, [
     "activeTab",
     "scripting",
@@ -84,13 +84,13 @@ test("diagnostics add no permission, host, script, or dependency", async () => {
   assert.equal(pkg.devDependencies, undefined);
 });
 
-test("doc/VERSIONS preserves the unreleased release and records both maintenance changes", async () => {
+test("doc/VERSIONS preserves the finalized release and records both maintenance changes", async () => {
   const versions = await readFile(
     new URL("../doc/VERSIONS", import.meta.url),
     "utf8",
   );
   const top = versions.split("\n\n")[1];
-  assert.match(top, /^v1\.1\.2 \(Release Date: TBD\)\n-+\n/);
+  assert.match(top, /^v1\.1\.2 \(2026-11-24\)\n-+\n/);
   const bullets = top.split("\n").filter((line) => line.startsWith("- "));
   assert.equal(bullets.length, 8);
   assert.match(bullets[0], /extension icon legibility/);
